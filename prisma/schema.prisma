@@ -63,6 +63,7 @@ model Employee {
   email        String         @unique
   department   String
   designation  String
+  locationPlant String?
   status       EmployeeStatus @default(ACTIVE)
   managerName  String?
   mobileNumber String?
@@ -177,6 +178,9 @@ model CourseContent {
   summary            String?
   keyPoints          Json?
   glossary           Json?
+  quizQuestions      Json?
+  aiModel             String?
+  aiGeneratedAt       DateTime?
   approvedAt         DateTime?
   rejectedAt         DateTime?
   rejectionReason    String?

@@ -1,5 +1,6 @@
 import { notFound } from "next/navigation";
 import { approveContent, editLesson, rejectContent, setCourseStatus } from "@/actions/courses";
+import { parseQuizQuestions } from "@/lib/ai-study-pack";
 import { requireCourseManager } from "@/lib/course-access";
 import { db } from "@/lib/db";
 
@@ -25,10 +26,20 @@ export default async function TeacherCourse({ params }: { params: Promise<{ id: 
     <div className="two-col">
       <section className="form">
         <div className="card"><h2>Content approval</h2>
-          {course.contents.map((content) => <article className="card" key={content.id}>
+          {course.contents.map((content) => { const questions = parseQuizQuestions(content.quizQuestions); return <article className="card" key={content.id}>
             <h3>Version {content.version}: {content.originalName}</h3>
             <p><span className="badge">{content.processingStatus}</span> {content.isPublished && <span className="badge">LIVE</span>} {content.rejectedAt && <span className="badge">REJECTED</span>}</p>
-            {content.summary && <><strong>Extracted summary</strong><p>{content.summary}</p></>}
+            {content.summary && <><strong>{content.aiGeneratedAt ? "AI-generated summary" : "Extracted summary"}</strong><p>{content.summary}</p></>}
+            {questions.length > 0 && <section className="ai-review">
+              <h4>AI review questions and answers</h4>
+              <p className="muted">Teacher review only · Generated with {content.aiModel ?? "OpenAI"}</p>
+              <ol className="qa-list">{questions.map((question, index) => <li className="qa-card" key={`${content.id}-${index}`}>
+                <strong>{question.question}</strong>
+                <ol type="A">{question.options.map((option) => <li key={option}>{option}</li>)}</ol>
+                <p className="answer"><strong>Answer:</strong> {question.correctAnswer}</p>
+                <p><strong>Explanation:</strong> {question.explanation}</p>
+              </li>)}</ol>
+            </section>}
             {content.processingError && <p className="error">{content.processingError}</p>}
             {content.rejectionReason && <p className="error">Reason: {content.rejectionReason}</p>}
             {content.lessons.map((lesson) => <form action={editLesson} className="form card" key={lesson.id}>
@@ -42,7 +53,7 @@ export default async function TeacherCourse({ params }: { params: Promise<{ id: 
               <form action={rejectContent} className="form"><input type="hidden" name="courseId" value={course.id}/><input type="hidden" name="contentId" value={content.id}/><label>Rejection reason<input name="reason" minLength={5} required/></label><button className="secondary">Reject</button></form>
             </div>}
             {content.approvedAt && <p className="success">Approved</p>}
-          </article>)}
+          </article>; })}
         </div>
         {canPublish && <div className="card"><h2>{course.status === "PUBLISHED" ? "Publish approved changes" : "Publish course"}</h2><p>All current content is processed and approved.</p><form action={setCourseStatus}><input type="hidden" name="courseId" value={course.id}/><input type="hidden" name="status" value="PUBLISHED"/><button>{course.status === "PUBLISHED" ? "Publish changes" : "Publish to enrolled learners"}</button></form></div>}
       </section>

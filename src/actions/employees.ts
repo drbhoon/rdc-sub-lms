@@ -7,12 +7,11 @@ import { EmployeeStatus, UserRole } from "@prisma/client";
 import { revalidatePath } from "next/cache";
 import { db } from "@/lib/db";
 import { audit } from "@/lib/audit";
-import { normalizeEmail } from "@/lib/security";
+import { missingEmployeeColumns, normalizeEmployeeImportRow } from "@/lib/employee-import";
 import { requireRole } from "@/lib/session";
 
 type ImportRow = Record<string, unknown>;
 export type EmployeeImportState = { message?: string; preview?: boolean };
-const fields = ["Employee Code", "Name", "Email", "Company", "Department", "Designation", "Status"];
 
 export async function importEmployees(_: EmployeeImportState, formData: FormData): Promise<EmployeeImportState> {
   const actor = await requireRole(UserRole.SUPER_ADMIN);
@@ -40,21 +39,15 @@ export async function importEmployees(_: EmployeeImportState, formData: FormData
       });
     }
   } catch { return { message: "The employee file could not be read." }; }
+  rows = rows.filter((row) => Object.values(row).some((value) => String(value ?? "").trim()));
   if (!rows.length) return { message: "The employee file is empty." };
 
-  const missing = fields.filter((field) => !(field in rows[0]));
+  const missing = missingEmployeeColumns(rows[0]);
   if (missing.length) return { message: `Missing columns: ${missing.join(", ")}` };
   const errors: string[] = [];
   const normalized = rows.map((row, index) => {
-    const value = (name: string) => String(row[name] ?? "").trim();
-    const status = value("Status").toUpperCase();
-    const record = {
-      employeeCode: value("Employee Code"), name: value("Name"), email: normalizeEmail(value("Email")),
-      company: value("Company"), department: value("Department"), designation: value("Designation"),
-      status: status === "INACTIVE" ? EmployeeStatus.INACTIVE : EmployeeStatus.ACTIVE,
-      managerName: value("Manager Name") || null, mobileNumber: value("Mobile Number") || null,
-    };
-    if (!record.employeeCode || !record.name || !record.email.includes("@") || !record.company || !record.department || !record.designation) errors.push(`Row ${index + 2} has invalid required values.`);
+    const record = normalizeEmployeeImportRow(row);
+    if (!record.employeeCode || !record.name || !record.email.includes("@") || !record.company || !record.designation || !record.statusIsValid) errors.push(`Row ${index + 2} has invalid required values or status.`);
     return record;
   });
   const duplicateCodes = normalized.filter((row, index) => normalized.findIndex((candidate) => candidate.employeeCode === row.employeeCode) !== index);
@@ -74,10 +67,21 @@ export async function importEmployees(_: EmployeeImportState, formData: FormData
   await db.$transaction(async (tx) => {
     for (const row of normalized) {
       const company = await tx.company.upsert({ where: { name: row.company }, update: {}, create: { name: row.company } });
+      const employeeData = {
+        employeeCode: row.employeeCode,
+        name: row.name,
+        email: row.email,
+        department: row.department,
+        designation: row.designation,
+        locationPlant: row.locationPlant,
+        status: row.status,
+        managerName: row.managerName,
+        mobileNumber: row.mobileNumber,
+      };
       const employee = await tx.employee.upsert({
         where: { employeeCode: row.employeeCode },
-        update: { ...row, company: undefined, companyId: company.id },
-        create: { ...row, company: undefined, companyId: company.id },
+        update: { ...employeeData, companyId: company.id },
+        create: { ...employeeData, companyId: company.id },
       });
       const existingUser = await tx.user.findUnique({ where: { employeeId: employee.id } });
       const user = existingUser

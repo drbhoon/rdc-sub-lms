@@ -42,5 +42,10 @@ th { color:#475569; font-size:.82rem; text-transform:uppercase; letter-spacing:.
 .lesson-page { display:block; width:100%; height:auto; border:1px solid var(--line); border-radius:8px; background:white; }
 .lesson-controls { display:flex; justify-content:space-between; align-items:center; gap:1rem; margin-top:1rem; }
 .video { width:100%; border-radius:8px; background:black; }
+.ai-review { border-top:1px solid var(--line); margin-top:1rem; padding-top:1rem; }
+.qa-list { display:grid; gap:.8rem; padding-left:1.4rem; }
+.qa-card { border:1px solid var(--line); border-radius:8px; padding:.85rem 1rem; background:#f8fafc; }
+.qa-card ol { margin:.65rem 0; padding-left:1.5rem; }
+.answer { color:var(--success); }
 h1 { color:var(--navy); margin-top:0; }
 @media (max-width:760px) { .two-col { grid-template-columns:1fr; } .topbar { align-items:flex-start; } .container { padding-top:1rem; } th,td { padding:.55rem; } }

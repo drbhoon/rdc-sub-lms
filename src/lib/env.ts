@@ -17,6 +17,8 @@ const schema = z.object({
   OTP_TTL_MINUTES: z.coerce.number().int().positive().default(10),
   OTP_RESEND_SECONDS: z.coerce.number().int().positive().default(60),
   OTP_MAX_ATTEMPTS: z.coerce.number().int().positive().default(5),
+  OPENAI_API_KEY: z.string().optional(),
+  OPENAI_MODEL: z.string().default("gpt-5.4-mini"),
 });
 
 export const env = schema.parse(process.env);

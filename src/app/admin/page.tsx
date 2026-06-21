@@ -13,5 +13,5 @@ export default async function AdminDashboard() {
     <div className="card"><div className="stat">{courses}</div><p>Courses</p><Link className="button secondary" href="/admin/courses">Manage courses</Link></div>
     <div className="card"><div className="stat">{enrollments}</div><p>Total enrollments</p></div>
     <div className="card"><div className="stat">{completed}</div><p>Completed enrollments</p></div>
-  </div></main>;
+  </div><section className="card"><h2>HR testing guide</h2><p>Use the one-page checklist for employee import, teacher review, publishing and learner completion testing.</p><a className="button secondary" href="/guides/rdc-lms-hr-admin-test-guide.docx">Download HR Admin test guide</a></section></main>;
 }

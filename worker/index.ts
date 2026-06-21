@@ -4,6 +4,7 @@ import { mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { promisify } from "node:util";
+import { generateStudyPack } from "../src/lib/ai-study-pack";
 import { storage } from "../src/lib/storage";
 
 const db = new PrismaClient();
@@ -35,8 +36,27 @@ async function processDocument(content: Awaited<ReturnType<typeof nextContent>>,
   }
   if (!keys.length) throw new Error("No pages were produced from the document");
   const cleanText = stdout.replace(/\s+/g, " ").trim();
-  await db.courseContent.update({ where: { id: content.id }, data: { extractedText: cleanText, summary: cleanText.slice(0, 600), keyPoints: cleanText.split(/[.!?]/).filter(Boolean).slice(0, 5) } });
-  await db.lesson.create({ data: { courseContentId: content.id, title: content.originalName.replace(/\.[^.]+$/, ""), type: LessonType.DOCUMENT, order: 1, pageAssetKeys: keys, pageCount: keys.length } });
+  const studyPack = await generateStudyPack(cleanText, {
+    model: process.env.OPENAI_MODEL ?? "gpt-5.4-mini",
+    maxOutputTokens: Math.min(3000, Math.max(1200, content.course.aiTokenLimit)),
+  });
+  await db.courseContent.update({
+    where: { id: content.id },
+    data: {
+      extractedText: cleanText,
+      summary: studyPack.summary,
+      keyPoints: studyPack.keyPoints,
+      glossary: studyPack.glossary,
+      quizQuestions: studyPack.quizQuestions,
+      aiModel: process.env.OPENAI_MODEL ?? "gpt-5.4-mini",
+      aiGeneratedAt: new Date(),
+    },
+  });
+  await db.lesson.upsert({
+    where: { courseContentId_order: { courseContentId: content.id, order: 1 } },
+    update: { title: content.originalName.replace(/\.[^.]+$/, ""), type: LessonType.DOCUMENT, pageAssetKeys: keys, pageCount: keys.length },
+    create: { courseContentId: content.id, title: content.originalName.replace(/\.[^.]+$/, ""), type: LessonType.DOCUMENT, order: 1, pageAssetKeys: keys, pageCount: keys.length },
+  });
 }
 
 async function processVideo(content: NonNullable<Awaited<ReturnType<typeof nextContent>>>, temp: string) {
@@ -45,7 +65,11 @@ async function processVideo(content: NonNullable<Awaited<ReturnType<typeof nextC
   const { stdout } = await command("ffprobe", ["-v", "error", "-show_entries", "format=duration", "-of", "default=noprint_wrappers=1:nokey=1", input]);
   const durationSeconds = Math.max(1, Math.floor(Number(stdout.trim())));
   if (!Number.isFinite(durationSeconds)) throw new Error("Video duration could not be determined");
-  await db.lesson.create({ data: { courseContentId: content.id, title: content.originalName.replace(/\.[^.]+$/, ""), type: LessonType.VIDEO, order: 1, durationSeconds, requiredWatchPercent: content.course.requiredVideoPercent } });
+  await db.lesson.upsert({
+    where: { courseContentId_order: { courseContentId: content.id, order: 1 } },
+    update: { title: content.originalName.replace(/\.[^.]+$/, ""), type: LessonType.VIDEO, durationSeconds, requiredWatchPercent: content.course.requiredVideoPercent },
+    create: { courseContentId: content.id, title: content.originalName.replace(/\.[^.]+$/, ""), type: LessonType.VIDEO, order: 1, durationSeconds, requiredWatchPercent: content.course.requiredVideoPercent },
+  });
 }
 
 async function nextContent() {
