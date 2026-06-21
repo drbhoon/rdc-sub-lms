@@ -1,0 +1,9 @@
+.git
+.github
+.next
+node_modules
+storage
+coverage
+*.log
+.env*
+!.env.example
