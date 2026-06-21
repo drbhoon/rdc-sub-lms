@@ -43,7 +43,7 @@ CSV and Excel files must contain these exact headings:
 
 Create PostgreSQL and one application service from this repository. During the Railway-volume testing phase, the web and worker processes intentionally run in the same service because Railway volumes are service-scoped.
 
-- Application start command: `npm run db:deploy && npm run start:railway`
+- Application start command: `npm run start:railway`
 - Attach one persistent volume to the application service at the path configured by `STORAGE_ROOT`.
 - Configure all variables from `.env.example`; `SMTP_FROM` should remain `RDC Learning <noreply@rdc.in>`.
 - Run `npm run db:seed` once after the first migration.

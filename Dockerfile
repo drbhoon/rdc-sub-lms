@@ -26,4 +26,4 @@ COPY --from=builder /app/src ./src
 COPY --from=builder /app/worker ./worker
 COPY --from=builder /app/next.config.ts ./next.config.ts
 COPY --from=builder /app/tsconfig.json ./tsconfig.json
-CMD ["sh", "-c", "npm run db:deploy && npm run start:railway"]
+CMD ["npm", "run", "start:railway"]

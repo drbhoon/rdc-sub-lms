@@ -7,7 +7,7 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "start:railway": "concurrently --kill-others --names web,worker \"npm run start\" \"npm run worker\"",
+    "start:railway": "prisma migrate deploy && concurrently --kill-others --names web,worker \"npm run start\" \"npm run worker\"",
     "lint": "eslint .",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
