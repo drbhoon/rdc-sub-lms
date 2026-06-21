@@ -1,0 +1,11 @@
+[phases.setup]
+nixPkgs = ["nodejs_24", "libreoffice", "poppler_utils", "ffmpeg"]
+
+[phases.install]
+cmds = ["npm ci"]
+
+[phases.build]
+cmds = ["npm run db:generate", "npm run build"]
+
+[start]
+cmd = "npm run db:deploy && npm run start:railway"

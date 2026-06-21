@@ -1,0 +1,50 @@
+{
+  "name": "rdc-sub-lms",
+  "version": "0.1.0",
+  "private": true,
+  "engines": { "node": ">=22" },
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "start:railway": "concurrently --kill-others --names web,worker \"npm run start\" \"npm run worker\"",
+    "lint": "eslint .",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "db:generate": "prisma generate",
+    "db:migrate": "prisma migrate dev",
+    "db:deploy": "prisma migrate deploy",
+    "db:seed": "tsx prisma/seed.ts",
+    "worker": "tsx worker/index.ts"
+  },
+  "dependencies": {
+    "@prisma/client": "6.19.3",
+    "bcryptjs": "3.0.3",
+    "next": "16.2.9",
+    "csv-parse": "7.0.0",
+    "concurrently": "10.0.3",
+    "exceljs": "4.4.0",
+    "nodemailer": "9.0.1",
+    "react": "19.2.7",
+    "react-dom": "19.2.7",
+    "tsx": "4.21.0",
+    "zod": "4.3.6"
+  },
+  "devDependencies": {
+    "@types/node": "24.10.1",
+    "@types/nodemailer": "8.0.1",
+    "@types/react": "19.2.14",
+    "@types/react-dom": "19.2.3",
+    "eslint": "9.39.2",
+    "eslint-config-next": "16.2.9",
+    "prisma": "6.19.3",
+    "typescript": "6.0.3",
+    "vitest": "4.1.9"
+  },
+  "overrides": {
+    "esbuild": "0.28.1",
+    "postcss": "8.5.10",
+    "uuid": "11.1.1"
+  }
+}

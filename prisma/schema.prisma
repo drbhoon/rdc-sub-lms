@@ -1,0 +1,265 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum EmployeeStatus {
+  ACTIVE
+  INACTIVE
+}
+enum UserRole {
+  SUPER_ADMIN
+  TEACHER
+  LEARNER
+}
+enum CourseStatus {
+  DRAFT
+  CONTENT_UPLOADED
+  AI_PROCESSING
+  PENDING_TEACHER_APPROVAL
+  PUBLISHED
+  ARCHIVED
+}
+enum ContentType {
+  PDF
+  PRESENTATION
+  VIDEO
+  NOTEBOOK
+}
+enum ProcessingStatus {
+  QUEUED
+  PROCESSING
+  COMPLETED
+  FAILED
+}
+enum EnrollmentStatus {
+  NOT_STARTED
+  IN_PROGRESS
+  COMPLETED
+}
+enum LessonType {
+  DOCUMENT
+  VIDEO
+  TEXT
+}
+
+model Company {
+  id        String   @id @default(cuid())
+  name      String   @unique
+  employees Employee[]
+  courses   CourseCompany[]
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model Employee {
+  id           String         @id @default(cuid())
+  employeeCode String         @unique
+  name         String
+  email        String         @unique
+  department   String
+  designation  String
+  status       EmployeeStatus @default(ACTIVE)
+  managerName  String?
+  mobileNumber String?
+  companyId    String
+  company      Company        @relation(fields: [companyId], references: [id])
+  user         User?
+  enrollments  Enrollment[]
+  createdAt    DateTime       @default(now())
+  updatedAt    DateTime       @updatedAt
+
+  @@index([companyId, status])
+}
+
+model User {
+  id            String           @id @default(cuid())
+  email         String           @unique
+  employeeId    String?          @unique
+  employee      Employee?        @relation(fields: [employeeId], references: [id])
+  roles         UserRoleGrant[]
+  sessions      Session[]
+  otpChallenges OtpChallenge[]
+  coursesTaught CourseTeacher[]
+  auditLogs     AuditLog[]
+  createdAt     DateTime         @default(now())
+  updatedAt     DateTime         @updatedAt
+}
+
+model UserRoleGrant {
+  id     String   @id @default(cuid())
+  userId String
+  role   UserRole
+  user   User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  @@unique([userId, role])
+}
+
+model OtpChallenge {
+  id        String    @id @default(cuid())
+  userId    String
+  hash      String
+  attempts  Int       @default(0)
+  expiresAt DateTime
+  usedAt    DateTime?
+  requestIp String?
+  createdAt DateTime  @default(now())
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  @@index([userId, createdAt])
+  @@index([requestIp, createdAt])
+}
+
+model Session {
+  id        String   @id @default(cuid())
+  userId    String
+  tokenHash String   @unique
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+  lastSeenAt DateTime @default(now())
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  @@index([userId, expiresAt])
+}
+
+model Course {
+  id                   String       @id @default(cuid())
+  title                String
+  category             String
+  description          String
+  durationMinutes      Int
+  passPercentage       Int          @default(70)
+  aiTokenLimit         Int          @default(50000)
+  certificateEnabled   Boolean      @default(true)
+  leaderboardEnabled   Boolean      @default(true)
+  requiredVideoPercent Int          @default(80)
+  status               CourseStatus @default(DRAFT)
+  hasPendingChanges    Boolean      @default(false)
+  publishedAt          DateTime?
+  companies            CourseCompany[]
+  teachers             CourseTeacher[]
+  contents             CourseContent[]
+  enrollments          Enrollment[]
+  createdAt            DateTime     @default(now())
+  updatedAt            DateTime     @updatedAt
+  @@index([status])
+}
+
+model CourseCompany {
+  courseId  String
+  companyId String
+  course    Course  @relation(fields: [courseId], references: [id], onDelete: Cascade)
+  company   Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  @@id([courseId, companyId])
+}
+
+model CourseTeacher {
+  courseId String
+  userId   String
+  course   Course @relation(fields: [courseId], references: [id], onDelete: Cascade)
+  user     User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  @@id([courseId, userId])
+}
+
+model CourseContent {
+  id                 String           @id @default(cuid())
+  courseId           String
+  version            Int
+  originalName       String
+  storedKey          String
+  mimeType           String
+  sizeBytes          Int
+  type               ContentType
+  processingStatus   ProcessingStatus @default(QUEUED)
+  processingError    String?
+  extractedText      String?
+  summary            String?
+  keyPoints          Json?
+  glossary           Json?
+  approvedAt         DateTime?
+  rejectedAt         DateTime?
+  rejectionReason    String?
+  isPublished        Boolean          @default(false)
+  course             Course           @relation(fields: [courseId], references: [id], onDelete: Cascade)
+  lessons            Lesson[]
+  jobs               ProcessingJob[]
+  createdAt          DateTime         @default(now())
+  updatedAt          DateTime         @updatedAt
+  @@unique([courseId, version])
+  @@index([processingStatus])
+}
+
+model Lesson {
+  id                   String       @id @default(cuid())
+  courseContentId      String
+  title                String
+  type                 LessonType
+  order                Int
+  pageAssetKeys        Json?
+  pageCount            Int          @default(0)
+  durationSeconds      Int?
+  requiredWatchPercent Int          @default(80)
+  summary              String?
+  keyPoints            Json?
+  approvedAt           DateTime?
+  content              CourseContent @relation(fields: [courseContentId], references: [id], onDelete: Cascade)
+  progress             LessonProgress[]
+  createdAt            DateTime     @default(now())
+  updatedAt            DateTime     @updatedAt
+  @@unique([courseContentId, order])
+}
+
+model Enrollment {
+  id          String           @id @default(cuid())
+  employeeId  String
+  courseId    String
+  status      EnrollmentStatus @default(NOT_STARTED)
+  enrolledAt  DateTime         @default(now())
+  startedAt   DateTime?
+  completedAt DateTime?
+  employee    Employee         @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+  course      Course           @relation(fields: [courseId], references: [id], onDelete: Cascade)
+  progress    LessonProgress[]
+  @@unique([employeeId, courseId])
+  @@index([courseId, status])
+}
+
+model LessonProgress {
+  id               String      @id @default(cuid())
+  enrollmentId     String
+  lessonId         String
+  viewedPages      Json?
+  watchedSeconds   Int         @default(0)
+  lastPosition     Int         @default(0)
+  completedAt      DateTime?
+  enrollment       Enrollment  @relation(fields: [enrollmentId], references: [id], onDelete: Cascade)
+  lesson           Lesson      @relation(fields: [lessonId], references: [id], onDelete: Cascade)
+  updatedAt        DateTime    @updatedAt
+  @@unique([enrollmentId, lessonId])
+}
+
+model ProcessingJob {
+  id        String           @id @default(cuid())
+  contentId String
+  status    ProcessingStatus @default(QUEUED)
+  attempts  Int              @default(0)
+  error     String?
+  lockedAt  DateTime?
+  content   CourseContent    @relation(fields: [contentId], references: [id], onDelete: Cascade)
+  createdAt DateTime         @default(now())
+  updatedAt DateTime         @updatedAt
+  @@index([status, createdAt])
+}
+
+model AuditLog {
+  id         String   @id @default(cuid())
+  actorUserId String?
+  action     String
+  entityType String
+  entityId   String?
+  metadata   Json?
+  createdAt  DateTime @default(now())
+  actor      User?    @relation(fields: [actorUserId], references: [id], onDelete: SetNull)
+  @@index([createdAt])
+}
