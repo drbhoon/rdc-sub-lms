@@ -18,15 +18,21 @@ const courseSchema = z.object({
   aiTokenLimit: z.coerce.number().int().min(0).max(10_000_000),
 });
 
+function uniqueIds(values: FormDataEntryValue[]) {
+  return [...new Set(values.map(String).filter(Boolean))];
+}
+
 export async function createCourse(_: { message?: string }, formData: FormData) {
   const actor = await requireRole(UserRole.SUPER_ADMIN);
   const parsed = courseSchema.safeParse(Object.fromEntries(formData));
   if (!parsed.success) return { message: parsed.error.issues[0].message };
-  const companyIds = formData.getAll("companyIds").map(String);
-  const teacherId = String(formData.get("teacherId") ?? "");
-  if (!companyIds.length || !teacherId) return { message: "Select at least one company and a teacher." };
-  const teacher = await db.user.findFirst({ where: { id: teacherId, roles: { some: { role: UserRole.TEACHER } }, employee: { status: "ACTIVE" } } });
-  if (!teacher) return { message: "The selected teacher is not eligible." };
+  const companyIds = uniqueIds(formData.getAll("companyIds"));
+  const teacherIds = uniqueIds([...formData.getAll("teacherIds"), ...(formData.get("teacherId") ? [formData.get("teacherId")!] : [])]);
+  if (!companyIds.length) return { message: "Select at least one company." };
+  if (teacherIds.length) {
+    const teacherCount = await db.user.count({ where: { id: { in: teacherIds }, roles: { some: { role: UserRole.TEACHER } }, employee: { status: "ACTIVE" } } });
+    if (teacherCount !== teacherIds.length) return { message: "One or more selected teachers are not eligible." };
+  }
 
   const course = await db.course.create({
     data: {
@@ -34,11 +40,94 @@ export async function createCourse(_: { message?: string }, formData: FormData) 
       certificateEnabled: formData.get("certificateEnabled") === "on",
       leaderboardEnabled: formData.get("leaderboardEnabled") === "on",
       companies: { create: companyIds.map((companyId) => ({ companyId })) },
-      teachers: { create: { userId: teacherId } },
+      teachers: teacherIds.length ? { create: teacherIds.map((userId) => ({ userId })) } : undefined,
     },
   });
   await audit(actor.id, "COURSE_CREATED", "Course", course.id);
   redirect(`/admin/courses/${course.id}`);
+}
+
+export async function updateCourse(_: { message?: string }, formData: FormData) {
+  const actor = await requireRole(UserRole.SUPER_ADMIN);
+  const courseId = String(formData.get("courseId") ?? "");
+  const parsed = courseSchema.safeParse(Object.fromEntries(formData));
+  if (!parsed.success) return { message: parsed.error.issues[0].message };
+  const companyIds = uniqueIds(formData.getAll("companyIds"));
+  if (!companyIds.length) return { message: "Select at least one company." };
+
+  const course = await db.course.findUnique({
+    where: { id: courseId },
+    include: { companies: true, enrollments: { include: { employee: true } } },
+  });
+  if (!course) return { message: "Course not found." };
+
+  const selected = new Set(companyIds);
+  const enrolledRemovedCompanies = course.enrollments.filter((enrollment) => !selected.has(enrollment.employee.companyId));
+  if (enrolledRemovedCompanies.length) return { message: "Cannot remove a company that already has enrolled learners. Inactivate the course or keep the company assigned." };
+
+  await db.$transaction(async (tx) => {
+    await tx.course.update({
+      where: { id: courseId },
+      data: {
+        ...parsed.data,
+        certificateEnabled: formData.get("certificateEnabled") === "on",
+        leaderboardEnabled: formData.get("leaderboardEnabled") === "on",
+      },
+    });
+    await tx.courseCompany.deleteMany({ where: { courseId, companyId: { notIn: companyIds } } });
+    for (const companyId of companyIds) {
+      await tx.courseCompany.upsert({
+        where: { courseId_companyId: { courseId, companyId } },
+        update: {},
+        create: { courseId, companyId },
+      });
+    }
+  });
+
+  await audit(actor.id, "COURSE_UPDATED", "Course", courseId);
+  revalidatePath("/admin/courses");
+  revalidatePath(`/admin/courses/${courseId}`);
+  revalidatePath(`/teacher/courses/${courseId}`);
+  return { message: "Course details updated." };
+}
+
+export async function updateCourseTeachers(_: { message?: string }, formData: FormData) {
+  const actor = await requireRole(UserRole.SUPER_ADMIN);
+  const courseId = String(formData.get("courseId") ?? "");
+  const teacherIds = uniqueIds(formData.getAll("teacherIds"));
+  const course = await db.course.findUnique({ where: { id: courseId }, select: { id: true } });
+  if (!course) return { message: "Course not found." };
+  if (teacherIds.length) {
+    const teacherCount = await db.user.count({ where: { id: { in: teacherIds }, roles: { some: { role: UserRole.TEACHER } }, employee: { status: "ACTIVE" } } });
+    if (teacherCount !== teacherIds.length) return { message: "One or more selected teachers are not eligible." };
+  }
+  await db.$transaction(async (tx) => {
+    await tx.courseTeacher.deleteMany({ where: teacherIds.length ? { courseId, userId: { notIn: teacherIds } } : { courseId } });
+    for (const userId of teacherIds) {
+      await tx.courseTeacher.upsert({
+        where: { courseId_userId: { courseId, userId } },
+        update: {},
+        create: { courseId, userId },
+      });
+    }
+  });
+  await audit(actor.id, "COURSE_TEACHERS_UPDATED", "Course", courseId, { teacherCount: teacherIds.length });
+  revalidatePath("/admin/courses");
+  revalidatePath(`/admin/courses/${courseId}`);
+  revalidatePath("/teacher/courses");
+  return { message: teacherIds.length ? "Teacher assignment updated." : "All teachers removed. Super Admin can still manage this course." };
+}
+
+export async function setCourseActive(formData: FormData) {
+  const actor = await requireRole(UserRole.SUPER_ADMIN);
+  const courseId = String(formData.get("courseId") ?? "");
+  const isActive = String(formData.get("isActive")) === "true";
+  await db.course.update({ where: { id: courseId }, data: { isActive } });
+  await audit(actor.id, isActive ? "COURSE_ACTIVATED" : "COURSE_INACTIVATED", "Course", courseId);
+  revalidatePath("/admin/courses");
+  revalidatePath(`/admin/courses/${courseId}`);
+  revalidatePath("/learn/courses");
+  revalidatePath("/teacher/courses");
 }
 
 export async function setCourseStatus(formData: FormData) {
@@ -118,6 +207,7 @@ export async function enrollEmployees(formData: FormData) {
   const courseId = String(formData.get("courseId"));
   const employeeIds = formData.getAll("employeeIds").map(String);
   const course = await db.course.findUniqueOrThrow({ where: { id: courseId }, include: { companies: true } });
+  if (!course.isActive) throw new Error("Inactive courses cannot receive new learner enrollments.");
   const eligible = await db.employee.findMany({ where: { id: { in: employeeIds }, status: "ACTIVE", companyId: { in: course.companies.map((c) => c.companyId) } }, select: { id: true } });
   await db.$transaction(eligible.map(({ id }) => db.enrollment.upsert({ where: { employeeId_courseId: { employeeId: id, courseId } }, update: {}, create: { employeeId: id, courseId } })));
   await audit(actor.id, "EMPLOYEES_ENROLLED", "Course", courseId, { count: eligible.length });

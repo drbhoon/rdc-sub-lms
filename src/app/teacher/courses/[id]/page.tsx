@@ -3,6 +3,7 @@ import { approveContent, editLesson, rejectContent, setCourseStatus } from "@/ac
 import { parseQuizQuestions } from "@/lib/ai-study-pack";
 import { requireCourseManager } from "@/lib/course-access";
 import { db } from "@/lib/db";
+import { buildLeaderboardRows, formatDuration } from "@/lib/leaderboard";
 
 export default async function TeacherCourse({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
@@ -11,7 +12,7 @@ export default async function TeacherCourse({ params }: { params: Promise<{ id: 
     where: { id },
     include: {
       contents: { include: { lessons: true }, orderBy: { version: "asc" } },
-      enrollments: { include: { employee: true }, orderBy: { employee: { name: "asc" } } },
+      enrollments: { include: { employee: { include: { company: true } }, progress: true }, orderBy: { employee: { name: "asc" } } },
     },
   });
   if (!course) notFound();
@@ -19,9 +20,26 @@ export default async function TeacherCourse({ params }: { params: Promise<{ id: 
   const canPublish = course.hasPendingChanges && activeContents.length > 0 && activeContents.every(
     (content) => content.processingStatus === "COMPLETED" && content.approvedAt && content.lessons.every((lesson) => lesson.approvedAt),
   );
+  const totalLessons = course.contents
+    .filter((content) => content.isPublished)
+    .flatMap((content) => content.lessons.filter((lesson) => lesson.approvedAt))
+    .length;
+  const leaderboard = buildLeaderboardRows(course.enrollments.map((enrollment) => ({
+    enrollmentId: enrollment.id,
+    courseId: course.id,
+    courseTitle: course.title,
+    employeeCode: enrollment.employee.employeeCode,
+    employeeName: enrollment.employee.name,
+    companyName: enrollment.employee.company.name,
+    enrolledAt: enrollment.enrolledAt,
+    startedAt: enrollment.startedAt,
+    completedAt: enrollment.completedAt,
+    totalLessons,
+    completedLessons: enrollment.progress.filter((progress) => progress.completedAt).length,
+  })), 5);
 
   return <main className="container">
-    <span className="badge">{course.status.replaceAll("_", " ")}</span>
+    <div className="badge-row"><span className="badge">{course.status.replaceAll("_", " ")}</span>{!course.isActive && <span className="badge badge-muted">Inactive</span>}</div>
     <h1>{course.title}</h1>
     <div className="two-col">
       <section className="form">
@@ -57,10 +75,10 @@ export default async function TeacherCourse({ params }: { params: Promise<{ id: 
         </div>
         {canPublish && <div className="card"><h2>{course.status === "PUBLISHED" ? "Publish approved changes" : "Publish course"}</h2><p>All current content is processed and approved.</p><form action={setCourseStatus}><input type="hidden" name="courseId" value={course.id}/><input type="hidden" name="status" value="PUBLISHED"/><button>{course.status === "PUBLISHED" ? "Publish changes" : "Publish to enrolled learners"}</button></form></div>}
       </section>
-      <aside className="card"><h2>Learners</h2>{course.hasPendingChanges && course.status === "PUBLISHED" && <p className="message">Learners continue seeing the current version until approved changes are published.</p>}<div className="table-wrap"><table><thead><tr><th>Name</th><th>Progress</th></tr></thead><tbody>
+      <aside className="card"><h2>Learners</h2>{course.hasPendingChanges && course.status === "PUBLISHED" && <p className="message">Learners continue seeing the current version until approved changes are published.</p>}{!course.isActive && <p className="message">This course is inactive for new enrolments, but enrolled learners can still see it.</p>}<div className="table-wrap"><table><thead><tr><th>Name</th><th>Progress</th></tr></thead><tbody>
         {course.enrollments.map((enrollment) => <tr key={enrollment.id}><td>{enrollment.employee.name}<br/><small>{enrollment.employee.employeeCode}</small></td><td><span className="badge">{enrollment.status.replaceAll("_", " ")}</span></td></tr>)}
         {!course.enrollments.length && <tr><td colSpan={2}>No learners enrolled.</td></tr>}
-      </tbody></table></div></aside>
+      </tbody></table></div>{course.leaderboardEnabled && <section className="topper-panel"><h2>Toppers</h2><p className="muted">Formula: progress score 70% + speed score 30%.</p><ol className="leaderboard-list">{leaderboard.map((row) => <li key={row.enrollmentId}><strong>{row.employeeName}</strong><span>{row.rankScore}% - {formatDuration(row.completionSeconds)}</span></li>)}</ol>{!leaderboard.length && <p>No learner progress yet.</p>}</section>}</aside>
     </div>
   </main>;
 }

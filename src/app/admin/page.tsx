@@ -1,17 +1,103 @@
 import Link from "next/link";
+import type { CSSProperties } from "react";
 import { UserRole } from "@prisma/client";
 import { db } from "@/lib/db";
+import { buildLeaderboardRows, formatDuration } from "@/lib/leaderboard";
+import { dateRangeWhere, getReportPeriod } from "@/lib/report-period";
 import { requireRole } from "@/lib/session";
 
-export default async function AdminDashboard() {
+function PeriodFilter({ period }: { period: ReturnType<typeof getReportPeriod> }) {
+  return <form className="period-filter card" method="get">
+    <label>Overview period
+      <select name="period" defaultValue={period.key}>
+        <option value="today">Today</option>
+        <option value="yesterday">Yesterday</option>
+        <option value="week">Week</option>
+        <option value="month">Month</option>
+        <option value="year">Year</option>
+        <option value="custom">Custom period</option>
+      </select>
+    </label>
+    <label>From<input type="date" name="from" defaultValue={period.fromInput} /></label>
+    <label>To<input type="date" name="to" defaultValue={period.toInput} /></label>
+    <button>Apply</button>
+  </form>;
+}
+
+export default async function AdminDashboard({ searchParams }: { searchParams: Promise<Record<string, string | string[] | undefined>> }) {
   await requireRole(UserRole.SUPER_ADMIN);
-  const [employees, courses, enrollments, completed] = await Promise.all([
-    db.employee.count({ where: { status: "ACTIVE" } }), db.course.count(), db.enrollment.count(), db.enrollment.count({ where: { status: "COMPLETED" } }),
+  const period = getReportPeriod(await searchParams);
+  const periodRange = dateRangeWhere(period);
+  const [employees, activeCourses, inactiveCourses, coursesInPeriod, enrollmentsInPeriod, completedInPeriod, leaderboardEnrollments] = await Promise.all([
+    db.employee.count({ where: { status: "ACTIVE" } }),
+    db.course.count({ where: { isActive: true } }),
+    db.course.count({ where: { isActive: false } }),
+    db.course.count({ where: { createdAt: periodRange } }),
+    db.enrollment.count({ where: { enrolledAt: periodRange } }),
+    db.enrollment.count({ where: { enrolledAt: periodRange, status: "COMPLETED" } }),
+    db.enrollment.findMany({
+      where: { course: { leaderboardEnabled: true }, OR: [{ enrolledAt: periodRange }, { completedAt: periodRange }] },
+      include: {
+        employee: { include: { company: true } },
+        progress: true,
+        course: { include: { contents: { where: { isPublished: true }, include: { lessons: { where: { approvedAt: { not: null } } } } } } },
+      },
+      take: 300,
+    }),
   ]);
-  return <main className="container"><h1>Administration</h1><div className="grid">
-    <div className="card"><div className="stat">{employees}</div><p>Active employees</p><Link className="button secondary" href="/admin/employees">Manage employees</Link></div>
-    <div className="card"><div className="stat">{courses}</div><p>Courses</p><Link className="button secondary" href="/admin/courses">Manage courses</Link></div>
-    <div className="card"><div className="stat">{enrollments}</div><p>Total enrollments</p></div>
-    <div className="card"><div className="stat">{completed}</div><p>Completed enrollments</p></div>
-  </div><section className="card"><h2>HR testing guide</h2><p>Use the one-page checklist for employee import, teacher review, publishing and learner completion testing.</p><a className="button secondary" href="/guides/rdc-lms-hr-admin-test-guide.docx">Download HR Admin test guide</a></section></main>;
+  const completionRate = enrollmentsInPeriod ? Math.round(completedInPeriod / enrollmentsInPeriod * 100) : 0;
+  const leaderboard = buildLeaderboardRows(leaderboardEnrollments.map((enrollment) => {
+    const totalLessons = enrollment.course.contents.flatMap((content) => content.lessons).length;
+    return {
+      enrollmentId: enrollment.id,
+      courseId: enrollment.courseId,
+      courseTitle: enrollment.course.title,
+      employeeCode: enrollment.employee.employeeCode,
+      employeeName: enrollment.employee.name,
+      companyName: enrollment.employee.company.name,
+      enrolledAt: enrollment.enrolledAt,
+      startedAt: enrollment.startedAt,
+      completedAt: enrollment.completedAt,
+      totalLessons,
+      completedLessons: enrollment.progress.filter((progress) => progress.completedAt).length,
+    };
+  }), 5);
+
+  return <main className="container">
+    <h1>Administration</h1>
+    <PeriodFilter period={period} />
+    <p className="muted">Overview shown for {period.label}.</p>
+
+    <div className="grid">
+      <div className="card"><div className="stat">{employees}</div><p>Active employees</p><Link className="button secondary" href="/admin/employees">Manage employees</Link></div>
+      <div className="card"><div className="stat">{activeCourses}</div><p>Active courses</p><Link className="button secondary" href="/admin/courses">Manage courses</Link></div>
+      <div className="card"><div className="stat">{inactiveCourses}</div><p>Inactive courses</p></div>
+      <div className="card"><div className="stat">{coursesInPeriod}</div><p>Courses created in period</p></div>
+    </div>
+
+    <div className="two-col dashboard-row">
+      <section className="card completion-card">
+        <h2>Course completion rate</h2>
+        <div className="completion-circle" style={{ "--percent": completionRate } as CSSProperties}><span>{completionRate}%</span></div>
+        <p>{completedInPeriod} completed out of {enrollmentsInPeriod} learner enrolments in this period.</p>
+      </section>
+      <section className="card">
+        <h2>Toppers</h2>
+        <p className="muted">Formula: progress score 70% + speed score 30%. Speed is normalized within each course.</p>
+        <ol className="leaderboard-list">
+          {leaderboard.map((row) => <li key={row.enrollmentId}>
+            <strong>{row.employeeName}</strong>
+            <span>{row.rankScore}% - {row.courseTitle} - {formatDuration(row.completionSeconds)}</span>
+          </li>)}
+        </ol>
+        {!leaderboard.length && <p>No learner progress in this period.</p>}
+      </section>
+    </div>
+
+    <section className="card">
+      <h2>Reports and testing guide</h2>
+      <p>Use reports for learner progress trackers, active learner lists, course analysis and period filters.</p>
+      <p className="form-row"><Link className="button secondary" href="/admin/reports">Open reports</Link><a className="button secondary" href="/guides/rdc-lms-hr-admin-test-guide.docx">Download HR Admin test guide</a></p>
+    </section>
+  </main>;
 }

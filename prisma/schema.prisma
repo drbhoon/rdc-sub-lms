@@ -135,6 +135,7 @@ model Course {
   certificateEnabled   Boolean      @default(true)
   leaderboardEnabled   Boolean      @default(true)
   requiredVideoPercent Int          @default(80)
+  isActive             Boolean      @default(true)
   status               CourseStatus @default(DRAFT)
   hasPendingChanges    Boolean      @default(false)
   publishedAt          DateTime?

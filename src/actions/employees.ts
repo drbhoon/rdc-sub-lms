@@ -103,3 +103,40 @@ export async function grantTeacher(formData: FormData) {
   await audit(actor.id, "TEACHER_ROLE_GRANTED", "User", userId);
   revalidatePath("/admin/employees");
 }
+
+export async function updateUserRoles(_: { message?: string }, formData: FormData) {
+  const actor = await requireRole(UserRole.SUPER_ADMIN);
+  const userId = String(formData.get("userId") ?? "");
+  const makeTeacher = formData.get("teacher") === "on";
+  const makeSuperAdmin = formData.get("superAdmin") === "on";
+  const user = await db.user.findUnique({
+    where: { id: userId },
+    include: { employee: true, roles: true, coursesTaught: { include: { course: true } } },
+  });
+  if (!user || user.employee?.status !== EmployeeStatus.ACTIVE) return { message: "Only active employees can have roles changed." };
+
+  const currentlySuperAdmin = user.roles.some((role) => role.role === UserRole.SUPER_ADMIN);
+  if (actor.id === userId && currentlySuperAdmin && !makeSuperAdmin) return { message: "You cannot remove your own Super Admin role." };
+  if (currentlySuperAdmin && !makeSuperAdmin) {
+    const superAdminCount = await db.userRoleGrant.count({ where: { role: UserRole.SUPER_ADMIN } });
+    if (superAdminCount <= 1) return { message: "At least one Super Admin must remain." };
+  }
+  if (!makeTeacher && user.coursesTaught.length) {
+    const courseNames = user.coursesTaught.slice(0, 3).map((assignment) => assignment.course.title).join(", ");
+    return { message: `Reassign this teacher from ${user.coursesTaught.length} course(s) first: ${courseNames}${user.coursesTaught.length > 3 ? ", ..." : ""}` };
+  }
+
+  await db.$transaction(async (tx) => {
+    await tx.userRoleGrant.upsert({ where: { userId_role: { userId, role: UserRole.LEARNER } }, update: {}, create: { userId, role: UserRole.LEARNER } });
+    if (makeTeacher) await tx.userRoleGrant.upsert({ where: { userId_role: { userId, role: UserRole.TEACHER } }, update: {}, create: { userId, role: UserRole.TEACHER } });
+    else await tx.userRoleGrant.deleteMany({ where: { userId, role: UserRole.TEACHER } });
+    if (makeSuperAdmin) await tx.userRoleGrant.upsert({ where: { userId_role: { userId, role: UserRole.SUPER_ADMIN } }, update: {}, create: { userId, role: UserRole.SUPER_ADMIN } });
+    else await tx.userRoleGrant.deleteMany({ where: { userId, role: UserRole.SUPER_ADMIN } });
+  });
+
+  await audit(actor.id, "USER_ROLES_UPDATED", "User", userId, { teacher: makeTeacher, superAdmin: makeSuperAdmin });
+  revalidatePath("/admin/employees");
+  revalidatePath("/admin/courses");
+  revalidatePath("/teacher/courses");
+  return { message: "Roles updated." };
+}
