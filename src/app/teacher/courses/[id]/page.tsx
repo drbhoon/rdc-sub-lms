@@ -1,5 +1,8 @@
 import { notFound } from "next/navigation";
+import { setAssessmentStatus, uploadAssessment } from "@/actions/assessments";
 import { approveContent, editLesson, rejectContent, setCourseStatus } from "@/actions/courses";
+import { uploadFeedbackTemplate } from "@/actions/feedback";
+import { ActionForm } from "@/components/action-form";
 import { parseQuizQuestions } from "@/lib/ai-study-pack";
 import { requireCourseManager } from "@/lib/course-access";
 import { db } from "@/lib/db";
@@ -13,6 +16,8 @@ export default async function TeacherCourse({ params }: { params: Promise<{ id: 
     include: {
       contents: { include: { lessons: true }, orderBy: { version: "asc" } },
       enrollments: { include: { employee: { include: { company: true } }, progress: true }, orderBy: { employee: { name: "asc" } } },
+      assessments: { include: { questions: true, attempts: { where: { status: "SUBMITTED" }, include: { employee: { include: { company: true } } } } }, orderBy: { version: "desc" } },
+      feedbackForms: { include: { questions: true, responses: true }, orderBy: { version: "desc" } },
     },
   });
   if (!course) notFound();
@@ -24,7 +29,16 @@ export default async function TeacherCourse({ params }: { params: Promise<{ id: 
     .filter((content) => content.isPublished)
     .flatMap((content) => content.lessons.filter((lesson) => lesson.approvedAt))
     .length;
-  const leaderboard = buildLeaderboardRows(course.enrollments.map((enrollment) => ({
+  const activeAssessment = course.assessments.find((assessment) => assessment.status === "ACTIVE");
+  const latestFeedbackForm = course.feedbackForms[0];
+  const bestAssessmentAttempts = new Map<string, (typeof course.assessments)[number]["attempts"][number]>();
+  for (const attempt of activeAssessment?.attempts ?? []) {
+    const existing = bestAssessmentAttempts.get(attempt.employeeId);
+    if (!existing || attempt.scorePercent > existing.scorePercent || (attempt.scorePercent === existing.scorePercent && attempt.timeTakenSeconds < existing.timeTakenSeconds)) {
+      bestAssessmentAttempts.set(attempt.employeeId, attempt);
+    }
+  }
+  const progressLeaderboard = buildLeaderboardRows(course.enrollments.map((enrollment) => ({
     enrollmentId: enrollment.id,
     courseId: course.id,
     courseTitle: course.title,
@@ -36,6 +50,21 @@ export default async function TeacherCourse({ params }: { params: Promise<{ id: 
     completedAt: enrollment.completedAt,
     totalLessons,
     completedLessons: enrollment.progress.filter((progress) => progress.completedAt).length,
+  })), 5);
+  const assessmentLeaderboard = buildLeaderboardRows([...bestAssessmentAttempts.values()].map((attempt) => ({
+    enrollmentId: attempt.id,
+    courseId: course.id,
+    courseTitle: course.title,
+    employeeCode: attempt.employee.employeeCode,
+    employeeName: attempt.employee.name,
+    companyName: attempt.employee.company.name,
+    enrolledAt: attempt.startedAt,
+    startedAt: attempt.startedAt,
+    completedAt: attempt.submittedAt,
+    totalLessons: 100,
+    completedLessons: 0,
+    assessmentScorePercent: attempt.scorePercent,
+    completionSecondsOverride: attempt.timeTakenSeconds,
   })), 5);
 
   return <main className="container">
@@ -75,10 +104,13 @@ export default async function TeacherCourse({ params }: { params: Promise<{ id: 
         </div>
         {canPublish && <div className="card"><h2>{course.status === "PUBLISHED" ? "Publish approved changes" : "Publish course"}</h2><p>All current content is processed and approved.</p><form action={setCourseStatus}><input type="hidden" name="courseId" value={course.id}/><input type="hidden" name="status" value="PUBLISHED"/><button>{course.status === "PUBLISHED" ? "Publish changes" : "Publish to enrolled learners"}</button></form></div>}
       </section>
-      <aside className="card"><h2>Learners</h2>{course.hasPendingChanges && course.status === "PUBLISHED" && <p className="message">Learners continue seeing the current version until approved changes are published.</p>}{!course.isActive && <p className="message">This course is inactive for new enrolments, but enrolled learners can still see it.</p>}<div className="table-wrap"><table><thead><tr><th>Name</th><th>Progress</th></tr></thead><tbody>
+      <aside className="form"><div className="card"><h2>Learners</h2>{course.hasPendingChanges && course.status === "PUBLISHED" && <p className="message">Learners continue seeing the current version until approved changes are published.</p>}{!course.isActive && <p className="message">This course is inactive for new enrolments, but enrolled learners can still see it.</p>}<div className="table-wrap"><table><thead><tr><th>Name</th><th>Progress</th></tr></thead><tbody>
         {course.enrollments.map((enrollment) => <tr key={enrollment.id}><td>{enrollment.employee.name}<br/><small>{enrollment.employee.employeeCode}</small></td><td><span className="badge">{enrollment.status.replaceAll("_", " ")}</span></td></tr>)}
         {!course.enrollments.length && <tr><td colSpan={2}>No learners enrolled.</td></tr>}
-      </tbody></table></div>{course.leaderboardEnabled && <section className="topper-panel"><h2>Toppers</h2><p className="muted">Formula: progress score 70% + speed score 30%.</p><ol className="leaderboard-list">{leaderboard.map((row) => <li key={row.enrollmentId}><strong>{row.employeeName}</strong><span>{row.rankScore}% - {formatDuration(row.completionSeconds)}</span></li>)}</ol>{!leaderboard.length && <p>No learner progress yet.</p>}</section>}</aside>
+      </tbody></table></div>{course.leaderboardEnabled && <section className="topper-panel"><h2>Toppers</h2><p className="muted">{activeAssessment ? "Formula: assessment score 70% + speed 30%." : "Formula: progress score 70% + speed score 30%."}</p><ol className="leaderboard-list">{(activeAssessment ? assessmentLeaderboard : progressLeaderboard).map((row) => <li key={row.enrollmentId}><strong>{row.employeeName}</strong><span>{row.rankScore}% - {formatDuration(row.completionSeconds)}</span></li>)}</ol>{!(activeAssessment ? assessmentLeaderboard : progressLeaderboard).length && <p>No learner progress yet.</p>}</section>}</div>
+        <div className="card"><h2>Assessment</h2><p><a className="button secondary" href="/api/templates/assessment">Download MCQ template</a></p><ActionForm action={uploadAssessment} submitLabel="Upload and activate assessment"><input type="hidden" name="courseId" value={course.id}/><label>Assessment title<input name="title" defaultValue={activeAssessment?.title ?? "Course Assessment"} required/></label><label>Pass percentage<input name="passPercentage" type="number" min="1" max="100" defaultValue={activeAssessment?.passPercentage ?? course.passPercentage}/></label><label>Question bank<input type="file" name="file" accept=".csv,.xlsx,.xls" required/></label><label className="checkbox"><input type="checkbox" name="showLeaderboard" defaultChecked={activeAssessment?.showLeaderboard ?? true}/>Show leaderboard</label></ActionForm><div className="table-wrap"><table><thead><tr><th>Version</th><th>Status</th><th>Questions</th><th>Action</th></tr></thead><tbody>{course.assessments.map((assessment) => <tr key={assessment.id}><td>v{assessment.version}</td><td><span className="badge">{assessment.status}</span></td><td>{assessment.questions.length}</td><td><form action={setAssessmentStatus}><input type="hidden" name="assessmentId" value={assessment.id}/><input type="hidden" name="status" value={assessment.status === "ACTIVE" ? "INACTIVE" : "ACTIVE"}/><button className="secondary">{assessment.status === "ACTIVE" ? "Inactivate" : "Activate"}</button></form></td></tr>)}{!course.assessments.length && <tr><td colSpan={4}>No assessment uploaded.</td></tr>}</tbody></table></div><p><a className="button secondary" href={`/api/courses/${course.id}/assessment-results`}>Download assessment results Excel</a></p></div>
+        <div className="card"><h2>Feedback</h2><p><a className="button secondary" href="/api/templates/feedback">Download feedback template</a></p><ActionForm action={uploadFeedbackTemplate} submitLabel="Upload and activate feedback"><input type="hidden" name="courseId" value={course.id}/><label>Feedback title<input name="title" defaultValue={latestFeedbackForm?.title ?? "Course Feedback"} required/></label><label>Feedback template<input type="file" name="file" accept=".csv,.xlsx,.xls" required/></label></ActionForm><p className="muted">Active form: {latestFeedbackForm ? `v${latestFeedbackForm.version} (${latestFeedbackForm.responses.length} responses)` : "None"}</p><p><a className="button secondary" href={`/api/courses/${course.id}/feedback-export`}>Download feedback Excel</a></p></div>
+      </aside>
     </div>
   </main>;
 }

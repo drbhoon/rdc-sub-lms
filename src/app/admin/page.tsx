@@ -28,13 +28,19 @@ export default async function AdminDashboard({ searchParams }: { searchParams: P
   await requireRole(UserRole.SUPER_ADMIN);
   const period = getReportPeriod(await searchParams);
   const periodRange = dateRangeWhere(period);
-  const [employees, activeCourses, inactiveCourses, coursesInPeriod, enrollmentsInPeriod, completedInPeriod, leaderboardEnrollments] = await Promise.all([
+  const [employees, activeCourses, inactiveCourses, coursesInPeriod, enrollmentsInPeriod, completedInPeriod, leaderboardAttempts, leaderboardEnrollments] = await Promise.all([
     db.employee.count({ where: { status: "ACTIVE" } }),
     db.course.count({ where: { isActive: true } }),
     db.course.count({ where: { isActive: false } }),
     db.course.count({ where: { createdAt: periodRange } }),
     db.enrollment.count({ where: { enrolledAt: periodRange } }),
     db.enrollment.count({ where: { enrolledAt: periodRange, status: "COMPLETED" } }),
+    db.assessmentAttempt.findMany({
+      where: { status: "SUBMITTED", submittedAt: periodRange, assessment: { course: { leaderboardEnabled: true } } },
+      include: { employee: { include: { company: true } }, assessment: { include: { course: true } } },
+      orderBy: [{ scorePercent: "desc" }, { timeTakenSeconds: "asc" }],
+      take: 300,
+    }),
     db.enrollment.findMany({
       where: { course: { leaderboardEnabled: true }, OR: [{ enrolledAt: periodRange }, { completedAt: periodRange }] },
       include: {
@@ -46,7 +52,22 @@ export default async function AdminDashboard({ searchParams }: { searchParams: P
     }),
   ]);
   const completionRate = enrollmentsInPeriod ? Math.round(completedInPeriod / enrollmentsInPeriod * 100) : 0;
-  const leaderboard = buildLeaderboardRows(leaderboardEnrollments.map((enrollment) => {
+  const assessmentLeaderboard = buildLeaderboardRows(leaderboardAttempts.map((attempt) => ({
+    enrollmentId: attempt.id,
+    courseId: attempt.assessment.courseId,
+    courseTitle: attempt.assessment.course.title,
+    employeeCode: attempt.employee.employeeCode,
+    employeeName: attempt.employee.name,
+    companyName: attempt.employee.company.name,
+    enrolledAt: attempt.startedAt,
+    startedAt: attempt.startedAt,
+    completedAt: attempt.submittedAt,
+    totalLessons: 100,
+    completedLessons: 0,
+    assessmentScorePercent: attempt.scorePercent,
+    completionSecondsOverride: attempt.timeTakenSeconds,
+  })), 5);
+  const progressLeaderboard = buildLeaderboardRows(leaderboardEnrollments.map((enrollment) => {
     const totalLessons = enrollment.course.contents.flatMap((content) => content.lessons).length;
     return {
       enrollmentId: enrollment.id,
@@ -62,6 +83,7 @@ export default async function AdminDashboard({ searchParams }: { searchParams: P
       completedLessons: enrollment.progress.filter((progress) => progress.completedAt).length,
     };
   }), 5);
+  const leaderboard = assessmentLeaderboard.length ? assessmentLeaderboard : progressLeaderboard;
 
   return <main className="container">
     <h1>Administration</h1>
@@ -83,7 +105,7 @@ export default async function AdminDashboard({ searchParams }: { searchParams: P
       </section>
       <section className="card">
         <h2>Toppers</h2>
-        <p className="muted">Formula: progress score 70% + speed score 30%. Speed is normalized within each course.</p>
+        <p className="muted">{assessmentLeaderboard.length ? "Formula: assessment score 70% + speed score 30%." : "Formula: progress score 70% + speed score 30%."}</p>
         <ol className="leaderboard-list">
           {leaderboard.map((row) => <li key={row.enrollmentId}>
             <strong>{row.employeeName}</strong>

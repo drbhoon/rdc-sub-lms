@@ -213,3 +213,26 @@ export async function enrollEmployees(formData: FormData) {
   await audit(actor.id, "EMPLOYEES_ENROLLED", "Course", courseId, { count: eligible.length });
   revalidatePath(`/admin/courses/${courseId}`);
 }
+
+export async function deleteCourse(formData: FormData) {
+  const actor = await requireRole(UserRole.SUPER_ADMIN);
+  const courseId = String(formData.get("courseId") ?? "");
+  const course = await db.course.findUnique({
+    where: { id: courseId },
+    include: {
+      _count: { select: { enrollments: true, assessments: true, feedbackForms: true } },
+      assessments: { include: { _count: { select: { attempts: true } } } },
+      feedbackForms: { include: { _count: { select: { responses: true } } } },
+    },
+  });
+  if (!course) throw new Error("Course not found.");
+  const attemptCount = course.assessments.reduce((sum, assessment) => sum + assessment._count.attempts, 0);
+  const responseCount = course.feedbackForms.reduce((sum, form) => sum + form._count.responses, 0);
+  if (course._count.enrollments || attemptCount || responseCount) {
+    throw new Error("This course has learner history. Set it inactive instead of deleting.");
+  }
+  await db.course.delete({ where: { id: courseId } });
+  await audit(actor.id, "COURSE_DELETED", "Course", courseId, { title: course.title });
+  revalidatePath("/admin/courses");
+  redirect("/admin/courses");
+}

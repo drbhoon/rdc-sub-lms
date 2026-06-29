@@ -3,6 +3,7 @@
 import { UserRole } from "@prisma/client";
 import { revalidatePath } from "next/cache";
 import { audit } from "@/lib/audit";
+import { requireCourseManager } from "@/lib/course-access";
 import { db } from "@/lib/db";
 import { storage } from "@/lib/storage";
 import { requireRole } from "@/lib/session";
@@ -44,4 +45,15 @@ export async function retryContent(formData: FormData) {
   ]);
   await audit(actor.id, "CONTENT_RETRIED", "CourseContent", content.id, { attempt: job.attempts + 1 });
   revalidatePath(`/admin/courses/${content.courseId}`);
+}
+
+export async function deleteUnpublishedContent(formData: FormData) {
+  const contentId = String(formData.get("contentId") ?? "");
+  const content = await db.courseContent.findUniqueOrThrow({ where: { id: contentId }, select: { courseId: true, isPublished: true, originalName: true } });
+  const actor = await requireCourseManager(content.courseId);
+  if (content.isPublished) throw new Error("Published content cannot be deleted. Upload a replacement version instead.");
+  await db.courseContent.delete({ where: { id: contentId } });
+  await audit(actor.id, "CONTENT_DELETED", "CourseContent", contentId, { fileName: content.originalName });
+  revalidatePath(`/admin/courses/${content.courseId}`);
+  revalidatePath(`/teacher/courses/${content.courseId}`);
 }

@@ -17,6 +17,11 @@ export default async function ReportsPage({ searchParams }: { searchParams: Prom
   const periodRange = dateRangeWhere(period);
   const courseId = getValue(params, "courseId");
   const companyId = getValue(params, "companyId");
+  const exportParams = new URLSearchParams();
+  for (const [key, value] of Object.entries(params)) {
+    if (Array.isArray(value)) value.forEach((item) => exportParams.append(key, item));
+    else if (value) exportParams.set(key, value);
+  }
 
   const [courses, companies] = await Promise.all([
     db.course.findMany({ orderBy: { title: "asc" }, select: { id: true, title: true } }),
@@ -102,6 +107,7 @@ export default async function ReportsPage({ searchParams }: { searchParams: Prom
         </select>
       </label>
       <button>Apply</button>
+      <a className="button secondary" href={`/api/reports/export?${exportParams.toString()}`}>Download Excel</a>
     </form>
 
     <div className="grid">

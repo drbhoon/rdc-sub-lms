@@ -10,6 +10,8 @@ export type LeaderboardInput = {
   completedAt: Date | null;
   totalLessons: number;
   completedLessons: number;
+  assessmentScorePercent?: number | null;
+  completionSecondsOverride?: number | null;
 };
 
 export type LeaderboardRow = LeaderboardInput & {
@@ -24,6 +26,7 @@ function round(value: number) {
 }
 
 function completionSeconds(row: LeaderboardInput) {
+  if (row.completionSecondsOverride !== undefined) return row.completionSecondsOverride;
   if (!row.completedAt) return null;
   const start = row.startedAt ?? row.enrolledAt;
   return Math.max(1, Math.floor((row.completedAt.getTime() - start.getTime()) / 1000));
@@ -43,7 +46,7 @@ export function buildLeaderboardRows(rows: LeaderboardInput[], limit = 10): Lead
       const courseSeconds = byCourse.get(row.courseId) ?? [];
       const min = Math.min(...courseSeconds);
       const max = Math.max(...courseSeconds);
-      const progressScore = row.totalLessons > 0 ? Math.min(100, Math.max(0, row.completedLessons / row.totalLessons * 100)) : 0;
+      const progressScore = row.assessmentScorePercent ?? (row.totalLessons > 0 ? Math.min(100, Math.max(0, row.completedLessons / row.totalLessons * 100)) : 0);
       let speedScore = 0;
       if (completedSeconds !== null && courseSeconds.length === 1) speedScore = 100;
       else if (completedSeconds !== null && Number.isFinite(min) && Number.isFinite(max) && max > min) speedScore = 100 - ((completedSeconds - min) / (max - min)) * 100;

@@ -9,9 +9,14 @@ export default async function CertificatePage({ params }: { params: Promise<{ id
   if (!user.employeeId) notFound();
   const enrollment = await db.enrollment.findUnique({
     where: { employeeId_courseId: { employeeId: user.employeeId, courseId: id } },
-    include: { employee: { include: { company: true } }, course: true },
+    include: {
+      employee: { include: { company: true } },
+      course: { include: { assessments: { where: { status: "ACTIVE" }, include: { attempts: { where: { employeeId: user.employeeId, status: "SUBMITTED", passed: true }, take: 1 } }, take: 1 } } },
+    },
   });
   if (!enrollment || !enrollment.completedAt || !enrollment.course.certificateEnabled || enrollment.course.status !== "PUBLISHED") notFound();
+  const activeAssessment = enrollment.course.assessments[0];
+  if (activeAssessment && !activeAssessment.attempts.length) notFound();
   const certificateId = `${enrollment.courseId.slice(-4)}-${enrollment.id.slice(-6)}`.toUpperCase();
 
   return <main className="certificate-page">

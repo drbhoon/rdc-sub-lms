@@ -46,6 +46,23 @@ enum LessonType {
   VIDEO
   TEXT
 }
+enum AssessmentStatus {
+  DRAFT
+  ACTIVE
+  INACTIVE
+}
+enum AssessmentAttemptStatus {
+  IN_PROGRESS
+  SUBMITTED
+}
+enum FeedbackQuestionType {
+  RATING_1_5
+  SHORT_TEXT
+  LONG_TEXT
+  YES_NO
+  SINGLE_CHOICE
+  MULTI_CHOICE
+}
 
 model Company {
   id        String   @id @default(cuid())
@@ -71,6 +88,8 @@ model Employee {
   company      Company        @relation(fields: [companyId], references: [id])
   user         User?
   enrollments  Enrollment[]
+  assessmentAttempts AssessmentAttempt[]
+  feedbackResponses  FeedbackResponse[]
   createdAt    DateTime       @default(now())
   updatedAt    DateTime       @updatedAt
 
@@ -143,6 +162,8 @@ model Course {
   teachers             CourseTeacher[]
   contents             CourseContent[]
   enrollments          Enrollment[]
+  assessments          Assessment[]
+  feedbackForms        FeedbackForm[]
   createdAt            DateTime     @default(now())
   updatedAt            DateTime     @updatedAt
   @@index([status])
@@ -226,6 +247,7 @@ model Enrollment {
   employee    Employee         @relation(fields: [employeeId], references: [id], onDelete: Cascade)
   course      Course           @relation(fields: [courseId], references: [id], onDelete: Cascade)
   progress    LessonProgress[]
+  assessmentAttempts AssessmentAttempt[]
   @@unique([employeeId, courseId])
   @@index([courseId, status])
 }
@@ -267,4 +289,132 @@ model AuditLog {
   createdAt  DateTime @default(now())
   actor      User?    @relation(fields: [actorUserId], references: [id], onDelete: SetNull)
   @@index([createdAt])
+}
+
+model Assessment {
+  id                String           @id @default(cuid())
+  courseId          String
+  title             String           @default("Course Assessment")
+  version           Int
+  status            AssessmentStatus @default(DRAFT)
+  passPercentage    Int              @default(70)
+  showLeaderboard   Boolean          @default(true)
+  course            Course           @relation(fields: [courseId], references: [id], onDelete: Cascade)
+  questions         AssessmentQuestion[]
+  attempts          AssessmentAttempt[]
+  createdAt         DateTime         @default(now())
+  updatedAt         DateTime         @updatedAt
+
+  @@unique([courseId, version])
+  @@index([courseId, status])
+}
+
+model AssessmentQuestion {
+  id            String      @id @default(cuid())
+  assessmentId  String
+  order         Int
+  questionText  String
+  optionA       String
+  optionB       String
+  optionC       String
+  optionD       String
+  correctOption String
+  timeSeconds   Int         @default(30)
+  assessment    Assessment  @relation(fields: [assessmentId], references: [id], onDelete: Cascade)
+  answers       AssessmentAnswer[]
+  createdAt     DateTime    @default(now())
+
+  @@unique([assessmentId, order])
+}
+
+model AssessmentAttempt {
+  id               String                  @id @default(cuid())
+  assessmentId     String
+  employeeId       String
+  enrollmentId     String?
+  status           AssessmentAttemptStatus @default(IN_PROGRESS)
+  attemptNumber    Int
+  scorePercent     Float                   @default(0)
+  correctAnswers   Int                     @default(0)
+  totalQuestions   Int                     @default(0)
+  timeTakenSeconds Int                     @default(0)
+  passed           Boolean                 @default(false)
+  startedAt        DateTime                @default(now())
+  submittedAt      DateTime?
+  assessment       Assessment              @relation(fields: [assessmentId], references: [id], onDelete: Cascade)
+  employee         Employee                @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+  enrollment       Enrollment?             @relation(fields: [enrollmentId], references: [id], onDelete: SetNull)
+  answers          AssessmentAnswer[]
+
+  @@unique([assessmentId, employeeId, attemptNumber])
+  @@index([assessmentId, status])
+  @@index([employeeId, startedAt])
+}
+
+model AssessmentAnswer {
+  id               String             @id @default(cuid())
+  attemptId         String
+  questionId        String
+  selectedOption    String?
+  isCorrect         Boolean            @default(false)
+  timeSpentSeconds  Int                @default(0)
+  answeredAt        DateTime           @default(now())
+  attempt           AssessmentAttempt  @relation(fields: [attemptId], references: [id], onDelete: Cascade)
+  question          AssessmentQuestion @relation(fields: [questionId], references: [id], onDelete: Cascade)
+
+  @@unique([attemptId, questionId])
+}
+
+model FeedbackForm {
+  id          String             @id @default(cuid())
+  courseId    String
+  title       String             @default("Course Feedback")
+  version     Int
+  isActive    Boolean            @default(false)
+  course      Course             @relation(fields: [courseId], references: [id], onDelete: Cascade)
+  questions   FeedbackQuestion[]
+  responses   FeedbackResponse[]
+  createdAt   DateTime           @default(now())
+  updatedAt   DateTime           @updatedAt
+
+  @@unique([courseId, version])
+  @@index([courseId, isActive])
+}
+
+model FeedbackQuestion {
+  id            String               @id @default(cuid())
+  formId        String
+  order         Int
+  questionText  String
+  type          FeedbackQuestionType
+  required      Boolean              @default(true)
+  options       Json?
+  form          FeedbackForm         @relation(fields: [formId], references: [id], onDelete: Cascade)
+  answers       FeedbackAnswer[]
+
+  @@unique([formId, order])
+}
+
+model FeedbackResponse {
+  id          String           @id @default(cuid())
+  formId      String
+  employeeId  String
+  submittedAt DateTime         @default(now())
+  form        FeedbackForm     @relation(fields: [formId], references: [id], onDelete: Cascade)
+  employee    Employee         @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+  answers     FeedbackAnswer[]
+
+  @@unique([formId, employeeId])
+  @@index([formId, submittedAt])
+}
+
+model FeedbackAnswer {
+  id          String           @id @default(cuid())
+  responseId  String
+  questionId  String
+  value       Json
+  response    FeedbackResponse @relation(fields: [responseId], references: [id], onDelete: Cascade)
+  question    FeedbackQuestion @relation(fields: [questionId], references: [id], onDelete: Cascade)
+
+  @@unique([responseId, questionId])
 }
