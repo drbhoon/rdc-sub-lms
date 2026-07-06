@@ -1,10 +1,11 @@
 import { UserRole } from "@prisma/client";
 import { db } from "@/lib/db";
+import { hasAnyEffectiveRole } from "@/lib/roles";
 import { currentUser } from "@/lib/session";
 
 export async function routeUserWithRole(...roles: UserRole[]) {
   const user = await currentUser();
-  if (!user || !user.roles.some((grant) => roles.includes(grant.role))) return null;
+  if (!user || !hasAnyEffectiveRole(user, roles)) return null;
   return user;
 }
 

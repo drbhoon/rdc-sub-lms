@@ -9,6 +9,7 @@ import { ContentUploadForm } from "@/components/content-upload-form";
 import { buildLeaderboardRows, formatDuration } from "@/lib/leaderboard";
 import { db } from "@/lib/db";
 import { requireRole } from "@/lib/session";
+import { eligibleTeacherWhere } from "@/lib/teacher-eligibility";
 
 export default async function CourseAdminPage({ params }: { params: Promise<{ id: string }> }) {
   await requireRole(UserRole.SUPER_ADMIN);
@@ -41,9 +42,9 @@ export default async function CourseAdminPage({ params }: { params: Promise<{ id
       : Promise.resolve([]),
     db.company.findMany({ orderBy: { name: "asc" } }),
     db.user.findMany({
-      where: { roles: { some: { role: UserRole.TEACHER } }, employee: { status: "ACTIVE" } },
+      where: eligibleTeacherWhere(),
       include: { employee: true },
-      orderBy: { employee: { name: "asc" } },
+      orderBy: [{ employee: { name: "asc" } }, { email: "asc" }],
     }),
   ]);
 

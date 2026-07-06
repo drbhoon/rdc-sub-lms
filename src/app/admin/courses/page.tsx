@@ -4,6 +4,7 @@ import { createCourse } from "@/actions/courses";
 import { ActionForm } from "@/components/action-form";
 import { db } from "@/lib/db";
 import { requireRole } from "@/lib/session";
+import { eligibleTeacherWhere } from "@/lib/teacher-eligibility";
 
 export default async function CoursesPage() {
   await requireRole(UserRole.SUPER_ADMIN);
@@ -18,9 +19,9 @@ export default async function CoursesPage() {
     }),
     db.company.findMany({ orderBy: { name: "asc" } }),
     db.user.findMany({
-      where: { roles: { some: { role: "TEACHER" } }, employee: { status: "ACTIVE" } },
+      where: eligibleTeacherWhere(),
       include: { employee: true },
-      orderBy: { employee: { name: "asc" } },
+      orderBy: [{ employee: { name: "asc" } }, { email: "asc" }],
     }),
   ]);
 

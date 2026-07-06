@@ -3,6 +3,7 @@ import { redirect } from "next/navigation";
 import type { UserRole } from "@prisma/client";
 import { db } from "@/lib/db";
 import { env } from "@/lib/env";
+import { hasAnyEffectiveRole, hasEffectiveRole } from "@/lib/roles";
 import { randomToken, tokenHash } from "@/lib/security";
 
 export async function createSession(userId: string) {
@@ -46,10 +47,10 @@ export async function requireUser() {
 
 export async function requireRole(...allowed: UserRole[]) {
   const user = await requireUser();
-  if (!user.roles.some(({ role }) => allowed.includes(role))) redirect("/unauthorized");
+  if (!hasAnyEffectiveRole(user, allowed)) redirect("/unauthorized");
   return user;
 }
 
 export function hasRole(user: Awaited<ReturnType<typeof currentUser>>, role: UserRole) {
-  return Boolean(user?.roles.some((grant) => grant.role === role));
+  return hasEffectiveRole(user, role);
 }

@@ -8,6 +8,7 @@ import { audit } from "@/lib/audit";
 import { requireCourseManager } from "@/lib/course-access";
 import { db } from "@/lib/db";
 import { requireRole } from "@/lib/session";
+import { eligibleTeacherWhere } from "@/lib/teacher-eligibility";
 
 const courseSchema = z.object({
   title: z.string().trim().min(3).max(150),
@@ -30,7 +31,7 @@ export async function createCourse(_: { message?: string }, formData: FormData) 
   const teacherIds = uniqueIds([...formData.getAll("teacherIds"), ...(formData.get("teacherId") ? [formData.get("teacherId")!] : [])]);
   if (!companyIds.length) return { message: "Select at least one company." };
   if (teacherIds.length) {
-    const teacherCount = await db.user.count({ where: { id: { in: teacherIds }, roles: { some: { role: UserRole.TEACHER } }, employee: { status: "ACTIVE" } } });
+    const teacherCount = await db.user.count({ where: eligibleTeacherWhere(teacherIds) });
     if (teacherCount !== teacherIds.length) return { message: "One or more selected teachers are not eligible." };
   }
 
@@ -98,7 +99,7 @@ export async function updateCourseTeachers(_: { message?: string }, formData: Fo
   const course = await db.course.findUnique({ where: { id: courseId }, select: { id: true } });
   if (!course) return { message: "Course not found." };
   if (teacherIds.length) {
-    const teacherCount = await db.user.count({ where: { id: { in: teacherIds }, roles: { some: { role: UserRole.TEACHER } }, employee: { status: "ACTIVE" } } });
+    const teacherCount = await db.user.count({ where: eligibleTeacherWhere(teacherIds) });
     if (teacherCount !== teacherIds.length) return { message: "One or more selected teachers are not eligible." };
   }
   await db.$transaction(async (tx) => {

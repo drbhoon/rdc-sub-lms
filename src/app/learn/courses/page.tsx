@@ -5,7 +5,16 @@ import { requireRole } from "@/lib/session";
 
 export default async function MyCourses() {
   const user = await requireRole(UserRole.LEARNER);
-  if (!user.employeeId) return null;
+  if (!user.employeeId) {
+    return <main className="container">
+      <h1>My courses</h1>
+      <div className="card">
+        <h2>Learner profile required</h2>
+        <p>This admin login has learner access, but it is not linked to an employee record yet.</p>
+        <p className="muted">To test as a learner, import an active employee row using this same email address, then enrol that employee into a course.</p>
+      </div>
+    </main>;
+  }
   const enrollments = await db.enrollment.findMany({
     where: { employeeId: user.employeeId, course: { status: "PUBLISHED" } },
     include: { course: { include: { contents: { where: { isPublished: true }, include: { lessons: true } } } }, progress: true },

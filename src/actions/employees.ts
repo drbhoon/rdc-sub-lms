@@ -107,8 +107,8 @@ export async function grantTeacher(formData: FormData) {
 export async function updateUserRoles(_: { message?: string }, formData: FormData) {
   const actor = await requireRole(UserRole.SUPER_ADMIN);
   const userId = String(formData.get("userId") ?? "");
-  const makeTeacher = formData.get("teacher") === "on";
   const makeSuperAdmin = formData.get("superAdmin") === "on";
+  const makeTeacher = formData.get("teacher") === "on" || makeSuperAdmin;
   const user = await db.user.findUnique({
     where: { id: userId },
     include: { employee: true, roles: true, coursesTaught: { include: { course: true } } },

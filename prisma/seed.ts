@@ -14,11 +14,13 @@ async function main() {
 
   for (const email of emails) {
     const user = await prisma.user.upsert({ where: { email }, update: {}, create: { email } });
-    await prisma.userRoleGrant.upsert({
-      where: { userId_role: { userId: user.id, role: UserRole.SUPER_ADMIN } },
-      update: {},
-      create: { userId: user.id, role: UserRole.SUPER_ADMIN },
-    });
+    for (const role of [UserRole.SUPER_ADMIN, UserRole.TEACHER, UserRole.LEARNER]) {
+      await prisma.userRoleGrant.upsert({
+        where: { userId_role: { userId: user.id, role } },
+        update: {},
+        create: { userId: user.id, role },
+      });
+    }
   }
 }
 
