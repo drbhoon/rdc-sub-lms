@@ -3,6 +3,7 @@ import { notFound } from "next/navigation";
 import { startAssessment } from "@/actions/assessments";
 import { FeedbackResponseForm } from "@/components/feedback-response-form";
 import { LessonPlayer } from "@/components/lesson-player";
+import { certificateEligibility } from "@/lib/certificate-eligibility";
 import { db } from "@/lib/db";
 import { requireUser } from "@/lib/session";
 
@@ -54,20 +55,30 @@ export default async function LearnCourse({ params }: { params: Promise<{ id: st
   const assessment = enrollment.course.assessments[0];
   const bestAttempt = assessment?.attempts[0];
   const feedbackForm = enrollment.course.feedbackForms[0];
-  const certificateReady = Boolean(enrollment.completedAt && enrollment.course.certificateEnabled && (!assessment || bestAttempt?.passed));
+  const feedbackSubmitted = Boolean(feedbackForm?.responses.length);
+  const certificate = certificateEligibility({
+    certificateEnabled: enrollment.course.certificateEnabled,
+    totalLessons: lessons.length,
+    completedLessons: completed,
+    courseCompleted: Boolean(enrollment.completedAt),
+    hasActiveAssessment: Boolean(assessment),
+    hasPassedAssessment: Boolean(bestAttempt?.passed),
+    hasActiveFeedbackForm: Boolean(feedbackForm),
+    hasSubmittedFeedback: feedbackSubmitted,
+  });
 
-  return <main className="container">
+  return <main className="container learn-container">
     <div className="badge-row"><span className="badge">{enrollment.status.replaceAll("_", " ")}</span>{!enrollment.course.isActive && <span className="badge badge-muted">Inactive</span>}</div>
     <h1>{enrollment.course.title}</h1>
     {!enrollment.course.isActive && <p className="message">This course is inactive for new enrolments, but remains available to you because you are already enrolled.</p>}
     <div className="progress"><span style={{ width: `${percent}%` }} /></div>
     <p>{completed} of {lessons.length} lessons complete</p>
 
-    <div className="two-col">
-      <section className="form">
+    <div className="learning-shell">
+      <section className="learning-main">
         <LessonPlayer lessons={lessons} />
       </section>
-      <aside className="form">
+      <aside className="learning-sidebar">
         {assessment && <div className="card">
           <h2>MCQ assessment</h2>
           <p>{assessment.title}</p>
@@ -79,11 +90,18 @@ export default async function LearnCourse({ params }: { params: Promise<{ id: st
           </form>
         </div>}
 
-        {certificateReady && <div className="card">
+        <div className="card">
           <h2>Certificate</h2>
-          <p>You are eligible for the course certificate.</p>
-          <Link className="button secondary" href={`/learn/courses/${id}/certificate`}>View certificate</Link>
-        </div>}
+          {certificate.ready ? <>
+            <p>You are eligible for the course certificate.</p>
+            <Link className="button secondary" href={`/learn/courses/${id}/certificate`}>View certificate</Link>
+          </> : <>
+            <p className="muted">Certificate will be available after these requirements are complete:</p>
+            <ul className="requirement-list">
+              {certificate.missing.map((item) => <li key={item}>{item}</li>)}
+            </ul>
+          </>}
+        </div>
 
         {feedbackForm && enrollment.completedAt && <FeedbackResponseForm
           courseId={id}

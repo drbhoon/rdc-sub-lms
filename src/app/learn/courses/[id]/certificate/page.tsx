@@ -1,5 +1,6 @@
 import Image from "next/image";
 import { notFound } from "next/navigation";
+import { certificateEligibility } from "@/lib/certificate-eligibility";
 import { db } from "@/lib/db";
 import { requireUser } from "@/lib/session";
 
@@ -11,12 +12,44 @@ export default async function CertificatePage({ params }: { params: Promise<{ id
     where: { employeeId_courseId: { employeeId: user.employeeId, courseId: id } },
     include: {
       employee: { include: { company: true } },
-      course: { include: { assessments: { where: { status: "ACTIVE" }, include: { attempts: { where: { employeeId: user.employeeId, status: "SUBMITTED", passed: true }, take: 1 } }, take: 1 } } },
+      progress: true,
+      course: {
+        include: {
+          contents: {
+            where: { isPublished: true },
+            include: { lessons: { where: { approvedAt: { not: null } } } },
+          },
+          assessments: {
+            where: { status: "ACTIVE" },
+            include: { attempts: { where: { employeeId: user.employeeId, status: "SUBMITTED", passed: true }, take: 1 } },
+            take: 1,
+          },
+          feedbackForms: {
+            where: { isActive: true },
+            include: { responses: { where: { employeeId: user.employeeId }, take: 1 } },
+            take: 1,
+          },
+        },
+      },
     },
   });
   if (!enrollment || !enrollment.completedAt || !enrollment.course.certificateEnabled || enrollment.course.status !== "PUBLISHED") notFound();
+  const lessonIds = new Set(enrollment.course.contents.flatMap((content) => content.lessons.map((lesson) => lesson.id)));
+  const totalLessons = lessonIds.size;
+  const completedLessons = enrollment.progress.filter((progress) => lessonIds.has(progress.lessonId) && progress.completedAt).length;
   const activeAssessment = enrollment.course.assessments[0];
-  if (activeAssessment && !activeAssessment.attempts.length) notFound();
+  const activeFeedbackForm = enrollment.course.feedbackForms[0];
+  const certificate = certificateEligibility({
+    certificateEnabled: enrollment.course.certificateEnabled,
+    totalLessons,
+    completedLessons,
+    courseCompleted: Boolean(enrollment.completedAt),
+    hasActiveAssessment: Boolean(activeAssessment),
+    hasPassedAssessment: Boolean(activeAssessment?.attempts.length),
+    hasActiveFeedbackForm: Boolean(activeFeedbackForm),
+    hasSubmittedFeedback: Boolean(activeFeedbackForm?.responses.length),
+  });
+  if (!certificate.ready) notFound();
   const certificateId = `${enrollment.courseId.slice(-4)}-${enrollment.id.slice(-6)}`.toUpperCase();
 
   return <main className="certificate-page">
