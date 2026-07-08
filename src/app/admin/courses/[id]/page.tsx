@@ -8,6 +8,7 @@ import { ActionForm } from "@/components/action-form";
 import { ContentUploadForm } from "@/components/content-upload-form";
 import { buildLeaderboardRows, formatDuration } from "@/lib/leaderboard";
 import { db } from "@/lib/db";
+import { eligibleLearnerForCourseWhere } from "@/lib/enrollment-eligibility";
 import { requireRole } from "@/lib/session";
 import { eligibleTeacherWhere } from "@/lib/teacher-eligibility";
 
@@ -36,7 +37,11 @@ export default async function CourseAdminPage({ params }: { params: Promise<{ id
   const [employees, companies, teachers] = await Promise.all([
     course.isActive
       ? db.employee.findMany({
-        where: { status: "ACTIVE", companyId: { in: course.companies.map((c) => c.companyId) }, enrollments: { none: { courseId: id } } },
+        where: {
+          ...eligibleLearnerForCourseWhere(course.companies.map((company) => company.companyId)),
+          enrollments: { none: { courseId: id } },
+        },
+        include: { user: { include: { roles: true } } },
         orderBy: { name: "asc" },
       })
       : Promise.resolve([]),
@@ -222,9 +227,12 @@ export default async function CourseAdminPage({ params }: { params: Promise<{ id
           {!course.isActive ? <p>Reactivate this course before enrolling new learners.</p> : employees.length ? <form action={enrollEmployees} className="form">
             <input type="hidden" name="courseId" value={course.id} />
             <div style={{ maxHeight: 280, overflow: "auto" }}>
-              {employees.map((employee) => <label className="checkbox" key={employee.id}>
-                <input type="checkbox" name="employeeIds" value={employee.id} />{employee.name} ({employee.employeeCode})
-              </label>)}
+              {employees.map((employee) => {
+                const isAdminLearner = employee.user?.roles.some((role) => role.role === UserRole.SUPER_ADMIN);
+                return <label className="checkbox" key={employee.id}>
+                  <input type="checkbox" name="employeeIds" value={employee.id} />{employee.name} ({employee.employeeCode}) {isAdminLearner && <span className="badge">Admin test learner</span>}
+                </label>;
+              })}
             </div>
             <button>Enroll selected</button>
           </form> : <p>All eligible employees are enrolled.</p>}

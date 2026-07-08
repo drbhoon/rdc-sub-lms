@@ -7,6 +7,7 @@ import { z } from "zod";
 import { audit } from "@/lib/audit";
 import { requireCourseManager } from "@/lib/course-access";
 import { db } from "@/lib/db";
+import { eligibleLearnerForCourseWhere } from "@/lib/enrollment-eligibility";
 import { requireRole } from "@/lib/session";
 import { eligibleTeacherWhere } from "@/lib/teacher-eligibility";
 
@@ -209,7 +210,10 @@ export async function enrollEmployees(formData: FormData) {
   const employeeIds = formData.getAll("employeeIds").map(String);
   const course = await db.course.findUniqueOrThrow({ where: { id: courseId }, include: { companies: true } });
   if (!course.isActive) throw new Error("Inactive courses cannot receive new learner enrollments.");
-  const eligible = await db.employee.findMany({ where: { id: { in: employeeIds }, status: "ACTIVE", companyId: { in: course.companies.map((c) => c.companyId) } }, select: { id: true } });
+  const eligible = await db.employee.findMany({
+    where: eligibleLearnerForCourseWhere(course.companies.map((company) => company.companyId), employeeIds),
+    select: { id: true },
+  });
   await db.$transaction(eligible.map(({ id }) => db.enrollment.upsert({ where: { employeeId_courseId: { employeeId: id, courseId } }, update: {}, create: { employeeId: id, courseId } })));
   await audit(actor.id, "EMPLOYEES_ENROLLED", "Course", courseId, { count: eligible.length });
   revalidatePath(`/admin/courses/${courseId}`);
