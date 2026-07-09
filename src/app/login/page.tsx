@@ -10,8 +10,8 @@ export default async function Login() {
       <h1>DEEKSHA FOR ROBO AND ULTRAFINE EMPLOYEES</h1>
       <p>Lightweight learning, course tracking, and certification for RDC subsidiary teams.</p>
       <div className="hero-images">
-        <figure><Image src="/brand/grinding-mill.jpg" alt="Grinding mill" width={480} height={600} /><figcaption>Grinding mill</figcaption></figure>
-        <figure><Image src="/brand/stone-crusher.jpg" alt="Stone crusher" width={800} height={487} /><figcaption>Stone crusher</figcaption></figure>
+        <figure><Image src="/brand/robo-disha.jpg" alt="ROBO Disha branded learning image" width={1263} height={949} priority /><figcaption>ROBO Disha</figcaption></figure>
+        <figure><Image src="/brand/uf-disha.jpg" alt="UltraFine Disha branded learning image" width={1600} height={1068} priority /><figcaption>UltraFine Disha</figcaption></figure>
       </div>
     </section>
     <section className="login-form-panel"><AuthForm /></section>

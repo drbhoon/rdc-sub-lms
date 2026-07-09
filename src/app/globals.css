@@ -29,7 +29,7 @@ label { display:grid; gap:.4rem; color:#334155; font-weight:600; }
 .login-form-panel { align-self:center; }
 .hero-images { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:1rem; margin-top:1.4rem; }
 .hero-images figure { margin:0; border-radius:14px; overflow:hidden; background:white; border:1px solid var(--line); box-shadow:0 10px 30px #12233f12; }
-.hero-images img { width:100%; height:230px; object-fit:cover; display:block; }
+.hero-images img { width:100%; height:clamp(230px,28vw,330px); object-fit:contain; display:block; background:white; }
 .hero-images figcaption { padding:.7rem .85rem; font-weight:700; color:var(--navy); }
 .grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(230px,1fr)); gap:1rem; }
 .two-col { display:grid; grid-template-columns:minmax(0,2fr) minmax(260px,1fr); gap:1rem; align-items:start; }
