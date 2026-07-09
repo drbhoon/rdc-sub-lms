@@ -9,6 +9,17 @@ import { storage } from "../src/lib/storage";
 
 const db = new PrismaClient();
 const run = promisify(execFile);
+let stopping = false;
+let wakeIdle: (() => void) | undefined;
+
+function requestStop(signal: NodeJS.Signals) {
+  if (!stopping) console.log(`RDC LMS worker received ${signal}; stopping after current task.`);
+  stopping = true;
+  wakeIdle?.();
+}
+
+process.once("SIGTERM", requestStop);
+process.once("SIGINT", requestStop);
 
 async function command(name: string, args: string[]) {
   return run(name, args, { timeout: 10 * 60_000, maxBuffer: 20 * 1024 * 1024 });
@@ -106,10 +117,25 @@ async function processOne() {
 
 async function main() {
   console.log("RDC LMS worker started");
-  for (;;) {
+  while (!stopping) {
     const worked = await processOne();
-    if (!worked) await new Promise((resolve) => setTimeout(resolve, 5000));
+    if (!worked) {
+      await new Promise<void>((resolve) => {
+        const timer = setTimeout(resolve, 5000);
+        wakeIdle = () => {
+          clearTimeout(timer);
+          resolve();
+        };
+      });
+      wakeIdle = undefined;
+    }
   }
+  console.log("RDC LMS worker stopped");
 }
 
-main().finally(() => db.$disconnect());
+main()
+  .catch((error) => {
+    console.error(error);
+    process.exitCode = 1;
+  })
+  .finally(() => db.$disconnect());

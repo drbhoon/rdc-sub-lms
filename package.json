@@ -2,12 +2,14 @@
   "name": "rdc-sub-lms",
   "version": "0.1.0",
   "private": true,
-  "engines": { "node": ">=22" },
+  "engines": {
+    "node": ">=22"
+  },
   "scripts": {
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "start:railway": "prisma migrate deploy && npm run db:seed && concurrently --kill-others --names web,worker \"npm run start\" \"npm run worker\"",
+    "start:railway": "node scripts/start-railway.mjs",
     "lint": "eslint .",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
@@ -21,10 +23,9 @@
   "dependencies": {
     "@prisma/client": "6.19.3",
     "bcryptjs": "3.0.3",
-    "next": "16.2.9",
     "csv-parse": "7.0.0",
-    "concurrently": "10.0.3",
     "exceljs": "4.4.0",
+    "next": "16.2.9",
     "nodemailer": "9.0.1",
     "prisma": "6.19.3",
     "react": "19.2.7",
