@@ -133,20 +133,24 @@ export default async function CourseAdminPage({ params }: { params: Promise<{ id
             <input type="hidden" name="courseId" value={course.id} />
             <label>Assessment title<input name="title" defaultValue={activeAssessment?.title ?? "Course Assessment"} required /></label>
             <label>Pass percentage<input name="passPercentage" type="number" min="1" max="100" defaultValue={activeAssessment?.passPercentage ?? course.passPercentage} /></label>
+            <label>Overall time limit (minutes)<input name="timeLimitMinutes" type="number" min="1" max="480" defaultValue={activeAssessment ? Math.ceil(activeAssessment.timeLimitSeconds / 60) : 30} /></label>
             <label>Question bank CSV or Excel<input type="file" name="file" accept=".csv,.xlsx,.xls" required /></label>
+            <label className="checkbox"><input type="checkbox" name="shuffleQuestions" defaultChecked={activeAssessment?.shuffleQuestions ?? false} />Shuffle questions for learners</label>
             <label className="checkbox"><input type="checkbox" name="showLeaderboard" defaultChecked={activeAssessment?.showLeaderboard ?? true} />Show leaderboard to learners</label>
           </ActionForm>
           <hr />
           <h3>Assessment versions</h3>
-          <div className="table-wrap"><table><thead><tr><th>Version</th><th>Status</th><th>Questions</th><th>Attempts</th><th>Action</th></tr></thead><tbody>
+          <div className="table-wrap"><table><thead><tr><th>Version</th><th>Status</th><th>Questions</th><th>Time</th><th>Shuffle</th><th>Attempts</th><th>Action</th></tr></thead><tbody>
             {course.assessments.map((assessment) => <tr key={assessment.id}>
               <td>v{assessment.version}<br /><span className="muted">{assessment.title}</span></td>
               <td><span className="badge">{assessment.status}</span></td>
               <td>{assessment.questions.length}</td>
+              <td>{Math.ceil(assessment.timeLimitSeconds / 60)} min</td>
+              <td>{assessment.shuffleQuestions ? "YES" : "NO"}</td>
               <td>{assessment.attempts.length}</td>
               <td><form action={setAssessmentStatus}><input type="hidden" name="assessmentId" value={assessment.id} /><input type="hidden" name="status" value={assessment.status === "ACTIVE" ? "INACTIVE" : "ACTIVE"} /><button className="secondary">{assessment.status === "ACTIVE" ? "Inactivate" : "Activate"}</button></form></td>
             </tr>)}
-            {!course.assessments.length && <tr><td colSpan={5}>No assessment uploaded.</td></tr>}
+            {!course.assessments.length && <tr><td colSpan={7}>No assessment uploaded.</td></tr>}
           </tbody></table></div>
           <p><a className="button secondary" href={`/api/courses/${course.id}/assessment-results`}>Download assessment results Excel</a></p>
         </div>

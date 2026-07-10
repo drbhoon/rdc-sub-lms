@@ -47,7 +47,7 @@ export async function importEmployees(_: EmployeeImportState, formData: FormData
   const errors: string[] = [];
   const normalized = rows.map((row, index) => {
     const record = normalizeEmployeeImportRow(row);
-    if (!record.employeeCode || !record.name || !record.email.includes("@") || !record.company || !record.designation || !record.statusIsValid) errors.push(`Row ${index + 2} has invalid required values or status.`);
+    if (!record.employeeCode || !record.name || !record.email.includes("@") || !record.company || !record.designation || !record.statusIsValid || !record.roleIsValid) errors.push(`Row ${index + 2} has invalid required values, status, or role.`);
     return record;
   });
   const duplicateCodes = normalized.filter((row, index) => normalized.findIndex((candidate) => candidate.employeeCode === row.employeeCode) !== index);
@@ -87,7 +87,9 @@ export async function importEmployees(_: EmployeeImportState, formData: FormData
       const user = existingUser
         ? await tx.user.update({ where: { id: existingUser.id }, data: { email: row.email } })
         : await tx.user.upsert({ where: { email: row.email }, update: { employeeId: employee.id }, create: { email: row.email, employeeId: employee.id } });
-      await tx.userRoleGrant.upsert({ where: { userId_role: { userId: user.id, role: UserRole.LEARNER } }, update: {}, create: { userId: user.id, role: UserRole.LEARNER } });
+      for (const role of row.roles) {
+        await tx.userRoleGrant.upsert({ where: { userId_role: { userId: user.id, role } }, update: {}, create: { userId: user.id, role } });
+      }
       if (row.status === EmployeeStatus.INACTIVE) await tx.session.deleteMany({ where: { userId: user.id } });
     }
   });

@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { startAssessment } from "@/actions/assessments";
+import { CourseAiAssistant } from "@/components/course-ai-assistant";
 import { FeedbackResponseForm } from "@/components/feedback-response-form";
 import { LessonPlayer } from "@/components/lesson-player";
 import { certificateEligibility } from "@/lib/certificate-eligibility";
@@ -89,6 +90,8 @@ export default async function LearnCourse({ params }: { params: Promise<{ id: st
             <button>{bestAttempt ? "Retake assessment" : "Start assessment"}</button>
           </form>
         </div>}
+
+        <CourseAiAssistant courseId={id} />
 
         <div className="card">
           <h2>Certificate</h2>

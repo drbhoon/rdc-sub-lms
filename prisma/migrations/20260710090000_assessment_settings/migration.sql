@@ -1,0 +1,2 @@
+ALTER TABLE "Assessment" ADD COLUMN "shuffleQuestions" BOOLEAN NOT NULL DEFAULT false;
+ALTER TABLE "Assessment" ADD COLUMN "timeLimitSeconds" INTEGER NOT NULL DEFAULT 1800;

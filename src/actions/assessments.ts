@@ -17,6 +17,7 @@ const uploadSchema = z.object({
   courseId: z.string().min(1),
   title: z.string().trim().min(3).max(150).default("Course Assessment"),
   passPercentage: z.coerce.number().int().min(1).max(100),
+  timeLimitMinutes: z.coerce.number().int().min(1).max(480),
 });
 
 export async function uploadAssessment(_: ActionState, formData: FormData): Promise<ActionState> {
@@ -39,6 +40,8 @@ export async function uploadAssessment(_: ActionState, formData: FormData): Prom
           courseId,
           title: parsed.data.title,
           passPercentage: parsed.data.passPercentage,
+          shuffleQuestions: formData.get("shuffleQuestions") === "on",
+          timeLimitSeconds: parsed.data.timeLimitMinutes * 60,
           version,
           status: AssessmentStatus.ACTIVE,
           showLeaderboard: formData.get("showLeaderboard") === "on",
@@ -57,7 +60,7 @@ export async function uploadAssessment(_: ActionState, formData: FormData): Prom
         },
       });
     });
-    await audit(actor.id, "ASSESSMENT_UPLOADED", "Assessment", assessment.id, { courseId, questionCount: questions.length, fileName: file.name });
+    await audit(actor.id, "ASSESSMENT_UPLOADED", "Assessment", assessment.id, { courseId, questionCount: questions.length, fileName: file.name, timeLimitMinutes: parsed.data.timeLimitMinutes, shuffleQuestions: formData.get("shuffleQuestions") === "on" });
     revalidatePath(`/admin/courses/${courseId}`);
     revalidatePath(`/teacher/courses/${courseId}`);
     revalidatePath(`/learn/courses/${courseId}`);
@@ -157,7 +160,8 @@ export async function submitAssessment(_: AssessmentSubmitState, formData: FormD
   }).length;
   const totalQuestions = attempt.assessment.questions.length;
   const scorePercent = totalQuestions ? Math.round((correctAnswers / totalQuestions) * 1000) / 10 : 0;
-  const timeTakenSeconds = normalized.reduce((sum, answer) => sum + answer.timeSpentSeconds, 0);
+  const elapsedSeconds = Math.max(0, Math.floor((Date.now() - attempt.startedAt.getTime()) / 1000));
+  const timeTakenSeconds = Math.min(elapsedSeconds, attempt.assessment.timeLimitSeconds);
   const passed = scorePercent >= attempt.assessment.passPercentage;
 
   await db.$transaction(async (tx) => {

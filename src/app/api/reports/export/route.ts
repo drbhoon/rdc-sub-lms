@@ -51,18 +51,48 @@ export async function GET(request: Request) {
   ]);
 
   const workbook = new ExcelJS.Workbook();
-  const progress = workbook.addWorksheet("Progress Tracker");
+  const bestAttempts = new Map<string, (typeof assessmentAttempts)[number]>();
+  for (const attempt of assessmentAttempts) {
+    const key = `${attempt.employeeId}:${attempt.assessment.courseId}`;
+    const existing = bestAttempts.get(key);
+    if (!existing || attempt.scorePercent > existing.scorePercent || (attempt.scorePercent === existing.scorePercent && attempt.timeTakenSeconds < existing.timeTakenSeconds)) {
+      bestAttempts.set(key, attempt);
+    }
+  }
+
+  const progress = workbook.addWorksheet("Progress Assessment Tracker");
   progress.addRow(["Period", period.label]);
   progress.addRow([]);
-  progress.addRow(["Employee Code", "Learner", "Company", "Course", "Status", "Lessons Completed", "Total Lessons", "Progress %", "Completed At"]);
+  progress.addRow(["Employee Code", "Learner", "Company", "Course", "Status", "Lessons Completed", "Total Lessons", "Progress %", "Completed At", "Assessment Version", "Attempt", "Score %", "Correct", "Total Questions", "Passed", "Assessment Time Seconds", "Submitted At"]);
   styleHeader(progress.getRow(3));
   for (const enrollment of progressRows) {
     const totalLessons = enrollment.course.contents.flatMap((content) => content.lessons).length;
     const completedLessons = enrollment.progress.filter((item) => item.completedAt).length;
-    progress.addRow([enrollment.employee.employeeCode, enrollment.employee.name, enrollment.employee.company.name, enrollment.course.title, enrollment.status, completedLessons, totalLessons, totalLessons ? completedLessons / totalLessons : 0, enrollment.completedAt]);
+    const attempt = bestAttempts.get(`${enrollment.employeeId}:${enrollment.courseId}`);
+    progress.addRow([
+      enrollment.employee.employeeCode,
+      enrollment.employee.name,
+      enrollment.employee.company.name,
+      enrollment.course.title,
+      enrollment.status,
+      completedLessons,
+      totalLessons,
+      totalLessons ? completedLessons / totalLessons : 0,
+      enrollment.completedAt,
+      attempt?.assessment.version ?? "",
+      attempt?.attemptNumber ?? "",
+      attempt?.scorePercent ?? "",
+      attempt?.correctAnswers ?? "",
+      attempt?.totalQuestions ?? "",
+      attempt ? attempt.passed ? "YES" : "NO" : "",
+      attempt?.timeTakenSeconds ?? "",
+      attempt?.submittedAt ?? "",
+    ]);
   }
   progress.getColumn(8).numFmt = "0.0%";
   progress.getColumn(9).numFmt = "yyyy-mm-dd";
+  progress.getColumn(12).numFmt = "0.0";
+  progress.getColumn(17).numFmt = "yyyy-mm-dd hh:mm";
   autoFit(progress);
 
   const learners = workbook.addWorksheet("Active Learners");
@@ -81,16 +111,6 @@ export async function GET(request: Request) {
   }
   courses.getColumn(7).numFmt = "0.0%";
   autoFit(courses);
-
-  const assessment = workbook.addWorksheet("Assessment Results");
-  assessment.addRow(["Employee Code", "Learner", "Company", "Course", "Assessment Version", "Attempt", "Score %", "Correct", "Total", "Passed", "Time Seconds", "Submitted At"]);
-  styleHeader(assessment.getRow(1));
-  for (const attempt of assessmentAttempts) {
-    assessment.addRow([attempt.employee.employeeCode, attempt.employee.name, attempt.employee.company.name, attempt.assessment.course.title, attempt.assessment.version, attempt.attemptNumber, attempt.scorePercent, attempt.correctAnswers, attempt.totalQuestions, attempt.passed ? "YES" : "NO", attempt.timeTakenSeconds, attempt.submittedAt]);
-  }
-  assessment.getColumn(7).numFmt = "0.0";
-  assessment.getColumn(12).numFmt = "yyyy-mm-dd hh:mm";
-  autoFit(assessment);
 
   const topperRows = buildLeaderboardRows(assessmentAttempts.map((attempt) => ({
     enrollmentId: attempt.id,

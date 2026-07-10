@@ -12,7 +12,7 @@ export default async function TeacherCourses() {
   });
 
   return <main className="container">
-    <h1>Teaching</h1>
+    <h1>Teacher</h1>
     <div className="grid">
       {courses.map((course) => <Link className={`card course-card ${course.isActive ? "" : "inactive-card"}`} key={course.id} href={`/teacher/courses/${course.id}`}>
         <div className="badge-row"><span className="badge">{course.status.replaceAll("_", " ")}</span>{!course.isActive && <span className="badge badge-muted">Inactive</span>}</div>

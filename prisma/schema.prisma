@@ -299,6 +299,8 @@ model Assessment {
   status            AssessmentStatus @default(DRAFT)
   passPercentage    Int              @default(70)
   showLeaderboard   Boolean          @default(true)
+  shuffleQuestions  Boolean          @default(false)
+  timeLimitSeconds  Int              @default(1800)
   course            Course           @relation(fields: [courseId], references: [id], onDelete: Cascade)
   questions         AssessmentQuestion[]
   attempts          AssessmentAttempt[]

@@ -28,7 +28,7 @@ export default async function ReportsPage({ searchParams }: { searchParams: Prom
     db.company.findMany({ orderBy: { name: "asc" }, select: { id: true, name: true } }),
   ]);
 
-  const [progressRows, activeLearners, courseAnalysis] = await Promise.all([
+  const [progressRows, activeLearners, courseAnalysis, assessmentAttempts] = await Promise.all([
     db.enrollment.findMany({
       where: {
         enrolledAt: periodRange,
@@ -59,7 +59,27 @@ export default async function ReportsPage({ searchParams }: { searchParams: Prom
       orderBy: { title: "asc" },
       take: 200,
     }),
+    db.assessmentAttempt.findMany({
+      where: {
+        status: "SUBMITTED",
+        submittedAt: periodRange,
+        ...(courseId ? { assessment: { courseId } } : {}),
+        ...(companyId ? { employee: { companyId } } : {}),
+      },
+      include: { assessment: { include: { course: true } } },
+      orderBy: [{ scorePercent: "desc" }, { timeTakenSeconds: "asc" }],
+      take: 500,
+    }),
   ]);
+
+  const bestAttempts = new Map<string, (typeof assessmentAttempts)[number]>();
+  for (const attempt of assessmentAttempts) {
+    const key = `${attempt.employeeId}:${attempt.assessment.courseId}`;
+    const existing = bestAttempts.get(key);
+    if (!existing || attempt.scorePercent > existing.scorePercent || (attempt.scorePercent === existing.scorePercent && attempt.timeTakenSeconds < existing.timeTakenSeconds)) {
+      bestAttempts.set(key, attempt);
+    }
+  }
 
   const completionRate = progressRows.length ? Math.round(progressRows.filter((row) => row.status === "COMPLETED").length / progressRows.length * 100) : 0;
   const leaderboard = buildLeaderboardRows(progressRows.map((enrollment) => {
@@ -117,14 +137,15 @@ export default async function ReportsPage({ searchParams }: { searchParams: Prom
     </div>
 
     <section className="card">
-      <h2>Progress tracker</h2>
+      <h2>Progress and assessment tracker</h2>
       <div className="table-wrap"><table>
-        <thead><tr><th>Learner</th><th>Company</th><th>Course</th><th>Status</th><th>Progress</th><th>Completed</th></tr></thead>
+        <thead><tr><th>Learner</th><th>Company</th><th>Course</th><th>Status</th><th>Progress</th><th>Completed</th><th>Assessment v</th><th>Attempt</th><th>Score %</th><th>Correct</th><th>Passed</th><th>Assessment time</th><th>Submitted</th></tr></thead>
         <tbody>
           {progressRows.map((enrollment) => {
             const totalLessons = enrollment.course.contents.flatMap((content) => content.lessons).length;
             const completedLessons = enrollment.progress.filter((progress) => progress.completedAt).length;
             const percent = totalLessons ? Math.round(completedLessons / totalLessons * 100) : 0;
+            const attempt = bestAttempts.get(`${enrollment.employeeId}:${enrollment.courseId}`);
             return <tr key={enrollment.id}>
               <td><strong>{enrollment.employee.name}</strong><br /><span className="muted">{enrollment.employee.employeeCode}</span></td>
               <td>{enrollment.employee.company.name}</td>
@@ -132,9 +153,16 @@ export default async function ReportsPage({ searchParams }: { searchParams: Prom
               <td><span className="badge">{enrollment.status.replaceAll("_", " ")}</span></td>
               <td>{completedLessons}/{totalLessons} lessons ({percent}%)</td>
               <td>{enrollment.completedAt ? enrollment.completedAt.toLocaleDateString("en-IN") : "-"}</td>
+              <td>{attempt?.assessment.version ?? ""}</td>
+              <td>{attempt?.attemptNumber ?? ""}</td>
+              <td>{attempt ? attempt.scorePercent : ""}</td>
+              <td>{attempt ? `${attempt.correctAnswers}/${attempt.totalQuestions}` : ""}</td>
+              <td>{attempt ? attempt.passed ? "YES" : "NO" : ""}</td>
+              <td>{attempt ? formatDuration(attempt.timeTakenSeconds) : ""}</td>
+              <td>{attempt?.submittedAt ? attempt.submittedAt.toLocaleString("en-IN") : ""}</td>
             </tr>;
           })}
-          {!progressRows.length && <tr><td colSpan={6}>No learner-course records match this filter.</td></tr>}
+          {!progressRows.length && <tr><td colSpan={13}>No learner-course records match this filter.</td></tr>}
         </tbody>
       </table></div>
     </section>
