@@ -19,6 +19,7 @@ const schema = z.object({
   OTP_MAX_ATTEMPTS: z.coerce.number().int().positive().default(5),
   OPENAI_API_KEY: z.string().optional(),
   OPENAI_MODEL: z.string().default("gpt-5.4-mini"),
+  CRON_SECRET: z.string().optional(),
 });
 
 export const env = schema.parse(process.env);

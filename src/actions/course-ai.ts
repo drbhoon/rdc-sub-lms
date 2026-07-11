@@ -1,6 +1,6 @@
 "use server";
 
-import { UserRole } from "@prisma/client";
+import { CourseAiInteractionStatus, UserRole } from "@prisma/client";
 import { z } from "zod";
 import { db } from "@/lib/db";
 import { requireRole } from "@/lib/session";
@@ -28,6 +28,28 @@ function jsonText(value: unknown) {
   return "";
 }
 
+async function recordInteraction(input: {
+  courseId: string;
+  employeeId: string;
+  question: string;
+  answer?: string;
+  error?: string;
+  model?: string;
+}) {
+  await db.courseAiInteraction.create({
+    data: {
+      courseId: input.courseId,
+      employeeId: input.employeeId,
+      question: input.question,
+      answer: input.answer,
+      error: input.error,
+      model: input.model,
+      status: input.answer ? CourseAiInteractionStatus.ANSWERED : CourseAiInteractionStatus.FAILED,
+      sourceRestricted: true,
+    },
+  }).catch(() => undefined);
+}
+
 export async function askCourseAi(_: CourseAiState, formData: FormData): Promise<CourseAiState> {
   const user = await requireRole(UserRole.LEARNER);
   if (!user.employeeId) return { message: "Learner profile required." };
@@ -50,6 +72,8 @@ export async function askCourseAi(_: CourseAiState, formData: FormData): Promise
     },
   });
   if (!enrollment || enrollment.course.status !== "PUBLISHED") return { message: "Course is not available." };
+  const model = process.env.OPENAI_MODEL ?? "gpt-5.4-mini";
+  const historyBase = { courseId: parsed.data.courseId, employeeId: user.employeeId, question: parsed.data.question, model };
 
   const source = enrollment.course.contents.map((content) => [
     `CONTENT: ${content.originalName}`,
@@ -59,7 +83,11 @@ export async function askCourseAi(_: CourseAiState, formData: FormData): Promise
     content.extractedText ? `Source text:\n${content.extractedText}` : "",
   ].filter(Boolean).join("\n\n")).join("\n\n---\n\n").replace(/\s+/g, " ").trim();
 
-  if (source.length < 80) return { message: "AI assistant needs processed course text before it can answer." };
+  if (source.length < 80) {
+    const message = "AI assistant needs processed course text before it can answer.";
+    await recordInteraction({ ...historyBase, error: message });
+    return { message };
+  }
 
   let response: Response;
   try {
@@ -67,7 +95,7 @@ export async function askCourseAi(_: CourseAiState, formData: FormData): Promise
       method: "POST",
       headers: { "Content-Type": "application/json", Authorization: `Bearer ${apiKey}` },
       body: JSON.stringify({
-        model: process.env.OPENAI_MODEL ?? "gpt-5.4-mini",
+        model,
         store: false,
         instructions: [
           "You are the RDC course assistant for an enrolled learner.",
@@ -83,12 +111,22 @@ export async function askCourseAi(_: CourseAiState, formData: FormData): Promise
       signal: AbortSignal.timeout(60_000),
     });
   } catch (error) {
-    return { message: error instanceof Error && error.name === "TimeoutError" ? "AI request timed out. Please try again." : "AI request could not be completed. Please try again." };
+    const message = error instanceof Error && error.name === "TimeoutError" ? "AI request timed out. Please try again." : "AI request could not be completed. Please try again.";
+    await recordInteraction({ ...historyBase, error: message });
+    return { message };
   }
   if (!response.ok) {
     const failure = await response.json().catch(() => null) as { error?: { message?: string } } | null;
-    return { message: failure?.error?.message?.slice(0, 300) ?? "AI request failed." };
+    const message = failure?.error?.message?.slice(0, 300) ?? "AI request failed.";
+    await recordInteraction({ ...historyBase, error: message });
+    return { message };
   }
   const answer = outputText(await response.json());
-  return answer ? { answer } : { message: "AI returned no answer." };
+  if (answer) {
+    await recordInteraction({ ...historyBase, answer });
+    return { answer };
+  }
+  const message = "AI returned no answer.";
+  await recordInteraction({ ...historyBase, error: message });
+  return { message };
 }

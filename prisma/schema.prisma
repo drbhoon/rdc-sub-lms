@@ -63,6 +63,19 @@ enum FeedbackQuestionType {
   SINGLE_CHOICE
   MULTI_CHOICE
 }
+enum CourseEmailType {
+  ENROLLMENT
+  REMINDER
+}
+enum CourseEmailStatus {
+  SENT
+  FAILED
+  SKIPPED
+}
+enum CourseAiInteractionStatus {
+  ANSWERED
+  FAILED
+}
 
 model Company {
   id        String   @id @default(cuid())
@@ -90,6 +103,8 @@ model Employee {
   enrollments  Enrollment[]
   assessmentAttempts AssessmentAttempt[]
   feedbackResponses  FeedbackResponse[]
+  aiInteractions      CourseAiInteraction[]
+  emailLogs           CourseEmailLog[]
   createdAt    DateTime       @default(now())
   updatedAt    DateTime       @updatedAt
 
@@ -164,6 +179,8 @@ model Course {
   enrollments          Enrollment[]
   assessments          Assessment[]
   feedbackForms        FeedbackForm[]
+  aiInteractions       CourseAiInteraction[]
+  emailLogs            CourseEmailLog[]
   createdAt            DateTime     @default(now())
   updatedAt            DateTime     @updatedAt
   @@index([status])
@@ -419,4 +436,40 @@ model FeedbackAnswer {
   question    FeedbackQuestion @relation(fields: [questionId], references: [id], onDelete: Cascade)
 
   @@unique([responseId, questionId])
+}
+
+model CourseAiInteraction {
+  id               String                    @id @default(cuid())
+  courseId         String
+  employeeId       String
+  question         String
+  answer           String?
+  status           CourseAiInteractionStatus @default(ANSWERED)
+  error            String?
+  model            String?
+  sourceRestricted Boolean                   @default(true)
+  createdAt        DateTime                  @default(now())
+  course           Course                    @relation(fields: [courseId], references: [id], onDelete: Cascade)
+  employee         Employee                  @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+
+  @@index([courseId, createdAt])
+  @@index([employeeId, createdAt])
+}
+
+model CourseEmailLog {
+  id             String            @id @default(cuid())
+  type           CourseEmailType
+  status         CourseEmailStatus
+  courseId       String
+  employeeId     String
+  recipientEmail String
+  subject        String
+  error          String?
+  sentAt         DateTime          @default(now())
+  course         Course            @relation(fields: [courseId], references: [id], onDelete: Cascade)
+  employee       Employee          @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+
+  @@index([type, sentAt])
+  @@index([courseId, type, sentAt])
+  @@index([employeeId, type, sentAt])
 }

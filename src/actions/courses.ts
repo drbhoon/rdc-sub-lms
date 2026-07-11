@@ -6,6 +6,7 @@ import { redirect } from "next/navigation";
 import { z } from "zod";
 import { audit } from "@/lib/audit";
 import { requireCourseManager } from "@/lib/course-access";
+import { sendEnrollmentEmail } from "@/lib/course-notifications";
 import { db } from "@/lib/db";
 import { eligibleLearnerForCourseWhere } from "@/lib/enrollment-eligibility";
 import { requireRole } from "@/lib/session";
@@ -207,16 +208,56 @@ export async function editLesson(formData: FormData) {
 export async function enrollEmployees(formData: FormData) {
   const actor = await requireRole(UserRole.SUPER_ADMIN);
   const courseId = String(formData.get("courseId"));
-  const employeeIds = formData.getAll("employeeIds").map(String);
+  const employeeIds = uniqueIds(formData.getAll("employeeIds"));
+  if (!employeeIds.length) return { message: "Select at least one employee." };
   const course = await db.course.findUniqueOrThrow({ where: { id: courseId }, include: { companies: true } });
   if (!course.isActive) throw new Error("Inactive courses cannot receive new learner enrollments.");
   const eligible = await db.employee.findMany({
     where: eligibleLearnerForCourseWhere(course.companies.map((company) => company.companyId), employeeIds),
-    select: { id: true },
+    select: { id: true, name: true, email: true },
   });
-  await db.$transaction(eligible.map(({ id }) => db.enrollment.upsert({ where: { employeeId_courseId: { employeeId: id, courseId } }, update: {}, create: { employeeId: id, courseId } })));
-  await audit(actor.id, "EMPLOYEES_ENROLLED", "Course", courseId, { count: eligible.length });
+  const existing = await db.enrollment.findMany({ where: { courseId, employeeId: { in: eligible.map((employee) => employee.id) } }, select: { employeeId: true } });
+  const existingIds = new Set(existing.map((enrollment) => enrollment.employeeId));
+  const newEmployees = eligible.filter((employee) => !existingIds.has(employee.id));
+  if (newEmployees.length) {
+    await db.$transaction(newEmployees.map(({ id }) => db.enrollment.create({ data: { employeeId: id, courseId } })));
+    for (const employee of newEmployees) await sendEnrollmentEmail({ employee, course });
+  }
+  await audit(actor.id, "EMPLOYEES_ENROLLED", "Course", courseId, { count: newEmployees.length });
   revalidatePath(`/admin/courses/${courseId}`);
+  revalidatePath("/admin/employees");
+  return { message: `${newEmployees.length} employee(s) enrolled. ${eligible.length - newEmployees.length} were already enrolled or not eligible.` };
+}
+
+export async function enrollEmployeesFromPicker(_: { message?: string }, formData: FormData) {
+  return enrollEmployees(formData);
+}
+
+export async function enrollEmployeeInCourses(_: { message?: string }, formData: FormData) {
+  const actor = await requireRole(UserRole.SUPER_ADMIN);
+  const employeeId = String(formData.get("employeeId") ?? "");
+  const courseIds = uniqueIds(formData.getAll("courseIds"));
+  if (!employeeId || !courseIds.length) return { message: "Select an employee and at least one course." };
+  const employee = await db.employee.findUnique({ where: { id: employeeId }, include: { company: true, user: { include: { roles: true } } } });
+  if (!employee || employee.status !== "ACTIVE") return { message: "Only active employees can be enrolled." };
+  const isSuperAdminLearner = employee.user?.roles.some((role) => role.role === UserRole.SUPER_ADMIN) ?? false;
+  const courses = await db.course.findMany({
+    where: { id: { in: courseIds }, isActive: true, ...(isSuperAdminLearner ? {} : { companies: { some: { companyId: employee.companyId } } }) },
+    include: { companies: true },
+    orderBy: { title: "asc" },
+  });
+  const existing = await db.enrollment.findMany({ where: { employeeId, courseId: { in: courses.map((course) => course.id) } }, select: { courseId: true } });
+  const existingIds = new Set(existing.map((enrollment) => enrollment.courseId));
+  const newCourses = courses.filter((course) => !existingIds.has(course.id));
+  if (newCourses.length) {
+    await db.$transaction(newCourses.map((course) => db.enrollment.create({ data: { employeeId, courseId: course.id } })));
+    for (const course of newCourses) await sendEnrollmentEmail({ employee, course });
+  }
+  await audit(actor.id, "EMPLOYEE_ENROLLED_IN_COURSES", "Employee", employeeId, { count: newCourses.length });
+  revalidatePath("/admin/employees");
+  revalidatePath("/admin/courses");
+  for (const course of newCourses) revalidatePath(`/admin/courses/${course.id}`);
+  return { message: `${newCourses.length} course(s) allocated to ${employee.name}. ${courses.length - newCourses.length} were already allocated or not eligible.` };
 }
 
 export async function deleteCourse(formData: FormData) {

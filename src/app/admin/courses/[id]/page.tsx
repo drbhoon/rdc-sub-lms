@@ -1,11 +1,12 @@
 import { notFound } from "next/navigation";
 import { UserRole } from "@prisma/client";
 import { setAssessmentStatus, uploadAssessment } from "@/actions/assessments";
-import { deleteCourse, enrollEmployees, setCourseActive, updateCourse, updateCourseTeachers } from "@/actions/courses";
+import { deleteCourse, setCourseActive, updateCourse, updateCourseTeachers } from "@/actions/courses";
 import { deleteUnpublishedContent, retryContent } from "@/actions/content";
 import { uploadFeedbackTemplate } from "@/actions/feedback";
 import { ActionForm } from "@/components/action-form";
 import { ContentUploadForm } from "@/components/content-upload-form";
+import { CourseEnrollmentPicker } from "@/components/course-enrollment-picker";
 import { buildLeaderboardRows, formatDuration } from "@/lib/leaderboard";
 import { db } from "@/lib/db";
 import { eligibleLearnerForCourseWhere } from "@/lib/enrollment-eligibility";
@@ -22,6 +23,7 @@ export default async function CourseAdminPage({ params }: { params: Promise<{ id
       teachers: { include: { user: { include: { employee: true } } } },
       contents: { include: { lessons: true }, orderBy: { version: "desc" } },
       enrollments: { include: { employee: { include: { company: true } }, progress: true }, orderBy: { employee: { name: "asc" } } },
+      aiInteractions: { include: { employee: { include: { company: true } } }, orderBy: { createdAt: "desc" }, take: 25 },
       assessments: {
         include: { questions: true, attempts: { where: { status: "SUBMITTED" }, include: { employee: { include: { company: true } } }, orderBy: [{ scorePercent: "desc" }, { timeTakenSeconds: "asc" }] } },
         orderBy: { version: "desc" },
@@ -41,8 +43,9 @@ export default async function CourseAdminPage({ params }: { params: Promise<{ id
           ...eligibleLearnerForCourseWhere(course.companies.map((company) => company.companyId)),
           enrollments: { none: { courseId: id } },
         },
-        include: { user: { include: { roles: true } } },
+        include: { company: true, user: { include: { roles: true } } },
         orderBy: { name: "asc" },
+        take: 1000,
       })
       : Promise.resolve([]),
     db.company.findMany({ orderBy: { name: "asc" } }),
@@ -228,18 +231,31 @@ export default async function CourseAdminPage({ params }: { params: Promise<{ id
 
         <div className="card">
           <h2>Enroll employees</h2>
-          {!course.isActive ? <p>Reactivate this course before enrolling new learners.</p> : employees.length ? <form action={enrollEmployees} className="form">
-            <input type="hidden" name="courseId" value={course.id} />
-            <div style={{ maxHeight: 280, overflow: "auto" }}>
-              {employees.map((employee) => {
-                const isAdminLearner = employee.user?.roles.some((role) => role.role === UserRole.SUPER_ADMIN);
-                return <label className="checkbox" key={employee.id}>
-                  <input type="checkbox" name="employeeIds" value={employee.id} />{employee.name} ({employee.employeeCode}) {isAdminLearner && <span className="badge">Admin test learner</span>}
-                </label>;
-              })}
-            </div>
-            <button>Enroll selected</button>
-          </form> : <p>All eligible employees are enrolled.</p>}
+          {!course.isActive ? <p>Reactivate this course before enrolling new learners.</p> : employees.length ? <CourseEnrollmentPicker
+            courseId={course.id}
+            employees={employees.map((employee) => ({
+              id: employee.id,
+              name: employee.name,
+              employeeCode: employee.employeeCode,
+              email: employee.email,
+              companyName: employee.company.name,
+              isAdminLearner: employee.user?.roles.some((role) => role.role === UserRole.SUPER_ADMIN) ?? false,
+            }))}
+          /> : <p>All eligible employees are enrolled.</p>}
+        </div>
+
+        <div className="card">
+          <h2>Learner AI history</h2>
+          <p className="muted">Latest questions asked by learners in this course.</p>
+          <div className="table-wrap"><table><thead><tr><th>Learner</th><th>Question</th><th>Answer / Status</th><th>Asked</th></tr></thead><tbody>
+            {course.aiInteractions.map((item) => <tr key={item.id}>
+              <td>{item.employee.name}<br /><span className="muted">{item.employee.employeeCode} - {item.employee.company.name}</span></td>
+              <td>{item.question}</td>
+              <td>{item.answer ?? item.error ?? item.status}</td>
+              <td>{item.createdAt.toLocaleString("en-IN")}</td>
+            </tr>)}
+            {!course.aiInteractions.length && <tr><td colSpan={4}>No learner AI history is available yet.</td></tr>}
+          </tbody></table></div>
         </div>
 
         {course.leaderboardEnabled && <div className="card">

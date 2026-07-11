@@ -1,20 +1,30 @@
 import { UserRole } from "@prisma/client";
 import { updateUserRoles } from "@/actions/employees";
 import { ActionForm } from "@/components/action-form";
+import { EmployeeCourseEnrollmentForm } from "@/components/employee-course-enrollment-form";
 import { EmployeeImportForm } from "@/components/employee-import-form";
 import { db } from "@/lib/db";
 import { requireRole } from "@/lib/session";
 
 export default async function EmployeesPage() {
   await requireRole(UserRole.SUPER_ADMIN);
-  const employees = await db.employee.findMany({
-    include: { company: true, user: { include: { roles: true, coursesTaught: { include: { course: true } } } } },
-    orderBy: { name: "asc" },
-    take: 500,
-  });
+  const [employees, activeCourses] = await Promise.all([
+    db.employee.findMany({
+      include: { company: true, enrollments: { select: { courseId: true } }, user: { include: { roles: true, coursesTaught: { include: { course: true } } } } },
+      orderBy: { name: "asc" },
+      take: 1000,
+    }),
+    db.course.findMany({
+      where: { isActive: true },
+      include: { companies: true },
+      orderBy: { title: "asc" },
+      take: 1000,
+    }),
+  ]);
 
   return <main className="container">
     <h1>Employees</h1>
+    <p><a className="button secondary" href="/api/employees/export">Download employee data Excel</a></p>
     <div className="two-col">
       <section className="card">
         <h2>Employee master</h2>
@@ -53,6 +63,32 @@ export default async function EmployeesPage() {
         <p><a className="button secondary" href="/templates/rdc-employee-import-template.xlsx">Download Excel template</a></p>
         <p><a href="/templates/rdc-employee-import-template.csv">Download CSV template</a></p>
         <EmployeeImportForm />
+      </aside>
+
+      <aside className="card">
+        <h2>Allocate courses to employee</h2>
+        <p className="muted">Search an employee, then select one or more eligible courses.</p>
+        <EmployeeCourseEnrollmentForm
+          employees={employees.filter((employee) => employee.status === "ACTIVE").map((employee) => {
+            const roles = employee.user?.roles.map((role) => role.role) ?? [];
+            return {
+              id: employee.id,
+              name: employee.name,
+              employeeCode: employee.employeeCode,
+              email: employee.email,
+              companyId: employee.companyId,
+              companyName: employee.company.name,
+              isSuperAdminLearner: roles.includes(UserRole.SUPER_ADMIN),
+              enrolledCourseIds: employee.enrollments.map((enrollment) => enrollment.courseId),
+            };
+          })}
+          courses={activeCourses.map((course) => ({
+            id: course.id,
+            title: course.title,
+            status: course.status,
+            companyIds: course.companies.map((company) => company.companyId),
+          }))}
+        />
       </aside>
     </div>
   </main>;
