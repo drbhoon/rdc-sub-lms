@@ -8,4 +8,4 @@ cmds = ["npm ci"]
 cmds = ["npm run db:generate", "npm run build"]
 
 [start]
-cmd = "npm run start:railway"
+cmd = "node scripts/start-railway.mjs"

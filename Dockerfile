@@ -32,4 +32,4 @@ COPY --from=builder /app/src ./src
 COPY --from=builder /app/worker ./worker
 COPY --from=builder /app/next.config.ts ./next.config.ts
 COPY --from=builder /app/tsconfig.json ./tsconfig.json
-CMD ["npm", "run", "start:railway"]
+CMD ["node", "scripts/start-railway.mjs"]
