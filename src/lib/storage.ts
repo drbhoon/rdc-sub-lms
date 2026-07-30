@@ -1,10 +1,11 @@
-import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { env } from "@/lib/env";
 
 export interface StorageProvider {
   put(key: string, bytes: Uint8Array): Promise<void>;
   get(key: string): Promise<Buffer>;
+  delete(key: string): Promise<void>;
 }
 
 class LocalStorage implements StorageProvider {
@@ -20,6 +21,7 @@ class LocalStorage implements StorageProvider {
     await writeFile(target, bytes);
   }
   get(key: string) { return readFile(this.resolve(key)); }
+  delete(key: string) { return rm(this.resolve(key), { force: true }); }
 }
 
 export const storage: StorageProvider = new LocalStorage();

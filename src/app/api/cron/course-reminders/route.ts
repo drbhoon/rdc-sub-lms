@@ -2,6 +2,7 @@ import { CourseEmailType, EnrollmentStatus } from "@prisma/client";
 import { db } from "@/lib/db";
 import { env } from "@/lib/env";
 import { sendReminderEmail } from "@/lib/course-notifications";
+import { reminderEnrollmentCutoff } from "@/lib/course-reminders";
 
 const IST_OFFSET_MINUTES = 330;
 
@@ -31,6 +32,7 @@ export async function GET(request: Request) {
   if (!isAuthorized(request)) return new Response("Forbidden", { status: 403 });
 
   const { start, end } = istDayRange();
+  const enrollmentCutoff = reminderEnrollmentCutoff();
   const alreadyReminded = await db.courseEmailLog.findMany({
     where: { type: CourseEmailType.REMINDER, sentAt: { gte: start, lt: end } },
     select: { employeeId: true, courseId: true },
@@ -40,6 +42,7 @@ export async function GET(request: Request) {
   const enrollments = await db.enrollment.findMany({
     where: {
       status: { not: EnrollmentStatus.COMPLETED },
+      enrolledAt: { lte: enrollmentCutoff },
       employee: { status: "ACTIVE" },
       course: { status: "PUBLISHED" },
     },
@@ -66,6 +69,7 @@ export async function GET(request: Request) {
     sent,
     skippedAlreadySent,
     considered: enrollments.length,
+    enrollmentCutoff: enrollmentCutoff.toISOString(),
     istDate: new Date(start.getTime() + IST_OFFSET_MINUTES * 60_000).toISOString().slice(0, 10),
   });
 }

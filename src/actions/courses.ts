@@ -10,6 +10,7 @@ import { sendEnrollmentEmail } from "@/lib/course-notifications";
 import { db } from "@/lib/db";
 import { eligibleLearnerForCourseWhere } from "@/lib/enrollment-eligibility";
 import { requireRole } from "@/lib/session";
+import { storage } from "@/lib/storage";
 import { eligibleTeacherWhere } from "@/lib/teacher-eligibility";
 
 const courseSchema = z.object({
@@ -88,9 +89,7 @@ export async function updateCourse(_: { message?: string }, formData: FormData) 
   });
 
   await audit(actor.id, "COURSE_UPDATED", "Course", courseId);
-  revalidatePath("/admin/courses");
-  revalidatePath(`/admin/courses/${courseId}`);
-  revalidatePath(`/teacher/courses/${courseId}`);
+  revalidatePath("/", "layout");
   return { message: "Course details updated." };
 }
 
@@ -260,25 +259,29 @@ export async function enrollEmployeeInCourses(_: { message?: string }, formData:
   return { message: `${newCourses.length} course(s) allocated to ${employee.name}. ${courses.length - newCourses.length} were already allocated or not eligible.` };
 }
 
-export async function deleteCourse(formData: FormData) {
+export async function deleteCourse(_: { message?: string }, formData: FormData): Promise<{ message?: string }> {
   const actor = await requireRole(UserRole.SUPER_ADMIN);
   const courseId = String(formData.get("courseId") ?? "");
   const course = await db.course.findUnique({
     where: { id: courseId },
     include: {
-      _count: { select: { enrollments: true, assessments: true, feedbackForms: true } },
-      assessments: { include: { _count: { select: { attempts: true } } } },
-      feedbackForms: { include: { _count: { select: { responses: true } } } },
+      contents: { include: { lessons: { select: { pageAssetKeys: true } } } },
     },
   });
-  if (!course) throw new Error("Course not found.");
-  const attemptCount = course.assessments.reduce((sum, assessment) => sum + assessment._count.attempts, 0);
-  const responseCount = course.feedbackForms.reduce((sum, form) => sum + form._count.responses, 0);
-  if (course._count.enrollments || attemptCount || responseCount) {
-    throw new Error("This course has learner history. Set it inactive instead of deleting.");
+  if (!course) return { message: "Course not found." };
+  if (String(formData.get("confirmTitle") ?? "").trim() !== course.title) return { message: "Type the complete course title exactly to confirm deletion." };
+  const storedKeys = new Set<string>();
+  for (const content of course.contents) {
+    storedKeys.add(content.storedKey);
+    for (const lesson of content.lessons) {
+      if (Array.isArray(lesson.pageAssetKeys)) {
+        for (const key of lesson.pageAssetKeys) if (typeof key === "string") storedKeys.add(key);
+      }
+    }
   }
   await db.course.delete({ where: { id: courseId } });
   await audit(actor.id, "COURSE_DELETED", "Course", courseId, { title: course.title });
-  revalidatePath("/admin/courses");
+  await Promise.allSettled([...storedKeys].map((key) => storage.delete(key)));
+  revalidatePath("/", "layout");
   redirect("/admin/courses");
 }

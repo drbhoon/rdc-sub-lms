@@ -2,7 +2,7 @@ import { notFound } from "next/navigation";
 import { UserRole } from "@prisma/client";
 import { setAssessmentStatus, uploadAssessment } from "@/actions/assessments";
 import { deleteCourse, setCourseActive, updateCourse, updateCourseTeachers } from "@/actions/courses";
-import { deleteUnpublishedContent, retryContent } from "@/actions/content";
+import { deleteCourseContent, retryContent } from "@/actions/content";
 import { uploadFeedbackTemplate } from "@/actions/feedback";
 import { ActionForm } from "@/components/action-form";
 import { ContentUploadForm } from "@/components/content-upload-form";
@@ -119,7 +119,11 @@ export default async function CourseAdminPage({ params }: { params: Promise<{ id
             <p>{content.lessons.length} lesson(s) {content.approvedAt ? "- Approved" : ""}</p>
             <div className="form-row">
               {content.processingStatus === "FAILED" && <form action={retryContent}><input type="hidden" name="contentId" value={content.id} /><button className="secondary">Retry processing</button></form>}
-              {!content.isPublished && <form action={deleteUnpublishedContent}><input type="hidden" name="contentId" value={content.id} /><button className="secondary">Delete unpublished upload</button></form>}
+              <ActionForm action={deleteCourseContent} submitLabel={content.isPublished ? "Delete published content" : "Delete content"} buttonClassName="danger">
+                <input type="hidden" name="contentId" value={content.id} />
+                <label className="checkbox"><input type="checkbox" name="confirmDelete" />Confirm permanent deletion</label>
+                {content.isPublished && <span className="muted">This immediately removes the lessons and their learner progress.</span>}
+              </ActionForm>
             </div>
           </div>)}
           {!course.contents.length && <p>No content uploaded.</p>}
@@ -213,10 +217,11 @@ export default async function CourseAdminPage({ params }: { params: Promise<{ id
             <input type="hidden" name="isActive" value={course.isActive ? "false" : "true"} />
             <button className="secondary">{course.isActive ? "Set course inactive" : "Reactivate course"}</button>
           </form>
-          <form action={deleteCourse}>
+          <ActionForm action={deleteCourse} submitLabel="Permanently delete course" buttonClassName="danger">
             <input type="hidden" name="courseId" value={course.id} />
-            <button className="secondary">Delete course if no learner history</button>
-          </form>
+            <p className="error">This deletes all content, enrollments, progress, assessments, feedback, certificates and AI history.</p>
+            <label>Type the course title to confirm<input name="confirmTitle" autoComplete="off" placeholder={course.title} /></label>
+          </ActionForm>
         </div>
 
         <div className="card">
@@ -247,6 +252,7 @@ export default async function CourseAdminPage({ params }: { params: Promise<{ id
         <div className="card">
           <h2>Learner AI history</h2>
           <p className="muted">Latest questions asked by learners in this course.</p>
+          <p><a className="button secondary" href={`/api/courses/${course.id}/ai-history`}>Download complete AI history Excel</a></p>
           <div className="table-wrap"><table><thead><tr><th>Learner</th><th>Question</th><th>Answer / Status</th><th>Asked</th></tr></thead><tbody>
             {course.aiInteractions.map((item) => <tr key={item.id}>
               <td>{item.employee.name}<br /><span className="muted">{item.employee.employeeCode} - {item.employee.company.name}</span></td>

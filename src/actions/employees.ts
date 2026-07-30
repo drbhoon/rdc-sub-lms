@@ -3,8 +3,9 @@
 import ExcelJS from "exceljs";
 import { parse } from "csv-parse/sync";
 import path from "node:path";
-import { EmployeeStatus, UserRole } from "@prisma/client";
+import { EmployeeStatus, Prisma, UserRole } from "@prisma/client";
 import { revalidatePath } from "next/cache";
+import { z } from "zod";
 import { db } from "@/lib/db";
 import { audit } from "@/lib/audit";
 import { missingEmployeeColumns, normalizeEmployeeImportRow } from "@/lib/employee-import";
@@ -12,6 +13,89 @@ import { requireRole } from "@/lib/session";
 
 type ImportRow = Record<string, unknown>;
 export type EmployeeImportState = { message?: string; preview?: boolean };
+
+const employeeSchema = z.object({
+  employeeCode: z.string().trim().min(1, "Employee code is required.").max(50),
+  name: z.string().trim().min(2, "Employee name is required.").max(150),
+  email: z.string().trim().email("Enter a valid email address.").max(254),
+  companyId: z.string().min(1, "Select a company."),
+  department: z.string().trim().max(120).optional(),
+  designation: z.string().trim().min(2, "Designation is required.").max(120),
+  locationPlant: z.string().trim().max(120).optional(),
+  managerName: z.string().trim().max(150).optional(),
+  mobileNumber: z.string().trim().max(30).optional(),
+});
+
+export async function createEmployee(_: { message?: string }, formData: FormData) {
+  const actor = await requireRole(UserRole.SUPER_ADMIN);
+  const parsed = employeeSchema.safeParse(Object.fromEntries(formData));
+  if (!parsed.success) return { message: parsed.error.issues[0].message };
+  const input = parsed.data;
+  const email = input.email.toLowerCase();
+  const makeSuperAdmin = formData.get("superAdmin") === "on";
+  const makeTeacher = formData.get("teacher") === "on" || makeSuperAdmin;
+  const company = await db.company.findUnique({ where: { id: input.companyId }, select: { id: true } });
+  if (!company) return { message: "Selected company was not found." };
+
+  try {
+    const employee = await db.$transaction(async (tx) => {
+      const created = await tx.employee.create({
+        data: {
+          employeeCode: input.employeeCode,
+          name: input.name,
+          email,
+          companyId: company.id,
+          department: input.department || "General",
+          designation: input.designation,
+          locationPlant: input.locationPlant || null,
+          managerName: input.managerName || null,
+          mobileNumber: input.mobileNumber || null,
+          status: EmployeeStatus.ACTIVE,
+        },
+      });
+      const existingUser = await tx.user.findUnique({ where: { email } });
+      if (existingUser?.employeeId) throw new Error("This email is already linked to another employee.");
+      const user = existingUser
+        ? await tx.user.update({ where: { id: existingUser.id }, data: { employeeId: created.id } })
+        : await tx.user.create({ data: { email, employeeId: created.id } });
+      const roles = [UserRole.LEARNER, ...(makeTeacher ? [UserRole.TEACHER] : []), ...(makeSuperAdmin ? [UserRole.SUPER_ADMIN] : [])];
+      await tx.userRoleGrant.createMany({ data: roles.map((role) => ({ userId: user.id, role })), skipDuplicates: true });
+      return created;
+    });
+    await audit(actor.id, "EMPLOYEE_CREATED", "Employee", employee.id, { employeeCode: employee.employeeCode, email });
+    revalidatePath("/admin/employees");
+    revalidatePath("/admin/courses");
+    return { message: `${employee.name} was added successfully.` };
+  } catch (error) {
+    if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002") return { message: "Employee code or email address already exists." };
+    return { message: error instanceof Error ? error.message : "Employee could not be added." };
+  }
+}
+
+export async function deleteEmployee(_: { message?: string }, formData: FormData) {
+  const actor = await requireRole(UserRole.SUPER_ADMIN);
+  const employeeId = String(formData.get("employeeId") ?? "");
+  if (formData.get("confirmDelete") !== "on") return { message: "Tick the confirmation box before deleting." };
+  const employee = await db.employee.findUnique({
+    where: { id: employeeId },
+    include: { user: { include: { roles: true } } },
+  });
+  if (!employee) return { message: "Employee not found." };
+  if (actor.employeeId === employee.id) return { message: "You cannot delete your own employee record." };
+  const isSuperAdmin = employee.user?.roles.some((grant) => grant.role === UserRole.SUPER_ADMIN) ?? false;
+  if (isSuperAdmin) {
+    const superAdminCount = await db.userRoleGrant.count({ where: { role: UserRole.SUPER_ADMIN } });
+    if (superAdminCount <= 1) return { message: "The last Super Admin cannot be deleted." };
+  }
+
+  await db.$transaction(async (tx) => {
+    if (employee.user) await tx.user.delete({ where: { id: employee.user.id } });
+    await tx.employee.delete({ where: { id: employee.id } });
+  });
+  await audit(actor.id, "EMPLOYEE_DELETED", "Employee", employee.id, { employeeCode: employee.employeeCode, name: employee.name, email: employee.email });
+  revalidatePath("/", "layout");
+  return { message: `${employee.name} was deleted.` };
+}
 
 export async function importEmployees(_: EmployeeImportState, formData: FormData): Promise<EmployeeImportState> {
   const actor = await requireRole(UserRole.SUPER_ADMIN);
