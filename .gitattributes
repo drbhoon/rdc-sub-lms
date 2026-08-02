@@ -1,0 +1,4 @@
+# Consumed by Linux/Docker — must stay LF
+Dockerfile text eol=lf
+*.sh text eol=lf
+*.mjs text eol=lf

@@ -1,3 +1,4 @@
+import { withBase } from "@/lib/base-path";
 import Link from "next/link";
 import type { CSSProperties } from "react";
 import { UserRole } from "@prisma/client";
@@ -119,7 +120,7 @@ export default async function AdminDashboard({ searchParams }: { searchParams: P
     <section className="card">
       <h2>Reports and testing guide</h2>
       <p>Use reports for learner progress trackers, active learner lists, course analysis and period filters.</p>
-      <p className="form-row"><Link className="button secondary" href="/admin/reports">Open reports</Link><a className="button secondary" href="/guides/rdc-lms-hr-admin-test-guide.docx">Download HR Admin test guide</a></p>
+      <p className="form-row"><Link className="button secondary" href="/admin/reports">Open reports</Link><a className="button secondary" href={withBase("/guides/rdc-lms-hr-admin-test-guide.docx")}>Download HR Admin test guide</a></p>
     </section>
   </main>;
 }

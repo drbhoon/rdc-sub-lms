@@ -1,3 +1,4 @@
+import { withBase } from "@/lib/base-path";
 import { notFound } from "next/navigation";
 import { UserRole } from "@prisma/client";
 import { setAssessmentStatus, uploadAssessment } from "@/actions/assessments";
@@ -135,7 +136,7 @@ export default async function CourseAdminPage({ params }: { params: Promise<{ id
         <div className="card">
           <h2>Assessment</h2>
           <p className="muted">Upload MCQ questions using the RDC realtime quiz format. The latest upload becomes the active assessment.</p>
-          <p><a className="button secondary" href="/api/templates/assessment">Download MCQ template</a></p>
+          <p><a className="button secondary" href={withBase("/api/templates/assessment")}>Download MCQ template</a></p>
           <ActionForm action={uploadAssessment} submitLabel="Upload and activate assessment">
             <input type="hidden" name="courseId" value={course.id} />
             <label>Assessment title<input name="title" defaultValue={activeAssessment?.title ?? "Course Assessment"} required /></label>
@@ -159,13 +160,13 @@ export default async function CourseAdminPage({ params }: { params: Promise<{ id
             </tr>)}
             {!course.assessments.length && <tr><td colSpan={7}>No assessment uploaded.</td></tr>}
           </tbody></table></div>
-          <p><a className="button secondary" href={`/api/courses/${course.id}/assessment-results`}>Download assessment results Excel</a></p>
+          <p><a className="button secondary" href={withBase(`/api/courses/${course.id}/assessment-results`)}>Download assessment results Excel</a></p>
         </div>
 
         <div className="card">
           <h2>Feedback</h2>
           <p className="muted">Upload a Google Forms-style feedback template. Learners see it after course completion.</p>
-          <p><a className="button secondary" href="/api/templates/feedback">Download feedback template</a></p>
+          <p><a className="button secondary" href={withBase("/api/templates/feedback")}>Download feedback template</a></p>
           <ActionForm action={uploadFeedbackTemplate} submitLabel="Upload and activate feedback">
             <input type="hidden" name="courseId" value={course.id} />
             <label>Feedback title<input name="title" defaultValue={latestFeedbackForm?.title ?? "Course Feedback"} required /></label>
@@ -177,7 +178,7 @@ export default async function CourseAdminPage({ params }: { params: Promise<{ id
             {course.feedbackForms.map((form) => <tr key={form.id}><td>v{form.version}<br /><span className="muted">{form.title}</span></td><td><span className="badge">{form.isActive ? "ACTIVE" : "INACTIVE"}</span></td><td>{form.questions.length}</td><td>{form.responses.length}</td></tr>)}
             {!course.feedbackForms.length && <tr><td colSpan={4}>No feedback template uploaded.</td></tr>}
           </tbody></table></div>
-          <p><a className="button secondary" href={`/api/courses/${course.id}/feedback-export`}>Download feedback Excel</a></p>
+          <p><a className="button secondary" href={withBase(`/api/courses/${course.id}/feedback-export`)}>Download feedback Excel</a></p>
         </div>
 
         <div className="card">
@@ -252,7 +253,7 @@ export default async function CourseAdminPage({ params }: { params: Promise<{ id
         <div className="card">
           <h2>Learner AI history</h2>
           <p className="muted">Latest questions asked by learners in this course.</p>
-          <p><a className="button secondary" href={`/api/courses/${course.id}/ai-history`}>Download complete AI history Excel</a></p>
+          <p><a className="button secondary" href={withBase(`/api/courses/${course.id}/ai-history`)}>Download complete AI history Excel</a></p>
           <div className="table-wrap"><table><thead><tr><th>Learner</th><th>Question</th><th>Answer / Status</th><th>Asked</th></tr></thead><tbody>
             {course.aiInteractions.map((item) => <tr key={item.id}>
               <td>{item.employee.name}<br /><span className="muted">{item.employee.employeeCode} - {item.employee.company.name}</span></td>

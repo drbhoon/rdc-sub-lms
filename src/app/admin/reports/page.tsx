@@ -1,3 +1,4 @@
+import { withBase } from "@/lib/base-path";
 import { UserRole } from "@prisma/client";
 import type { CSSProperties } from "react";
 import { db } from "@/lib/db";
@@ -127,7 +128,7 @@ export default async function ReportsPage({ searchParams }: { searchParams: Prom
         </select>
       </label>
       <button>Apply</button>
-      <a className="button secondary" href={`/api/reports/export?${exportParams.toString()}`}>Download Excel</a>
+      <a className="button secondary" href={withBase(`/api/reports/export?${exportParams.toString()}`)}>Download Excel</a>
     </form>
 
     <div className="grid">

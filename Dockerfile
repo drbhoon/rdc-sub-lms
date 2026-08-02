@@ -11,6 +11,9 @@ WORKDIR /app
 COPY . .
 ARG DATABASE_URL=postgresql://postgres:postgres@localhost:5432/rdc_lms
 ENV DATABASE_URL=$DATABASE_URL
+# Next bakes basePath into the bundle at build time.
+ARG BASE_PATH=""
+ENV BASE_PATH=$BASE_PATH
 RUN npm run db:generate && npm run build
 
 FROM node:24-bookworm-slim AS runtime
@@ -20,6 +23,10 @@ RUN apt-get update \
 WORKDIR /app
 ENV NODE_ENV=production
 ENV HOSTNAME=0.0.0.0
+# next.config.ts is re-evaluated at server start, so the prefix must also be
+# present at runtime.
+ARG BASE_PATH=""
+ENV BASE_PATH=$BASE_PATH
 COPY package.json package-lock.json ./
 COPY --from=dependencies /app/node_modules ./node_modules
 RUN npm prune --omit=dev

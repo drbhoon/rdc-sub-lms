@@ -1,3 +1,4 @@
+import { withBase } from "@/lib/base-path";
 import { UserRole } from "@prisma/client";
 import { createEmployee, deleteEmployee, updateUserRoles } from "@/actions/employees";
 import { ActionForm } from "@/components/action-form";
@@ -25,7 +26,7 @@ export default async function EmployeesPage() {
 
   return <main className="container">
     <h1>Employees</h1>
-    <p><a className="button secondary" href="/api/employees/export">Download employee data Excel</a></p>
+    <p><a className="button secondary" href={withBase("/api/employees/export")}>Download employee data Excel</a></p>
     <div className="two-col">
       <section className="card">
         <h2>Employee master</h2>
@@ -95,8 +96,8 @@ export default async function EmployeesPage() {
       <aside className="card">
         <h2>Import employees</h2>
         <p className="muted">Use the RDC template. Required: EMP_CODE, EMP_NAME, EMAIL, COMPANY and DESIGNATION. Optional: LOCATION_PLANT, DEPARTMENT, STATUS (defaults to ACTIVE), ROLE (Learner, Teacher, Super Admin), MANAGER_NAME and MOBILE_NUMBER. Re-importing an EMP_CODE updates that employee and grants listed roles.</p>
-        <p><a className="button secondary" href="/templates/rdc-employee-import-template.xlsx">Download Excel template</a></p>
-        <p><a href="/templates/rdc-employee-import-template.csv">Download CSV template</a></p>
+        <p><a className="button secondary" href={withBase("/templates/rdc-employee-import-template.xlsx")}>Download Excel template</a></p>
+        <p><a href={withBase("/templates/rdc-employee-import-template.csv")}>Download CSV template</a></p>
         <EmployeeImportForm />
       </aside>
 

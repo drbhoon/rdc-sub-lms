@@ -1,3 +1,4 @@
+import { withBase } from "@/lib/base-path";
 import { notFound } from "next/navigation";
 import { AssessmentPlayer } from "@/components/assessment-player";
 import { db } from "@/lib/db";
@@ -25,7 +26,7 @@ export default async function AssessmentAttemptPage({ params }: { params: Promis
   if (!attempt || attempt.employeeId !== user.employeeId || attempt.assessment.courseId !== id || attempt.assessment.course.status !== "PUBLISHED") notFound();
 
   if (attempt.status === "SUBMITTED") {
-    return <main className="container"><div className="card"><h1>Assessment submitted</h1><div className="stat">{attempt.scorePercent}%</div><p>{attempt.passed ? "Passed" : "Not passed"}</p><a className="button secondary" href={`/learn/courses/${id}`}>Back to course</a></div></main>;
+    return <main className="container"><div className="card"><h1>Assessment submitted</h1><div className="stat">{attempt.scorePercent}%</div><p>{attempt.passed ? "Passed" : "Not passed"}</p><a className="button secondary" href={withBase(`/learn/courses/${id}`)}>Back to course</a></div></main>;
   }
   const questions = attempt.assessment.shuffleQuestions
     ? [...attempt.assessment.questions].sort((a, b) => shuffleScore(attempt.id, a.id) - shuffleScore(attempt.id, b.id))
