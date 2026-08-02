@@ -23,8 +23,13 @@ async function main() {
     .map((email) => email.trim().toLowerCase())
     .filter(Boolean);
 
-  if (emails.length !== 2) {
-    throw new Error("SUPER_ADMIN_EMAILS must contain exactly two comma-separated addresses");
+  // Originally this demanded exactly two addresses. On the HR platform the
+  // super admins are the shared HR allowlist, which is around ten people and
+  // changes over time — and because the container restarts on failure, a count
+  // mismatch became an endless boot loop rather than a visible error. Any
+  // non-empty list is now accepted.
+  if (emails.length === 0) {
+    throw new Error("SUPER_ADMIN_EMAILS must contain at least one address");
   }
 
   const adminCompany = await prisma.company.upsert({
