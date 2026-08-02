@@ -2,6 +2,7 @@
 import { useRef, useState, useTransition } from "react";
 import Image from "next/image";
 import { recordProgress } from "@/actions/progress";
+import { withBase } from "@/lib/base-path";
 
 type Lesson = { id:string; title:string; type:"DOCUMENT"|"VIDEO"|"TEXT"; pageAssetKeys:string[]; pageCount:number; videoKey?:string; watchedSeconds:number; viewedPages:number[]; completed:boolean };
 
@@ -46,7 +47,7 @@ export function LessonPlayer({ lessons }: { lessons: Lesson[] }) {
       {lesson.type === "DOCUMENT" && <>
         <div className="lesson-page-frame">
           {lesson.pageAssetKeys[page - 1]
-            ? <Image unoptimized width={1600} height={1200} className="lesson-page" src={`/api/files/${lesson.pageAssetKeys[page - 1]}`} alt={`Page ${page} of ${lesson.pageCount}`} />
+            ? <Image unoptimized width={1600} height={1200} className="lesson-page" src={withBase(`/api/files/${lesson.pageAssetKeys[page - 1]}`)} alt={`Page ${page} of ${lesson.pageCount}`} />
             : <p className="muted">Page image is not available.</p>}
         </div>
         <div className="lesson-controls">

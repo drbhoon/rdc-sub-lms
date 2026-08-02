@@ -3,6 +3,7 @@ import { notFound } from "next/navigation";
 import { certificateEligibility } from "@/lib/certificate-eligibility";
 import { db } from "@/lib/db";
 import { requireUser } from "@/lib/session";
+import { withBase } from "@/lib/base-path";
 
 export default async function CertificatePage({ params }: { params: Promise<{ id: string }> }) {
   const user = await requireUser();
@@ -54,7 +55,7 @@ export default async function CertificatePage({ params }: { params: Promise<{ id
 
   return <main className="certificate-page">
     <section className="certificate-card">
-      <Image src="/brand/rdc-logo.jpeg" alt="RDC logo" width={180} height={109} />
+      <Image src={withBase("/brand/rdc-logo.jpeg")} alt="RDC logo" width={180} height={109} />
       <p className="certificate-company">RDC Concrete (India) Limited</p>
       <h1>Certificate of Completion</h1>
       <p>This certifies that</p>
