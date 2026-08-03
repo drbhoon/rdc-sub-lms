@@ -42,7 +42,11 @@ export async function requestOtp(_: AuthState, formData: FormData): Promise<Auth
   });
   try {
     await sendOtpEmail(email, otp);
-  } catch {
+  } catch (err) {
+    // The user gets a deliberately vague message, but swallowing the cause
+    // entirely makes this impossible to diagnose: "SMTP is not configured" and
+    // "the mail server rejected our credentials" look identical from outside.
+    console.error("[auth] OTP e-mail failed:", err);
     await db.otpChallenge.update({ where: { id: challenge.id }, data: { usedAt: new Date() } });
     return { message: "Email delivery is unavailable. Please contact the administrator." };
   }
