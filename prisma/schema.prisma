@@ -447,6 +447,13 @@ model CourseAiInteraction {
   status           CourseAiInteractionStatus @default(ANSWERED)
   error            String?
   model            String?
+  // Token counts as REPORTED BY OpenAI, not estimated. The per-learner spend
+  // cap is computed by summing these and applying the current price, so the
+  // cap stays accurate however long or short individual questions are, and
+  // history re-prices automatically if the rate changes. Null when no call was
+  // billed (refusals, timeouts, cap already reached).
+  inputTokens      Int?
+  outputTokens     Int?
   sourceRestricted Boolean                   @default(true)
   createdAt        DateTime                  @default(now())
   course           Course                    @relation(fields: [courseId], references: [id], onDelete: Cascade)

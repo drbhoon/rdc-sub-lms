@@ -3,6 +3,7 @@
 import { CourseAiInteractionStatus, UserRole } from "@prisma/client";
 import { z } from "zod";
 import { db } from "@/lib/db";
+import { BUDGET_INR, spentInr } from "@/lib/ai-budget";
 import { requireRole } from "@/lib/session";
 
 export type CourseAiState = { message?: string; answer?: string };
@@ -35,6 +36,8 @@ async function recordInteraction(input: {
   answer?: string;
   error?: string;
   model?: string;
+  inputTokens?: number;
+  outputTokens?: number;
 }) {
   await db.courseAiInteraction.create({
     data: {
@@ -44,6 +47,8 @@ async function recordInteraction(input: {
       answer: input.answer,
       error: input.error,
       model: input.model,
+      inputTokens: input.inputTokens,
+      outputTokens: input.outputTokens,
       status: input.answer ? CourseAiInteractionStatus.ANSWERED : CourseAiInteractionStatus.FAILED,
       sourceRestricted: true,
     },
@@ -74,6 +79,16 @@ export async function askCourseAi(_: CourseAiState, formData: FormData): Promise
   if (!enrollment || enrollment.course.status !== "PUBLISHED") return { message: "Course is not available." };
   const model = process.env.OPENAI_MODEL ?? "gpt-5.4-mini";
   const historyBase = { courseId: parsed.data.courseId, employeeId: user.employeeId, question: parsed.data.question, model };
+
+  // Spend cap, checked BEFORE the call so the request that would exceed the
+  // budget is never billed. Enforced on money rather than a question count
+  // because cost per question varies by an order of magnitude with how much
+  // course material has to be sent as context.
+  if (await spentInr(user.employeeId, parsed.data.courseId) >= BUDGET_INR) {
+    const message = "You have exceeded the number of questions allowed for this course.";
+    await recordInteraction({ ...historyBase, error: message });
+    return { message };
+  }
 
   const source = enrollment.course.contents.map((content) => [
     `CONTENT: ${content.originalName}`,
@@ -121,12 +136,19 @@ export async function askCourseAi(_: CourseAiState, formData: FormData): Promise
     await recordInteraction({ ...historyBase, error: message });
     return { message };
   }
-  const answer = outputText(await response.json());
+  const payload = await response.json();
+  // Bill from what OpenAI reports, not from our own estimate. Recorded even
+  // when no answer comes back, because those tokens were still charged —
+  // omitting them would let a learner burn budget invisibly on empty replies.
+  const usage = (payload as { usage?: { input_tokens?: number; output_tokens?: number } }).usage;
+  const billed = { inputTokens: usage?.input_tokens, outputTokens: usage?.output_tokens };
+
+  const answer = outputText(payload);
   if (answer) {
-    await recordInteraction({ ...historyBase, answer });
+    await recordInteraction({ ...historyBase, ...billed, answer });
     return { answer };
   }
   const message = "AI returned no answer.";
-  await recordInteraction({ ...historyBase, error: message });
+  await recordInteraction({ ...historyBase, ...billed, error: message });
   return { message };
 }
