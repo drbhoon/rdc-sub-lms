@@ -5,6 +5,7 @@ import { CourseAiAssistant } from "@/components/course-ai-assistant";
 import { FeedbackResponseForm } from "@/components/feedback-response-form";
 import { LessonPlayer } from "@/components/lesson-player";
 import { certificateEligibility } from "@/lib/certificate-eligibility";
+import { withBase } from "@/lib/base-path";
 import { db } from "@/lib/db";
 import { requireUser } from "@/lib/session";
 
@@ -97,7 +98,10 @@ export default async function LearnCourse({ params }: { params: Promise<{ id: st
           <h2>Certificate</h2>
           {certificate.ready ? <>
             <p>You are eligible for the course certificate.</p>
-            <Link className="button secondary" href={`/learn/courses/${id}/certificate`}>View certificate</Link>
+            <div className="button-row">
+              <Link className="button secondary" href={`/learn/courses/${id}/certificate`}>View certificate</Link>
+              <a className="button" href={withBase(`/api/courses/${id}/certificate`)}>Download PDF</a>
+            </div>
           </> : <>
             <p className="muted">Certificate will be available after these requirements are complete:</p>
             <ul className="requirement-list">

@@ -124,7 +124,7 @@ h1 { color:var(--navy); margin-top:0; }
 .certificate-card h2 { font-size:2.4rem; margin:.2rem 0; color:var(--green); }
 .certificate-card h3 { font-size:1.7rem; margin:.2rem 0; color:var(--navy); }
 .certificate-footer { width:100%; margin-top:2rem; display:flex; justify-content:space-between; gap:1rem; border-top:1px solid var(--line); padding-top:1rem; color:var(--muted); }
-.certificate-actions { text-align:center; color:var(--muted); }
+.certificate-actions { display:flex; align-items:center; justify-content:center; flex-wrap:wrap; gap:1rem; text-align:center; color:var(--muted); }
 @media print { .topbar,.certificate-actions { display:none; } html,body { background:white; } .certificate-page { width:100%; margin:0; } .certificate-card { border-width:8px; box-shadow:none; min-height:95vh; } }
 @media (max-width:1180px) { .learning-shell { grid-template-columns:1fr; } .learning-sidebar { position:static; grid-template-columns:repeat(auto-fit,minmax(260px,1fr)); } }
 @media (max-width:900px) { .login-page { grid-template-columns:1fr; } .login-hero { min-height:auto; } .lesson-player { grid-template-columns:1fr; } .lesson-list-card { position:static; } .lesson-page-frame { min-height:auto; max-height:none; } }
