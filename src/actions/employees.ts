@@ -9,6 +9,7 @@ import { z } from "zod";
 import { db } from "@/lib/db";
 import { audit } from "@/lib/audit";
 import { missingEmployeeColumns, normalizeEmployeeImportRow } from "@/lib/employee-import";
+import { resolvePersonId } from "@/lib/identity";
 import { requireRole } from "@/lib/session";
 
 type ImportRow = Record<string, unknown>;
@@ -37,6 +38,11 @@ export async function createEmployee(_: { message?: string }, formData: FormData
   const company = await db.company.findUnique({ where: { id: input.companyId }, select: { id: true } });
   if (!company) return { message: "Selected company was not found." };
 
+  // Resolved OUTSIDE the transaction: it is a network call to another
+  // container, and holding a database transaction open across one is how a
+  // slow neighbour turns into lock contention here. A null result is fine.
+  const personId = await resolvePersonId(email, input.name, input.employeeCode);
+
   try {
     const employee = await db.$transaction(async (tx) => {
       const created = await tx.employee.create({
@@ -44,6 +50,7 @@ export async function createEmployee(_: { message?: string }, formData: FormData
           employeeCode: input.employeeCode,
           name: input.name,
           email,
+          personId,
           companyId: company.id,
           department: input.department || "General",
           designation: input.designation,
@@ -148,9 +155,27 @@ export async function importEmployees(_: EmployeeImportState, formData: FormData
     return { message: `${normalized.length} valid rows: ${active} active and ${normalized.length - active} inactive. Review the source file, then import.`, preview: true };
   }
 
+  // Every person id is resolved BEFORE the transaction opens. Doing it inside
+  // the loop would hold a database transaction open across one network call
+  // per row — a 200-row import would keep locks for as long as the slowest
+  // container took to answer 200 times.
+  //
+  // Ten at a time: fast enough for a bulk import, gentle enough not to arrive
+  // at the portal as a burst. resolvePersonId never throws, so a failure is a
+  // null in the map and nothing more.
+  const personIds = new Map<string, string | null>();
+  for (let i = 0; i < normalized.length; i += 10) {
+    const chunk = normalized.slice(i, i + 10);
+    const resolved = await Promise.all(
+      chunk.map((row) => resolvePersonId(row.email, row.name, row.employeeCode)),
+    );
+    chunk.forEach((row, index) => personIds.set(row.employeeCode, resolved[index]));
+  }
+
   await db.$transaction(async (tx) => {
     for (const row of normalized) {
       const company = await tx.company.upsert({ where: { name: row.company }, update: {}, create: { name: row.company } });
+      const personId = personIds.get(row.employeeCode) ?? null;
       const employeeData = {
         employeeCode: row.employeeCode,
         name: row.name,
@@ -164,8 +189,14 @@ export async function importEmployees(_: EmployeeImportState, formData: FormData
       };
       const employee = await tx.employee.upsert({
         where: { employeeCode: row.employeeCode },
-        update: { ...employeeData, companyId: company.id },
-        create: { ...employeeData, companyId: company.id },
+        // On update, only SET a person id — never clear one. A resolve that
+        // failed this run must not wipe a link established on a previous one.
+        update: {
+          ...employeeData,
+          companyId: company.id,
+          ...(personId ? { personId } : {}),
+        },
+        create: { ...employeeData, companyId: company.id, personId },
       });
       const existingUser = await tx.user.findUnique({ where: { employeeId: employee.id } });
       const user = existingUser

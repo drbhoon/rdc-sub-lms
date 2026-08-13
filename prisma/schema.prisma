@@ -91,6 +91,10 @@ model Employee {
   employeeCode String         @unique
   name         String
   email        String         @unique
+  /// The portal's person id. Nullable because LMS is the one app that
+  /// legitimately serves people who are not on the employee master — off-roll
+  /// staff and third-party learners — and it must never refuse them.
+  personId     String?
   department   String
   designation  String
   locationPlant String?
@@ -109,6 +113,7 @@ model Employee {
   updatedAt    DateTime       @updatedAt
 
   @@index([companyId, status])
+  @@index([personId])
 }
 
 model User {
