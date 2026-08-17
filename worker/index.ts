@@ -5,6 +5,7 @@ import os from "node:os";
 import path from "node:path";
 import { promisify } from "node:util";
 import { generateStudyPack } from "../src/lib/ai-study-pack";
+import { courseTextWithOcr } from "../src/lib/course-text";
 import { storage } from "../src/lib/storage";
 
 const db = new PrismaClient();
@@ -25,6 +26,38 @@ async function command(name: string, args: string[]) {
   return run(name, args, { timeout: 10 * 60_000, maxBuffer: 20 * 1024 * 1024 });
 }
 
+function numberedPngs(files: string[], prefix: string) {
+  const escapedPrefix = prefix.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const pattern = new RegExp(`^${escapedPrefix}-\\d+\\.png$`);
+  return files
+    .filter((name) => pattern.test(name))
+    .sort((a, b) => Number(a.match(/\d+/)?.[0]) - Number(b.match(/\d+/)?.[0]));
+}
+
+async function ocrDocument(pdf: string, temp: string) {
+  const prefixName = "ocr-page";
+  const prefix = path.join(temp, prefixName);
+  await command("pdftoppm", ["-png", "-gray", "-r", "220", pdf, prefix]);
+  const files = numberedPngs(await readdir(temp), prefixName);
+  if (!files.length) throw new Error("OCR could not render any document pages");
+
+  const pageText: string[] = [];
+  for (const file of files) {
+    const { stdout } = await command("tesseract", [
+      path.join(temp, file),
+      "stdout",
+      "-l",
+      "eng",
+      "--oem",
+      "1",
+      "--psm",
+      "11",
+    ]);
+    pageText.push(stdout);
+  }
+  return pageText.join("\n");
+}
+
 async function processDocument(content: Awaited<ReturnType<typeof nextContent>>, temp: string) {
   if (!content) return;
   const extension = path.extname(content.originalName).toLowerCase();
@@ -38,7 +71,7 @@ async function processDocument(content: Awaited<ReturnType<typeof nextContent>>,
   const prefix = path.join(temp, "page");
   await command("pdftoppm", ["-png", "-r", "120", pdf, prefix]);
   const { stdout } = await command("pdftotext", [pdf, "-"]);
-  const files = (await readdir(temp)).filter((name) => /^page-\d+\.png$/.test(name)).sort((a, b) => Number(a.match(/\d+/)?.[0]) - Number(b.match(/\d+/)?.[0]));
+  const files = numberedPngs(await readdir(temp), "page");
   const keys: string[] = [];
   for (const file of files) {
     const key = `generated/${content.id}/${file}`;
@@ -46,15 +79,19 @@ async function processDocument(content: Awaited<ReturnType<typeof nextContent>>,
     keys.push(key);
   }
   if (!keys.length) throw new Error("No pages were produced from the document");
-  const cleanText = stdout.replace(/\s+/g, " ").trim();
-  const studyPack = await generateStudyPack(cleanText, {
+  const sourceText = await courseTextWithOcr(stdout, async () => {
+    console.log(`[worker] No selectable text in ${content.originalName}; running OCR.`);
+    return ocrDocument(pdf, temp);
+  });
+  if (sourceText.usedOcr) console.log(`[worker] OCR extracted ${sourceText.text.length} characters from ${content.originalName}.`);
+  const studyPack = await generateStudyPack(sourceText.text, {
     model: process.env.OPENAI_MODEL ?? "gpt-5.4-mini",
     maxOutputTokens: Math.min(3000, Math.max(1200, content.course.aiTokenLimit)),
   });
   await db.courseContent.update({
     where: { id: content.id },
     data: {
-      extractedText: cleanText,
+      extractedText: sourceText.text,
       summary: studyPack.summary,
       keyPoints: studyPack.keyPoints,
       glossary: studyPack.glossary,

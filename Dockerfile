@@ -18,7 +18,7 @@ RUN npm run db:generate && npm run build
 
 FROM node:24-bookworm-slim AS runtime
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends libreoffice-impress poppler-utils ffmpeg fonts-dejavu-core openssl procps \
+    && apt-get install -y --no-install-recommends libreoffice-impress poppler-utils tesseract-ocr tesseract-ocr-eng ffmpeg fonts-dejavu-core openssl procps \
     && rm -rf /var/lib/apt/lists/*
 WORKDIR /app
 ENV NODE_ENV=production

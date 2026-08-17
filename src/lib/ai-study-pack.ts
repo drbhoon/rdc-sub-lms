@@ -1,5 +1,7 @@
 import { z } from "zod";
 
+export const MIN_AI_SOURCE_CHARACTERS = 80;
+
 export const quizQuestionSchema = z.object({
   question: z.string().trim().min(10).max(500),
   options: z.array(z.string().trim().min(1).max(300)).length(4),
@@ -91,7 +93,7 @@ export async function generateStudyPack(sourceText: string, options: GenerateOpt
   const fetchImpl = options.fetchImpl ?? fetch;
   const cleanText = sourceText.replace(/\s+/g, " ").trim();
   if (!apiKey) throw new Error("OpenAI API key is not configured");
-  if (cleanText.length < 80) throw new Error("The extracted course text is too short for AI question generation");
+  if (cleanText.length < MIN_AI_SOURCE_CHARACTERS) throw new Error("The extracted course text is too short for AI question generation");
 
   const response = await fetchImpl("https://api.openai.com/v1/responses", {
     method: "POST",
