@@ -213,7 +213,7 @@ export async function enrollEmployees(formData: FormData) {
   if (course.status !== CourseStatus.PUBLISHED) return { message: "Publish this course before enrolling learners." };
   if (!course.isActive) throw new Error("Inactive courses cannot receive new learner enrollments.");
   const eligible = await db.employee.findMany({
-    where: eligibleLearnerForCourseWhere(course.companies.map((company) => company.companyId), employeeIds),
+    where: eligibleLearnerForCourseWhere(employeeIds),
     select: { id: true, name: true, email: true },
   });
   const existing = await db.enrollment.findMany({ where: { courseId, employeeId: { in: eligible.map((employee) => employee.id) } }, select: { employeeId: true } });
@@ -240,13 +240,15 @@ export async function enrollEmployeeInCourses(_: { message?: string }, formData:
   if (!employeeId || !courseIds.length) return { message: "Select an employee and at least one course." };
   const employee = await db.employee.findUnique({ where: { id: employeeId }, include: { company: true, user: { include: { roles: true } } } });
   if (!employee || employee.status !== "ACTIVE") return { message: "Only active employees can be enrolled." };
-  const isSuperAdminLearner = employee.user?.roles.some((role) => role.role === UserRole.SUPER_ADMIN) ?? false;
+  // No company gate. Any employee may be enrolled on any course and the admin
+  // decides; matching by company was silently exclusive, because one firm under
+  // two spellings left an employee eligible for nothing. Active and published
+  // still hold — those are about the COURSE being fit to enrol on.
   const courses = await db.course.findMany({
     where: {
       id: { in: courseIds },
       isActive: true,
       status: CourseStatus.PUBLISHED,
-      ...(isSuperAdminLearner ? {} : { companies: { some: { companyId: employee.companyId } } }),
     },
     include: { companies: true },
     orderBy: { title: "asc" },

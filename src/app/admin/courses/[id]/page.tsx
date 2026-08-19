@@ -41,12 +41,16 @@ export default async function CourseAdminPage({ params }: { params: Promise<{ id
     course.isActive && course.status === "PUBLISHED"
       ? db.employee.findMany({
         where: {
-          ...eligibleLearnerForCourseWhere(course.companies.map((company) => company.companyId)),
+          ...eligibleLearnerForCourseWhere(),
           enrollments: { none: { courseId: id } },
         },
         include: { company: true, user: { include: { roles: true } } },
         orderBy: { name: "asc" },
-        take: 1000,
+        // Every active employee is eligible now, and there are ~1536 of them.
+        // The old 1000 cap silently truncated the list, and since the picker
+        // searches what it was given, anyone past the cut simply could not be
+        // found — the same "search finds nothing" symptom in a new disguise.
+        take: 10000,
       })
       : Promise.resolve([]),
     db.company.findMany({ orderBy: { name: "asc" } }),

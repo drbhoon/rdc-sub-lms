@@ -44,10 +44,13 @@ export function EmployeeCourseEnrollmentForm({ employees, courses }: { employees
     const enrolled = new Set(selectedEmployee.enrolledCourseIds);
     const term = courseSearch.trim().toLowerCase();
     return courses.filter((course) => {
-      const companyAllowed = selectedEmployee.isSuperAdminLearner || course.companyIds.includes(selectedEmployee.companyId);
+      // No company gate: any employee may be put on any course, and the admin
+      // decides. Matching a course to an employee by company was silently
+      // exclusive — two spellings of one firm meant an employee could see no
+      // course at all, with nothing on screen to say why.
       const notEnrolled = !enrolled.has(course.id);
       const matches = !term || course.title.toLowerCase().includes(term) || course.status.toLowerCase().includes(term);
-      return companyAllowed && notEnrolled && matches;
+      return notEnrolled && matches;
     });
   }, [courses, courseSearch, selectedEmployee]);
 
