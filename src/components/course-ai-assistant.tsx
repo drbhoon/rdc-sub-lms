@@ -3,6 +3,7 @@
 import { useActionState, useCallback, useEffect, useRef, useState } from "react";
 import { askCourseAi, type CourseAiState } from "@/actions/course-ai";
 import { withBase } from "@/lib/base-path";
+import { COURSE_AI_LANGUAGE_CODES, COURSE_AI_LANGUAGE_NAMES, isCourseAiLanguage, type CourseAiLanguage } from "@/lib/course-ai-languages";
 
 type VoiceTurn = { question: string; answer: string };
 type RealtimeUsage = {
@@ -22,7 +23,7 @@ function transcriptFromResponse(response: unknown) {
 export function CourseAiAssistant({ courseId }: { courseId: string }) {
   const [open, setOpen] = useState(false);
   const [mode, setMode] = useState<"text" | "voice">("text");
-  const [language, setLanguage] = useState<"en" | "hi">("en");
+  const [language, setLanguage] = useState<CourseAiLanguage>("en");
   const [voiceStatus, setVoiceStatus] = useState("Voice is off.");
   const [voiceActive, setVoiceActive] = useState(false);
   const [voiceTurns, setVoiceTurns] = useState<VoiceTurn[]>([]);
@@ -106,7 +107,7 @@ export function CourseAiAssistant({ courseId }: { courseId: string }) {
       peer.onconnectionstatechange = () => {
         if (peer.connectionState === "connected") {
           setVoiceActive(true);
-          setVoiceStatus(language === "hi" ? "Listening in Hindi. Speak naturally." : "Listening in English. Speak naturally.");
+          setVoiceStatus(`Listening in ${COURSE_AI_LANGUAGE_NAMES[language]}. Speak naturally.`);
         } else if (["failed", "disconnected", "closed"].includes(peer.connectionState)) {
           stopVoice();
         }
@@ -170,9 +171,10 @@ export function CourseAiAssistant({ courseId }: { courseId: string }) {
         {state.answer && <div className="ai-answer"><strong>Answer</strong><p>{state.answer}</p></div>}
       </form> : <div className="form">
         <label>Conversation language
-          <select value={language} disabled={voiceActive} onChange={(event) => setLanguage(event.target.value === "hi" ? "hi" : "en")}>
-            <option value="en">English</option>
-            <option value="hi">Hindi</option>
+          <select value={language} disabled={voiceActive} onChange={(event) => {
+            if (isCourseAiLanguage(event.target.value)) setLanguage(event.target.value);
+          }}>
+            {COURSE_AI_LANGUAGE_CODES.map((code) => <option value={code} key={code}>{COURSE_AI_LANGUAGE_NAMES[code]}</option>)}
           </select>
         </label>
         <div className={`voice-status ${voiceActive ? "voice-live" : ""}`}><span aria-hidden="true" />{voiceStatus}</div>

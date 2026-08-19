@@ -1,13 +1,14 @@
 import { CourseAiInteractionStatus, UserRole } from "@prisma/client";
 import { z } from "zod";
 import { BUDGET_INR, spentInr } from "@/lib/ai-budget";
+import { COURSE_AI_LANGUAGE_CODES } from "@/lib/course-ai-languages";
 import { db } from "@/lib/db";
 import { routeUserWithRole } from "@/lib/route-auth";
 
 const logSchema = z.object({
   question: z.string().trim().min(1).max(4000),
   answer: z.string().trim().min(1).max(12000),
-  language: z.enum(["en", "hi"]),
+  language: z.enum(COURSE_AI_LANGUAGE_CODES),
   model: z.string().trim().min(1).max(120),
   inputTokens: z.number().int().min(0).max(10_000_000).default(0),
   outputTokens: z.number().int().min(0).max(10_000_000).default(0),

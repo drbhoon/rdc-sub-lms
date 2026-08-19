@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import { UserRole } from "@prisma/client";
 import { BUDGET_INR, spentInr } from "@/lib/ai-budget";
 import { buildCourseAiSource } from "@/lib/course-ai-source";
+import { COURSE_AI_LANGUAGE_NAMES, isCourseAiLanguage } from "@/lib/course-ai-languages";
 import { db } from "@/lib/db";
 import { routeUserWithRole } from "@/lib/route-auth";
 
@@ -11,7 +12,9 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
   const user = await routeUserWithRole(UserRole.LEARNER);
   if (!user?.employeeId) return new Response("Learner profile required", { status: 403 });
   const { id: courseId } = await context.params;
-  const language = new URL(request.url).searchParams.get("language") === "hi" ? "hi" : "en";
+  const requestedLanguage = new URL(request.url).searchParams.get("language") ?? "en";
+  if (!isCourseAiLanguage(requestedLanguage)) return new Response("Unsupported conversation language", { status: 400 });
+  const language = requestedLanguage;
   const apiKey = process.env.OPENAI_API_KEY;
   if (!apiKey) return new Response("AI assistant is not configured", { status: 503 });
   if (await spentInr(user.employeeId, courseId) >= BUDGET_INR) {
@@ -38,7 +41,7 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
   const sdp = await request.text();
   if (!sdp || sdp.length > 256_000) return new Response("Invalid WebRTC offer", { status: 400 });
   const model = process.env.OPENAI_REALTIME_MODEL ?? "gpt-realtime-2.1-mini";
-  const spokenLanguage = language === "hi" ? "Hindi" : "English";
+  const spokenLanguage = COURSE_AI_LANGUAGE_NAMES[language];
   const session = {
     type: "realtime",
     model,
