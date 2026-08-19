@@ -84,7 +84,7 @@ export default async function LearnCourse({ params }: { params: Promise<{ id: st
         {assessment && <div className="card">
           <h2>MCQ assessment</h2>
           <p>{assessment.title}</p>
-          <p className="muted">{assessment.questions.length} questions - pass mark {assessment.passPercentage}%</p>
+          <p className="muted">{assessment.questionsPerAttempt ?? assessment.questions.length} random questions from a bank of {assessment.questions.length} - pass mark {assessment.passPercentage}%</p>
           {bestAttempt ? <p><span className="badge">{bestAttempt.passed ? "Passed" : "Submitted"}</span> Best score: {bestAttempt.scorePercent}%</p> : <p className="muted">No submitted attempts yet.</p>}
           <form action={startAssessment}>
             <input type="hidden" name="courseId" value={enrollment.courseId} />

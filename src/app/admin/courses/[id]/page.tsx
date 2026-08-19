@@ -142,23 +142,25 @@ export default async function CourseAdminPage({ params }: { params: Promise<{ id
             <label>Assessment title<input name="title" defaultValue={activeAssessment?.title ?? "Course Assessment"} required /></label>
             <label>Pass percentage<input name="passPercentage" type="number" min="1" max="100" defaultValue={activeAssessment?.passPercentage ?? course.passPercentage} /></label>
             <label>Overall time limit (minutes)<input name="timeLimitMinutes" type="number" min="1" max="480" defaultValue={activeAssessment ? Math.ceil(activeAssessment.timeLimitSeconds / 60) : 30} /></label>
+            <label>Questions offered per attempt<input name="questionsPerAttempt" type="number" min="1" max="200" defaultValue={activeAssessment?.questionsPerAttempt ?? 20} required /></label>
             <label>Question bank CSV or Excel<input type="file" name="file" accept=".csv,.xlsx,.xls" required /></label>
             <label className="checkbox"><input type="checkbox" name="shuffleQuestions" defaultChecked={activeAssessment?.shuffleQuestions ?? false} />Shuffle questions for learners</label>
             <label className="checkbox"><input type="checkbox" name="showLeaderboard" defaultChecked={activeAssessment?.showLeaderboard ?? true} />Show leaderboard to learners</label>
           </ActionForm>
           <hr />
           <h3>Assessment versions</h3>
-          <div className="table-wrap"><table><thead><tr><th>Version</th><th>Status</th><th>Questions</th><th>Time</th><th>Shuffle</th><th>Attempts</th><th>Action</th></tr></thead><tbody>
+          <div className="table-wrap"><table><thead><tr><th>Version</th><th>Status</th><th>Question bank</th><th>Offered</th><th>Time</th><th>Shuffle</th><th>Attempts</th><th>Action</th></tr></thead><tbody>
             {course.assessments.map((assessment) => <tr key={assessment.id}>
               <td>v{assessment.version}<br /><span className="muted">{assessment.title}</span></td>
               <td><span className="badge">{assessment.status}</span></td>
               <td>{assessment.questions.length}</td>
+              <td>{assessment.questionsPerAttempt ?? assessment.questions.length}</td>
               <td>{Math.ceil(assessment.timeLimitSeconds / 60)} min</td>
               <td>{assessment.shuffleQuestions ? "YES" : "NO"}</td>
               <td>{assessment.attempts.length}</td>
               <td><form action={setAssessmentStatus}><input type="hidden" name="assessmentId" value={assessment.id} /><input type="hidden" name="status" value={assessment.status === "ACTIVE" ? "INACTIVE" : "ACTIVE"} /><button className="secondary">{assessment.status === "ACTIVE" ? "Inactivate" : "Activate"}</button></form></td>
             </tr>)}
-            {!course.assessments.length && <tr><td colSpan={7}>No assessment uploaded.</td></tr>}
+            {!course.assessments.length && <tr><td colSpan={8}>No assessment uploaded.</td></tr>}
           </tbody></table></div>
           <p><a className="button secondary" href={withBase(`/api/courses/${course.id}/assessment-results`)}>Download assessment results Excel</a></p>
         </div>
@@ -254,14 +256,15 @@ export default async function CourseAdminPage({ params }: { params: Promise<{ id
           <h2>Learner AI history</h2>
           <p className="muted">Latest questions asked by learners in this course.</p>
           <p><a className="button secondary" href={withBase(`/api/courses/${course.id}/ai-history`)}>Download complete AI history Excel</a></p>
-          <div className="table-wrap"><table><thead><tr><th>Learner</th><th>Question</th><th>Answer / Status</th><th>Asked</th></tr></thead><tbody>
+          <div className="table-wrap"><table><thead><tr><th>Learner</th><th>Mode</th><th>Question</th><th>Answer / Status</th><th>Asked</th></tr></thead><tbody>
             {course.aiInteractions.map((item) => <tr key={item.id}>
               <td>{item.employee.name}<br /><span className="muted">{item.employee.employeeCode} - {item.employee.company.name}</span></td>
+              <td>{item.channel}{item.language ? ` · ${item.language.toUpperCase()}` : ""}</td>
               <td>{item.question}</td>
               <td>{item.answer ?? item.error ?? item.status}</td>
               <td>{item.createdAt.toLocaleString("en-IN")}</td>
             </tr>)}
-            {!course.aiInteractions.length && <tr><td colSpan={4}>No learner AI history is available yet.</td></tr>}
+            {!course.aiInteractions.length && <tr><td colSpan={5}>No learner AI history is available yet.</td></tr>}
           </tbody></table></div>
         </div>
 

@@ -6,6 +6,7 @@ import { redirect } from "next/navigation";
 import { z } from "zod";
 import { audit } from "@/lib/audit";
 import { parseAssessmentRows } from "@/lib/assessment-import";
+import { selectAttemptQuestions } from "@/lib/assessment-selection";
 import { requireCourseManager } from "@/lib/course-access";
 import { db } from "@/lib/db";
 import { requireRole, requireUser } from "@/lib/session";
@@ -18,6 +19,7 @@ const uploadSchema = z.object({
   title: z.string().trim().min(3).max(150).default("Course Assessment"),
   passPercentage: z.coerce.number().int().min(1).max(100),
   timeLimitMinutes: z.coerce.number().int().min(1).max(480),
+  questionsPerAttempt: z.coerce.number().int().min(1).max(200),
 });
 
 export async function uploadAssessment(_: ActionState, formData: FormData): Promise<ActionState> {
@@ -31,6 +33,12 @@ export async function uploadAssessment(_: ActionState, formData: FormData): Prom
   try {
     const rows = await readTabularFile(file);
     const questions = parseAssessmentRows(rows);
+    if (questions.length < 50 || questions.length > 200) {
+      throw new Error("A new assessment question bank must contain between 50 and 200 questions.");
+    }
+    if (parsed.data.questionsPerAttempt > questions.length) {
+      throw new Error(`Questions offered per attempt cannot exceed the ${questions.length} questions in this bank.`);
+    }
     const latest = await db.assessment.aggregate({ where: { courseId }, _max: { version: true } });
     const version = (latest._max.version ?? 0) + 1;
     const assessment = await db.$transaction(async (tx) => {
@@ -41,6 +49,7 @@ export async function uploadAssessment(_: ActionState, formData: FormData): Prom
           title: parsed.data.title,
           passPercentage: parsed.data.passPercentage,
           shuffleQuestions: formData.get("shuffleQuestions") === "on",
+          questionsPerAttempt: parsed.data.questionsPerAttempt,
           timeLimitSeconds: parsed.data.timeLimitMinutes * 60,
           version,
           status: AssessmentStatus.ACTIVE,
@@ -60,11 +69,11 @@ export async function uploadAssessment(_: ActionState, formData: FormData): Prom
         },
       });
     });
-    await audit(actor.id, "ASSESSMENT_UPLOADED", "Assessment", assessment.id, { courseId, questionCount: questions.length, fileName: file.name, timeLimitMinutes: parsed.data.timeLimitMinutes, shuffleQuestions: formData.get("shuffleQuestions") === "on" });
+    await audit(actor.id, "ASSESSMENT_UPLOADED", "Assessment", assessment.id, { courseId, questionCount: questions.length, questionsPerAttempt: parsed.data.questionsPerAttempt, fileName: file.name, timeLimitMinutes: parsed.data.timeLimitMinutes, shuffleQuestions: formData.get("shuffleQuestions") === "on" });
     revalidatePath(`/admin/courses/${courseId}`);
     revalidatePath(`/teacher/courses/${courseId}`);
     revalidatePath(`/learn/courses/${courseId}`);
-    return { message: `Assessment v${version} activated with ${questions.length} questions.` };
+    return { message: `Assessment v${version} activated with a ${questions.length}-question bank; each attempt offers ${parsed.data.questionsPerAttempt}.` };
   } catch (error) {
     return { message: error instanceof Error ? error.message : "Assessment upload failed." };
   }
@@ -102,6 +111,7 @@ export async function startAssessment(formData: FormData) {
     include: { _count: { select: { questions: true } } },
   });
   if (!assessment || assessment._count.questions === 0) redirect(`/learn/courses/${courseId}`);
+  const offeredCount = Math.min(assessment.questionsPerAttempt ?? assessment._count.questions, assessment._count.questions);
   const latest = await db.assessmentAttempt.aggregate({
     where: { assessmentId: assessment.id, employeeId: user.employeeId },
     _max: { attemptNumber: true },
@@ -112,7 +122,7 @@ export async function startAssessment(formData: FormData) {
       employeeId: user.employeeId,
       enrollmentId: enrollment.id,
       attemptNumber: (latest._max.attemptNumber ?? 0) + 1,
-      totalQuestions: assessment._count.questions,
+      totalQuestions: offeredCount,
     },
   });
   redirect(`/learn/courses/${courseId}/assessment/${attempt.id}`);
@@ -146,7 +156,13 @@ export async function submitAssessment(_: AssessmentSubmitState, formData: FormD
   }
   const parsed = z.array(answerSchema).safeParse(decoded);
   if (!parsed.success) return { message: "Assessment answers could not be read." };
-  const questionMap = new Map(attempt.assessment.questions.map((question) => [question.id, question]));
+  const offeredQuestions = selectAttemptQuestions(
+    attempt.assessment.questions,
+    attempt.id,
+    attempt.totalQuestions || attempt.assessment.questions.length,
+    attempt.assessment.shuffleQuestions,
+  );
+  const questionMap = new Map(offeredQuestions.map((question) => [question.id, question]));
   const answers = parsed.data.filter((answer) => questionMap.has(answer.questionId));
   const seen = new Set<string>();
   const normalized = answers.filter((answer) => {
@@ -158,7 +174,7 @@ export async function submitAssessment(_: AssessmentSubmitState, formData: FormD
     const question = questionMap.get(answer.questionId);
     return Boolean(answer.selectedOption && question && answer.selectedOption === question.correctOption);
   }).length;
-  const totalQuestions = attempt.assessment.questions.length;
+  const totalQuestions = offeredQuestions.length;
   const scorePercent = totalQuestions ? Math.round((correctAnswers / totalQuestions) * 1000) / 10 : 0;
   const elapsedSeconds = Math.max(0, Math.floor((Date.now() - attempt.startedAt.getTime()) / 1000));
   const timeTakenSeconds = Math.min(elapsedSeconds, attempt.assessment.timeLimitSeconds);

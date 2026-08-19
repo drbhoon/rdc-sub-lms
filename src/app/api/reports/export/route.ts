@@ -51,12 +51,12 @@ export async function GET(request: Request) {
   ]);
 
   const workbook = new ExcelJS.Workbook();
-  const bestAttempts = new Map<string, (typeof assessmentAttempts)[number]>();
+  const latestAttempts = new Map<string, (typeof assessmentAttempts)[number]>();
   for (const attempt of assessmentAttempts) {
     const key = `${attempt.employeeId}:${attempt.assessment.courseId}`;
-    const existing = bestAttempts.get(key);
-    if (!existing || attempt.scorePercent > existing.scorePercent || (attempt.scorePercent === existing.scorePercent && attempt.timeTakenSeconds < existing.timeTakenSeconds)) {
-      bestAttempts.set(key, attempt);
+    const existing = latestAttempts.get(key);
+    if (!existing || (attempt.submittedAt?.getTime() ?? 0) > (existing.submittedAt?.getTime() ?? 0)) {
+      latestAttempts.set(key, attempt);
     }
   }
 
@@ -68,7 +68,7 @@ export async function GET(request: Request) {
   for (const enrollment of progressRows) {
     const totalLessons = enrollment.course.contents.flatMap((content) => content.lessons).length;
     const completedLessons = enrollment.progress.filter((item) => item.completedAt).length;
-    const attempt = bestAttempts.get(`${enrollment.employeeId}:${enrollment.courseId}`);
+    const attempt = latestAttempts.get(`${enrollment.employeeId}:${enrollment.courseId}`);
     progress.addRow([
       enrollment.employee.employeeCode,
       enrollment.employee.name,

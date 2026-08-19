@@ -32,6 +32,8 @@ export async function GET(_: Request, context: { params: Promise<{ id: string }>
     "Status",
     "Error",
     "AI Model",
+    "Mode",
+    "Language",
     "Answer Scope",
     "Asked At",
   ]);
@@ -48,11 +50,13 @@ export async function GET(_: Request, context: { params: Promise<{ id: string }>
       interaction.status,
       interaction.error ?? "",
       interaction.model ?? "",
+      interaction.channel,
+      interaction.language?.toUpperCase() ?? "",
       interaction.sourceRestricted ? "Published course material only" : "Extended",
       interaction.createdAt,
     ]);
   }
-  sheet.getColumn(12).numFmt = "yyyy-mm-dd hh:mm";
+  sheet.getColumn(14).numFmt = "yyyy-mm-dd hh:mm";
   sheet.getColumn(6).alignment = { vertical: "top", wrapText: true };
   sheet.getColumn(7).alignment = { vertical: "top", wrapText: true };
   autoFit(sheet);

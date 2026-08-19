@@ -1,5 +1,6 @@
 import { withBase } from "@/lib/base-path";
 import { UserRole } from "@prisma/client";
+import Link from "next/link";
 import type { CSSProperties } from "react";
 import { db } from "@/lib/db";
 import { buildLeaderboardRows, formatDuration } from "@/lib/leaderboard";
@@ -73,12 +74,12 @@ export default async function ReportsPage({ searchParams }: { searchParams: Prom
     }),
   ]);
 
-  const bestAttempts = new Map<string, (typeof assessmentAttempts)[number]>();
+  const latestAttempts = new Map<string, (typeof assessmentAttempts)[number]>();
   for (const attempt of assessmentAttempts) {
     const key = `${attempt.employeeId}:${attempt.assessment.courseId}`;
-    const existing = bestAttempts.get(key);
-    if (!existing || attempt.scorePercent > existing.scorePercent || (attempt.scorePercent === existing.scorePercent && attempt.timeTakenSeconds < existing.timeTakenSeconds)) {
-      bestAttempts.set(key, attempt);
+    const existing = latestAttempts.get(key);
+    if (!existing || (attempt.submittedAt?.getTime() ?? 0) > (existing.submittedAt?.getTime() ?? 0)) {
+      latestAttempts.set(key, attempt);
     }
   }
 
@@ -102,6 +103,11 @@ export default async function ReportsPage({ searchParams }: { searchParams: Prom
 
   return <main className="container">
     <h1>Reports</h1>
+    <nav className="report-tabs" aria-label="Report sections">
+      <Link className="active" href="/admin/reports">General</Link>
+      <Link href="/admin/reports/assessment">Assessment</Link>
+      <Link href="/admin/reports/feedback">Feedback</Link>
+    </nav>
     <form className="period-filter card" method="get">
       <label>Period
         <select name="period" defaultValue={period.key}>
@@ -146,7 +152,7 @@ export default async function ReportsPage({ searchParams }: { searchParams: Prom
             const totalLessons = enrollment.course.contents.flatMap((content) => content.lessons).length;
             const completedLessons = enrollment.progress.filter((progress) => progress.completedAt).length;
             const percent = totalLessons ? Math.round(completedLessons / totalLessons * 100) : 0;
-            const attempt = bestAttempts.get(`${enrollment.employeeId}:${enrollment.courseId}`);
+            const attempt = latestAttempts.get(`${enrollment.employeeId}:${enrollment.courseId}`);
             return <tr key={enrollment.id}>
               <td><strong>{enrollment.employee.name}</strong><br /><span className="muted">{enrollment.employee.employeeCode}</span></td>
               <td>{enrollment.employee.company.name}</td>

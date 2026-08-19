@@ -32,7 +32,7 @@ export default async function EmployeesPage() {
         <h2>Employee master</h2>
         <div className="table-wrap">
           <table>
-            <thead><tr><th>Employee</th><th>Company</th><th>Department</th><th>Status</th><th>Roles</th><th>Delete</th></tr></thead>
+            <thead><tr><th>Employee</th><th>Company</th><th>Department</th><th>Status</th><th>Learner view</th><th>Roles</th><th>Delete</th></tr></thead>
             <tbody>
               {employees.map((employee) => {
                 const roles = new Set(employee.user?.roles.map((role) => role.role) ?? []);
@@ -42,6 +42,7 @@ export default async function EmployeesPage() {
                   <td>{employee.company.name}{employee.locationPlant && <><br /><span className="muted">{employee.locationPlant}</span></>}</td>
                   <td>{employee.department}<br /><span className="muted">{employee.designation}</span></td>
                   <td><span className="badge">{employee.status}</span></td>
+                  <td><a className="button secondary" href={withBase(`/admin/learners/${employee.id}`)}>View activity</a></td>
                   <td>
                     {employee.user && employee.status === "ACTIVE" ? <ActionForm action={updateUserRoles} submitLabel="Save roles">
                       <input type="hidden" name="userId" value={employee.user.id} />
@@ -60,7 +61,7 @@ export default async function EmployeesPage() {
                   </td>
                 </tr>;
               })}
-              {!employees.length && <tr><td colSpan={6}>No employees have been imported.</td></tr>}
+              {!employees.length && <tr><td colSpan={7}>No employees have been imported.</td></tr>}
             </tbody>
           </table>
         </div>

@@ -21,6 +21,8 @@ import { db } from "@/lib/db";
 // than it looks. Update both if the model in OPENAI_MODEL changes.
 const USD_PER_MTOK_INPUT = 0.75;
 const USD_PER_MTOK_OUTPUT = 4.5;
+const USD_PER_MTOK_AUDIO_INPUT = positiveEnv(process.env.LMS_AI_REALTIME_AUDIO_INPUT_USD_PER_MTOK, 10);
+const USD_PER_MTOK_AUDIO_OUTPUT = positiveEnv(process.env.LMS_AI_REALTIME_AUDIO_OUTPUT_USD_PER_MTOK, 20);
 
 /**
  * Read a positive number from the environment, falling back on anything
@@ -38,10 +40,12 @@ export const BUDGET_INR = positiveEnv(process.env.LMS_AI_BUDGET_INR, 100);
 
 const USD_TO_INR = positiveEnv(process.env.LMS_AI_USD_TO_INR, 95.2);
 
-export function costInr(inputTokens: number, outputTokens: number): number {
+export function costInr(inputTokens: number, outputTokens: number, inputAudioTokens = 0, outputAudioTokens = 0): number {
   const usd =
     (inputTokens / 1_000_000) * USD_PER_MTOK_INPUT +
-    (outputTokens / 1_000_000) * USD_PER_MTOK_OUTPUT;
+    (outputTokens / 1_000_000) * USD_PER_MTOK_OUTPUT +
+    (inputAudioTokens / 1_000_000) * USD_PER_MTOK_AUDIO_INPUT +
+    (outputAudioTokens / 1_000_000) * USD_PER_MTOK_AUDIO_OUTPUT;
   return usd * USD_TO_INR;
 }
 
@@ -49,7 +53,12 @@ export function costInr(inputTokens: number, outputTokens: number): number {
 export async function spentInr(employeeId: string, courseId: string): Promise<number> {
   const totals = await db.courseAiInteraction.aggregate({
     where: { employeeId, courseId },
-    _sum: { inputTokens: true, outputTokens: true },
+    _sum: { inputTokens: true, outputTokens: true, inputAudioTokens: true, outputAudioTokens: true },
   });
-  return costInr(totals._sum.inputTokens ?? 0, totals._sum.outputTokens ?? 0);
+  return costInr(
+    totals._sum.inputTokens ?? 0,
+    totals._sum.outputTokens ?? 0,
+    totals._sum.inputAudioTokens ?? 0,
+    totals._sum.outputAudioTokens ?? 0,
+  );
 }

@@ -11,11 +11,13 @@ enum EmployeeStatus {
   ACTIVE
   INACTIVE
 }
+
 enum UserRole {
   SUPER_ADMIN
   TEACHER
   LEARNER
 }
+
 enum CourseStatus {
   DRAFT
   CONTENT_UPLOADED
@@ -24,37 +26,44 @@ enum CourseStatus {
   PUBLISHED
   ARCHIVED
 }
+
 enum ContentType {
   PDF
   PRESENTATION
   VIDEO
   NOTEBOOK
 }
+
 enum ProcessingStatus {
   QUEUED
   PROCESSING
   COMPLETED
   FAILED
 }
+
 enum EnrollmentStatus {
   NOT_STARTED
   IN_PROGRESS
   COMPLETED
 }
+
 enum LessonType {
   DOCUMENT
   VIDEO
   TEXT
 }
+
 enum AssessmentStatus {
   DRAFT
   ACTIVE
   INACTIVE
 }
+
 enum AssessmentAttemptStatus {
   IN_PROGRESS
   SUBMITTED
 }
+
 enum FeedbackQuestionType {
   RATING_1_5
   SHORT_TEXT
@@ -63,71 +72,74 @@ enum FeedbackQuestionType {
   SINGLE_CHOICE
   MULTI_CHOICE
 }
+
 enum CourseEmailType {
   ENROLLMENT
   REMINDER
 }
+
 enum CourseEmailStatus {
   SENT
   FAILED
   SKIPPED
 }
+
 enum CourseAiInteractionStatus {
   ANSWERED
   FAILED
 }
 
 model Company {
-  id        String   @id @default(cuid())
-  name      String   @unique
+  id        String          @id @default(cuid())
+  name      String          @unique
   employees Employee[]
   courses   CourseCompany[]
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  createdAt DateTime        @default(now())
+  updatedAt DateTime        @updatedAt
 }
 
 model Employee {
-  id           String         @id @default(cuid())
-  employeeCode String         @unique
-  name         String
-  email        String         @unique
+  id                 String                @id @default(cuid())
+  employeeCode       String                @unique
+  name               String
+  email              String                @unique
   /// The portal's person id. Nullable because LMS is the one app that
   /// legitimately serves people who are not on the employee master — off-roll
   /// staff and third-party learners — and it must never refuse them.
-  personId     String?
-  department   String
-  designation  String
-  locationPlant String?
-  status       EmployeeStatus @default(ACTIVE)
-  managerName  String?
-  mobileNumber String?
-  companyId    String
-  company      Company        @relation(fields: [companyId], references: [id])
-  user         User?
-  enrollments  Enrollment[]
+  personId           String?
+  department         String
+  designation        String
+  locationPlant      String?
+  status             EmployeeStatus        @default(ACTIVE)
+  managerName        String?
+  mobileNumber       String?
+  companyId          String
+  company            Company               @relation(fields: [companyId], references: [id])
+  user               User?
+  enrollments        Enrollment[]
   assessmentAttempts AssessmentAttempt[]
   feedbackResponses  FeedbackResponse[]
-  aiInteractions      CourseAiInteraction[]
-  emailLogs           CourseEmailLog[]
-  createdAt    DateTime       @default(now())
-  updatedAt    DateTime       @updatedAt
+  aiInteractions     CourseAiInteraction[]
+  emailLogs          CourseEmailLog[]
+  createdAt          DateTime              @default(now())
+  updatedAt          DateTime              @updatedAt
 
   @@index([companyId, status])
   @@index([personId])
 }
 
 model User {
-  id            String           @id @default(cuid())
-  email         String           @unique
-  employeeId    String?          @unique
-  employee      Employee?        @relation(fields: [employeeId], references: [id])
+  id            String          @id @default(cuid())
+  email         String          @unique
+  employeeId    String?         @unique
+  employee      Employee?       @relation(fields: [employeeId], references: [id])
   roles         UserRoleGrant[]
   sessions      Session[]
   otpChallenges OtpChallenge[]
   coursesTaught CourseTeacher[]
   auditLogs     AuditLog[]
-  createdAt     DateTime         @default(now())
-  updatedAt     DateTime         @updatedAt
+  createdAt     DateTime        @default(now())
+  updatedAt     DateTime        @updatedAt
 }
 
 model UserRoleGrant {
@@ -135,6 +147,7 @@ model UserRoleGrant {
   userId String
   role   UserRole
   user   User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
   @@unique([userId, role])
 }
 
@@ -148,35 +161,37 @@ model OtpChallenge {
   requestIp String?
   createdAt DateTime  @default(now())
   user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
   @@index([userId, createdAt])
   @@index([requestIp, createdAt])
 }
 
 model Session {
-  id        String   @id @default(cuid())
-  userId    String
-  tokenHash String   @unique
-  expiresAt DateTime
-  createdAt DateTime @default(now())
+  id         String   @id @default(cuid())
+  userId     String
+  tokenHash  String   @unique
+  expiresAt  DateTime
+  createdAt  DateTime @default(now())
   lastSeenAt DateTime @default(now())
-  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
   @@index([userId, expiresAt])
 }
 
 model Course {
-  id                   String       @id @default(cuid())
+  id                   String                @id @default(cuid())
   title                String
   category             String
   description          String
   durationMinutes      Int
-  passPercentage       Int          @default(70)
-  aiTokenLimit         Int          @default(50000)
-  certificateEnabled   Boolean      @default(true)
-  leaderboardEnabled   Boolean      @default(true)
-  requiredVideoPercent Int          @default(80)
-  isActive             Boolean      @default(true)
-  status               CourseStatus @default(DRAFT)
-  hasPendingChanges    Boolean      @default(false)
+  passPercentage       Int                   @default(70)
+  aiTokenLimit         Int                   @default(50000)
+  certificateEnabled   Boolean               @default(true)
+  leaderboardEnabled   Boolean               @default(true)
+  requiredVideoPercent Int                   @default(80)
+  isActive             Boolean               @default(true)
+  status               CourseStatus          @default(DRAFT)
+  hasPendingChanges    Boolean               @default(false)
   publishedAt          DateTime?
   companies            CourseCompany[]
   teachers             CourseTeacher[]
@@ -186,8 +201,9 @@ model Course {
   feedbackForms        FeedbackForm[]
   aiInteractions       CourseAiInteraction[]
   emailLogs            CourseEmailLog[]
-  createdAt            DateTime     @default(now())
-  updatedAt            DateTime     @updatedAt
+  createdAt            DateTime              @default(now())
+  updatedAt            DateTime              @updatedAt
+
   @@index([status])
 }
 
@@ -196,6 +212,7 @@ model CourseCompany {
   companyId String
   course    Course  @relation(fields: [courseId], references: [id], onDelete: Cascade)
   company   Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
   @@id([courseId, companyId])
 }
 
@@ -204,87 +221,92 @@ model CourseTeacher {
   userId   String
   course   Course @relation(fields: [courseId], references: [id], onDelete: Cascade)
   user     User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
   @@id([courseId, userId])
 }
 
 model CourseContent {
-  id                 String           @id @default(cuid())
-  courseId           String
-  version            Int
-  originalName       String
-  storedKey          String
-  mimeType           String
-  sizeBytes          Int
-  type               ContentType
-  processingStatus   ProcessingStatus @default(QUEUED)
-  processingError    String?
-  extractedText      String?
-  summary            String?
-  keyPoints          Json?
-  glossary           Json?
-  quizQuestions      Json?
-  aiModel             String?
-  aiGeneratedAt       DateTime?
-  approvedAt         DateTime?
-  rejectedAt         DateTime?
-  rejectionReason    String?
-  isPublished        Boolean          @default(false)
-  course             Course           @relation(fields: [courseId], references: [id], onDelete: Cascade)
-  lessons            Lesson[]
-  jobs               ProcessingJob[]
-  createdAt          DateTime         @default(now())
-  updatedAt          DateTime         @updatedAt
+  id               String           @id @default(cuid())
+  courseId         String
+  version          Int
+  originalName     String
+  storedKey        String
+  mimeType         String
+  sizeBytes        Int
+  type             ContentType
+  processingStatus ProcessingStatus @default(QUEUED)
+  processingError  String?
+  extractedText    String?
+  summary          String?
+  keyPoints        Json?
+  glossary         Json?
+  quizQuestions    Json?
+  aiModel          String?
+  aiGeneratedAt    DateTime?
+  approvedAt       DateTime?
+  rejectedAt       DateTime?
+  rejectionReason  String?
+  isPublished      Boolean          @default(false)
+  course           Course           @relation(fields: [courseId], references: [id], onDelete: Cascade)
+  lessons          Lesson[]
+  jobs             ProcessingJob[]
+  createdAt        DateTime         @default(now())
+  updatedAt        DateTime         @updatedAt
+
   @@unique([courseId, version])
   @@index([processingStatus])
 }
 
 model Lesson {
-  id                   String       @id @default(cuid())
+  id                   String           @id @default(cuid())
   courseContentId      String
   title                String
   type                 LessonType
   order                Int
   pageAssetKeys        Json?
-  pageCount            Int          @default(0)
+  pageCount            Int              @default(0)
   durationSeconds      Int?
-  requiredWatchPercent Int          @default(80)
+  requiredWatchPercent Int              @default(80)
   summary              String?
   keyPoints            Json?
   approvedAt           DateTime?
-  content              CourseContent @relation(fields: [courseContentId], references: [id], onDelete: Cascade)
+  content              CourseContent    @relation(fields: [courseContentId], references: [id], onDelete: Cascade)
   progress             LessonProgress[]
-  createdAt            DateTime     @default(now())
-  updatedAt            DateTime     @updatedAt
+  createdAt            DateTime         @default(now())
+  updatedAt            DateTime         @updatedAt
+
   @@unique([courseContentId, order])
 }
 
 model Enrollment {
-  id          String           @id @default(cuid())
-  employeeId  String
-  courseId    String
-  status      EnrollmentStatus @default(NOT_STARTED)
-  enrolledAt  DateTime         @default(now())
-  startedAt   DateTime?
-  completedAt DateTime?
-  employee    Employee         @relation(fields: [employeeId], references: [id], onDelete: Cascade)
-  course      Course           @relation(fields: [courseId], references: [id], onDelete: Cascade)
-  progress    LessonProgress[]
+  id                 String              @id @default(cuid())
+  employeeId         String
+  courseId           String
+  status             EnrollmentStatus    @default(NOT_STARTED)
+  enrolledAt         DateTime            @default(now())
+  startedAt          DateTime?
+  completedAt        DateTime?
+  employee           Employee            @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+  course             Course              @relation(fields: [courseId], references: [id], onDelete: Cascade)
+  progress           LessonProgress[]
   assessmentAttempts AssessmentAttempt[]
+
   @@unique([employeeId, courseId])
   @@index([courseId, status])
 }
 
 model LessonProgress {
-  id               String      @id @default(cuid())
-  enrollmentId     String
-  lessonId         String
-  viewedPages      Json?
-  watchedSeconds   Int         @default(0)
-  lastPosition     Int         @default(0)
-  completedAt      DateTime?
-  enrollment       Enrollment  @relation(fields: [enrollmentId], references: [id], onDelete: Cascade)
-  lesson           Lesson      @relation(fields: [lessonId], references: [id], onDelete: Cascade)
-  updatedAt        DateTime    @updatedAt
+  id             String     @id @default(cuid())
+  enrollmentId   String
+  lessonId       String
+  viewedPages    Json?
+  watchedSeconds Int        @default(0)
+  lastPosition   Int        @default(0)
+  completedAt    DateTime?
+  enrollment     Enrollment @relation(fields: [enrollmentId], references: [id], onDelete: Cascade)
+  lesson         Lesson     @relation(fields: [lessonId], references: [id], onDelete: Cascade)
+  updatedAt      DateTime   @updatedAt
+
   @@unique([enrollmentId, lessonId])
 }
 
@@ -298,43 +320,48 @@ model ProcessingJob {
   content   CourseContent    @relation(fields: [contentId], references: [id], onDelete: Cascade)
   createdAt DateTime         @default(now())
   updatedAt DateTime         @updatedAt
+
   @@index([status, createdAt])
 }
 
 model AuditLog {
-  id         String   @id @default(cuid())
+  id          String   @id @default(cuid())
   actorUserId String?
-  action     String
-  entityType String
-  entityId   String?
-  metadata   Json?
-  createdAt  DateTime @default(now())
-  actor      User?    @relation(fields: [actorUserId], references: [id], onDelete: SetNull)
+  action      String
+  entityType  String
+  entityId    String?
+  metadata    Json?
+  createdAt   DateTime @default(now())
+  actor       User?    @relation(fields: [actorUserId], references: [id], onDelete: SetNull)
+
   @@index([createdAt])
 }
 
 model Assessment {
-  id                String           @id @default(cuid())
-  courseId          String
-  title             String           @default("Course Assessment")
-  version           Int
-  status            AssessmentStatus @default(DRAFT)
-  passPercentage    Int              @default(70)
-  showLeaderboard   Boolean          @default(true)
-  shuffleQuestions  Boolean          @default(false)
-  timeLimitSeconds  Int              @default(1800)
-  course            Course           @relation(fields: [courseId], references: [id], onDelete: Cascade)
-  questions         AssessmentQuestion[]
-  attempts          AssessmentAttempt[]
-  createdAt         DateTime         @default(now())
-  updatedAt         DateTime         @updatedAt
+  id                  String               @id @default(cuid())
+  courseId            String
+  title               String               @default("Course Assessment")
+  version             Int
+  status              AssessmentStatus     @default(DRAFT)
+  passPercentage      Int                  @default(70)
+  showLeaderboard     Boolean              @default(true)
+  shuffleQuestions    Boolean              @default(false)
+  /// Number randomly drawn from the question bank for each attempt. Null on
+  /// legacy assessments, where the complete bank remains the offered quiz.
+  questionsPerAttempt Int?
+  timeLimitSeconds    Int                  @default(1800)
+  course              Course               @relation(fields: [courseId], references: [id], onDelete: Cascade)
+  questions           AssessmentQuestion[]
+  attempts            AssessmentAttempt[]
+  createdAt           DateTime             @default(now())
+  updatedAt           DateTime             @updatedAt
 
   @@unique([courseId, version])
   @@index([courseId, status])
 }
 
 model AssessmentQuestion {
-  id            String      @id @default(cuid())
+  id            String             @id @default(cuid())
   assessmentId  String
   order         Int
   questionText  String
@@ -343,10 +370,10 @@ model AssessmentQuestion {
   optionC       String
   optionD       String
   correctOption String
-  timeSeconds   Int         @default(30)
-  assessment    Assessment  @relation(fields: [assessmentId], references: [id], onDelete: Cascade)
+  timeSeconds   Int                @default(30)
+  assessment    Assessment         @relation(fields: [assessmentId], references: [id], onDelete: Cascade)
   answers       AssessmentAnswer[]
-  createdAt     DateTime    @default(now())
+  createdAt     DateTime           @default(now())
 
   @@unique([assessmentId, order])
 }
@@ -377,44 +404,44 @@ model AssessmentAttempt {
 
 model AssessmentAnswer {
   id               String             @id @default(cuid())
-  attemptId         String
-  questionId        String
-  selectedOption    String?
-  isCorrect         Boolean            @default(false)
-  timeSpentSeconds  Int                @default(0)
-  answeredAt        DateTime           @default(now())
-  attempt           AssessmentAttempt  @relation(fields: [attemptId], references: [id], onDelete: Cascade)
-  question          AssessmentQuestion @relation(fields: [questionId], references: [id], onDelete: Cascade)
+  attemptId        String
+  questionId       String
+  selectedOption   String?
+  isCorrect        Boolean            @default(false)
+  timeSpentSeconds Int                @default(0)
+  answeredAt       DateTime           @default(now())
+  attempt          AssessmentAttempt  @relation(fields: [attemptId], references: [id], onDelete: Cascade)
+  question         AssessmentQuestion @relation(fields: [questionId], references: [id], onDelete: Cascade)
 
   @@unique([attemptId, questionId])
 }
 
 model FeedbackForm {
-  id          String             @id @default(cuid())
-  courseId    String
-  title       String             @default("Course Feedback")
-  version     Int
-  isActive    Boolean            @default(false)
-  course      Course             @relation(fields: [courseId], references: [id], onDelete: Cascade)
-  questions   FeedbackQuestion[]
-  responses   FeedbackResponse[]
-  createdAt   DateTime           @default(now())
-  updatedAt   DateTime           @updatedAt
+  id        String             @id @default(cuid())
+  courseId  String
+  title     String             @default("Course Feedback")
+  version   Int
+  isActive  Boolean            @default(false)
+  course    Course             @relation(fields: [courseId], references: [id], onDelete: Cascade)
+  questions FeedbackQuestion[]
+  responses FeedbackResponse[]
+  createdAt DateTime           @default(now())
+  updatedAt DateTime           @updatedAt
 
   @@unique([courseId, version])
   @@index([courseId, isActive])
 }
 
 model FeedbackQuestion {
-  id            String               @id @default(cuid())
-  formId        String
-  order         Int
-  questionText  String
-  type          FeedbackQuestionType
-  required      Boolean              @default(true)
-  options       Json?
-  form          FeedbackForm         @relation(fields: [formId], references: [id], onDelete: Cascade)
-  answers       FeedbackAnswer[]
+  id           String               @id @default(cuid())
+  formId       String
+  order        Int
+  questionText String
+  type         FeedbackQuestionType
+  required     Boolean              @default(true)
+  options      Json?
+  form         FeedbackForm         @relation(fields: [formId], references: [id], onDelete: Cascade)
+  answers      FeedbackAnswer[]
 
   @@unique([formId, order])
 }
@@ -433,36 +460,40 @@ model FeedbackResponse {
 }
 
 model FeedbackAnswer {
-  id          String           @id @default(cuid())
-  responseId  String
-  questionId  String
-  value       Json
-  response    FeedbackResponse @relation(fields: [responseId], references: [id], onDelete: Cascade)
-  question    FeedbackQuestion @relation(fields: [questionId], references: [id], onDelete: Cascade)
+  id         String           @id @default(cuid())
+  responseId String
+  questionId String
+  value      Json
+  response   FeedbackResponse @relation(fields: [responseId], references: [id], onDelete: Cascade)
+  question   FeedbackQuestion @relation(fields: [questionId], references: [id], onDelete: Cascade)
 
   @@unique([responseId, questionId])
 }
 
 model CourseAiInteraction {
-  id               String                    @id @default(cuid())
-  courseId         String
-  employeeId       String
-  question         String
-  answer           String?
-  status           CourseAiInteractionStatus @default(ANSWERED)
-  error            String?
-  model            String?
+  id                String                    @id @default(cuid())
+  courseId          String
+  employeeId        String
+  question          String
+  answer            String?
+  status            CourseAiInteractionStatus @default(ANSWERED)
+  error             String?
+  model             String?
   // Token counts as REPORTED BY OpenAI, not estimated. The per-learner spend
   // cap is computed by summing these and applying the current price, so the
   // cap stays accurate however long or short individual questions are, and
   // history re-prices automatically if the rate changes. Null when no call was
   // billed (refusals, timeouts, cap already reached).
-  inputTokens      Int?
-  outputTokens     Int?
-  sourceRestricted Boolean                   @default(true)
-  createdAt        DateTime                  @default(now())
-  course           Course                    @relation(fields: [courseId], references: [id], onDelete: Cascade)
-  employee         Employee                  @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+  inputTokens       Int?
+  outputTokens      Int?
+  inputAudioTokens  Int?
+  outputAudioTokens Int?
+  channel           String                    @default("TEXT")
+  language          String?
+  sourceRestricted  Boolean                   @default(true)
+  createdAt         DateTime                  @default(now())
+  course            Course                    @relation(fields: [courseId], references: [id], onDelete: Cascade)
+  employee          Employee                  @relation(fields: [employeeId], references: [id], onDelete: Cascade)
 
   @@index([courseId, createdAt])
   @@index([employeeId, createdAt])

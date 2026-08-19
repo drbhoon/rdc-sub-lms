@@ -4,6 +4,7 @@ import { CourseAiInteractionStatus, UserRole } from "@prisma/client";
 import { z } from "zod";
 import { db } from "@/lib/db";
 import { BUDGET_INR, spentInr } from "@/lib/ai-budget";
+import { buildCourseAiSource } from "@/lib/course-ai-source";
 import { requireRole } from "@/lib/session";
 
 export type CourseAiState = { message?: string; answer?: string };
@@ -21,12 +22,6 @@ function outputText(response: unknown) {
     }
   }
   return null;
-}
-
-function jsonText(value: unknown) {
-  if (Array.isArray(value)) return value.map((item) => typeof item === "string" ? item : JSON.stringify(item)).join("\n");
-  if (value && typeof value === "object") return JSON.stringify(value);
-  return "";
 }
 
 async function recordInteraction(input: {
@@ -49,6 +44,7 @@ async function recordInteraction(input: {
       model: input.model,
       inputTokens: input.inputTokens,
       outputTokens: input.outputTokens,
+      channel: "TEXT",
       status: input.answer ? CourseAiInteractionStatus.ANSWERED : CourseAiInteractionStatus.FAILED,
       sourceRestricted: true,
     },
@@ -90,13 +86,7 @@ export async function askCourseAi(_: CourseAiState, formData: FormData): Promise
     return { message };
   }
 
-  const source = enrollment.course.contents.map((content) => [
-    `CONTENT: ${content.originalName}`,
-    content.summary ? `Summary: ${content.summary}` : "",
-    jsonText(content.keyPoints) ? `Key points:\n${jsonText(content.keyPoints)}` : "",
-    jsonText(content.glossary) ? `Glossary:\n${jsonText(content.glossary)}` : "",
-    content.extractedText ? `Source text:\n${content.extractedText}` : "",
-  ].filter(Boolean).join("\n\n")).join("\n\n---\n\n").replace(/\s+/g, " ").trim();
+  const source = buildCourseAiSource(enrollment.course.contents);
 
   if (source.length < 80) {
     const message = "AI assistant needs processed course text before it can answer.";
