@@ -11,6 +11,7 @@ import { audit } from "@/lib/audit";
 import { missingEmployeeColumns, normalizeEmployeeImportRow } from "@/lib/employee-import";
 import { resolvePersonId } from "@/lib/identity";
 import { fetchMasterEmployees, masterConfigured, type MasterSource } from "@/lib/master";
+import { groupDuplicateCompanies, normaliseCompany, pickSurvivingCompany } from "@/lib/company-merge";
 import { requireRole } from "@/lib/session";
 
 type ImportRow = Record<string, unknown>;
@@ -352,6 +353,10 @@ export async function importEmployeesFromMaster(
     return true;
   });
 
+  // Heal anything an earlier import split BEFORE matching, so the name we look
+  // up is the survivor rather than one of the duplicates.
+  const mergedCompanies = await mergeDuplicateCompanies();
+
   // Companies once, not once per person: ~1500 upserts for a handful of names.
   //
   // Matched against what LMS ALREADY has, loosely. The master writes "RDC
@@ -459,6 +464,9 @@ export async function importEmployeesFromMaster(
     );
   }
   if (failedCodes.length) notes.push(`${failedCodes.length} batch${failedCodes.length === 1 ? "" : "es"} failed, see the server log`);
+  if (mergedCompanies.length) {
+    notes.push(`${mergedCompanies.length} duplicate compan${mergedCompanies.length === 1 ? "y" : "ies"} merged (${mergedCompanies.join("; ")})`);
+  }
   if (newCompanies.length) {
     // Said out loud because it needs an action. A course offers only employees
     // whose company is linked to it, so learners in a brand-new company are
@@ -476,24 +484,67 @@ export async function importEmployeesFromMaster(
   };
 }
 
+
 /**
- * A company name reduced to something comparable.
+ * Fold companies that are the same firm under two spellings into one.
  *
- * Used ONLY to decide whether a name the master supplies is a firm LMS already
- * knows. Never to rename anything: the wording HR already chose stays.
+ * Matching names on the way IN stops new duplicates; it does nothing about the
+ * ones already written. The first import created "RDC Concrete India Ltd."
+ * beside the existing "RDC Concrete (India) Limited", and every learner it
+ * added sat in a company no course was linked to — invisible in the enrolment
+ * picker, which is how this was reported.
  *
- * "RDC Concrete (India) Limited" and "RDC Concrete India Ltd." are the same
- * company, and treating them as two is what made every imported learner
- * ineligible for existing courses.
+ * Idempotent: with nothing to merge it does nothing, so it is safe to run on
+ * every import and heals whatever the last one split.
+ *
+ * The survivor is the company with the most employees, and ties go to the
+ * older record — that is the one HR has been using and the one existing
+ * courses are most likely already linked to. Course links move across before
+ * the empty duplicate is removed, so no course loses its audience.
  */
-function normaliseCompany(name: string): string {
-  return name
-    .toLowerCase()
-    // Legal suffixes first, while the separators are still there to
-    // delimit them; punctuation and spacing go afterwards.
-    .replace(/limited/g, "ltd")
-    .replace(/private/g, "pvt")
-    .replace(/corporation/g, "corp")
-    .replace(/incorporated/g, "inc")
-    .replace(/[^a-z0-9]/g, "");
+async function mergeDuplicateCompanies(): Promise<string[]> {
+  const companies = await db.company.findMany({
+    select: {
+      id: true,
+      name: true,
+      createdAt: true,
+      _count: { select: { employees: true } },
+    },
+  });
+
+  const candidates = companies.map((company) => ({
+    id: company.id,
+    name: company.name,
+    createdAt: company.createdAt,
+    employeeCount: company._count.employees,
+  }));
+
+  const merged: string[] = [];
+  for (const group of groupDuplicateCompanies(candidates)) {
+    const { keep, drop } = pickSurvivingCompany(group);
+
+    for (const duplicate of drop) {
+      await db.$transaction(async (tx) => {
+        await tx.employee.updateMany({
+          where: { companyId: duplicate.id },
+          data: { companyId: keep.id },
+        });
+        // Move course links one at a time: the pair is a composite primary
+        // key, so a link that already exists on the survivor would collide.
+        const links = await tx.courseCompany.findMany({ where: { companyId: duplicate.id } });
+        for (const link of links) {
+          await tx.courseCompany.upsert({
+            where: { courseId_companyId: { courseId: link.courseId, companyId: keep.id } },
+            update: {},
+            create: { courseId: link.courseId, companyId: keep.id },
+          });
+        }
+        await tx.courseCompany.deleteMany({ where: { companyId: duplicate.id } });
+        // Safe now: nothing points at it.
+        await tx.company.delete({ where: { id: duplicate.id } });
+      });
+      merged.push(`${duplicate.name} into ${keep.name}`);
+    }
+  }
+  return merged;
 }
