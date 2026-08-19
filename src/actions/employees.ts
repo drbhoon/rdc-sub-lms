@@ -353,10 +353,31 @@ export async function importEmployeesFromMaster(
   });
 
   // Companies once, not once per person: ~1500 upserts for a handful of names.
+  //
+  // Matched against what LMS ALREADY has, loosely. The master writes "RDC
+  // Concrete India Ltd." where LMS held "RDC Concrete (India) Limited", and a
+  // plain upsert on the exact name made a second company for the same firm.
+  // That is not cosmetic: a course offers only employees whose company is
+  // linked to it, so every imported learner landed in a company no existing
+  // course knew about and the enrolment picker showed nobody but the Super
+  // Admins, who are exempt from the rule.
+  const existingCompanies = await db.company.findMany({ select: { id: true, name: true } });
+  const byNormalised = new Map(existingCompanies.map((c) => [normaliseCompany(c.name), c.id]));
+
   const companyIds = new Map<string, string>();
+  const newCompanies: string[] = [];
   for (const name of new Set(importable.map(([, p]) => String(p.company ?? "").trim() || "Third Party"))) {
-    const company = await db.company.upsert({ where: { name }, update: {}, create: { name } });
+    const key = normaliseCompany(name);
+    const matched = byNormalised.get(key);
+    if (matched) {
+      // Reuse, and never rename: HR chose the wording that is already there.
+      companyIds.set(name, matched);
+      continue;
+    }
+    const company = await db.company.create({ data: { name } });
+    byNormalised.set(key, company.id);
     companyIds.set(name, company.id);
+    newCompanies.push(name);
   }
 
   let created = 0;
@@ -438,10 +459,41 @@ export async function importEmployeesFromMaster(
     );
   }
   if (failedCodes.length) notes.push(`${failedCodes.length} batch${failedCodes.length === 1 ? "" : "es"} failed, see the server log`);
+  if (newCompanies.length) {
+    // Said out loud because it needs an action. A course offers only employees
+    // whose company is linked to it, so learners in a brand-new company are
+    // invisible in the enrolment picker until somebody adds it to the course.
+    notes.push(
+      `new compan${newCompanies.length === 1 ? "y" : "ies"} created (${newCompanies.join(", ")}) — `
+        + "add them to a course before its learners appear in the enrolment list",
+    );
+  }
 
   return {
     message: `${created} added, ${updated} updated from the employee master`
       + `${notes.length ? ` — ${notes.join("; ")}` : ""}.`,
     preview: false,
   };
+}
+
+/**
+ * A company name reduced to something comparable.
+ *
+ * Used ONLY to decide whether a name the master supplies is a firm LMS already
+ * knows. Never to rename anything: the wording HR already chose stays.
+ *
+ * "RDC Concrete (India) Limited" and "RDC Concrete India Ltd." are the same
+ * company, and treating them as two is what made every imported learner
+ * ineligible for existing courses.
+ */
+function normaliseCompany(name: string): string {
+  return name
+    .toLowerCase()
+    // Legal suffixes first, while the separators are still there to
+    // delimit them; punctuation and spacing go afterwards.
+    .replace(/limited/g, "ltd")
+    .replace(/private/g, "pvt")
+    .replace(/corporation/g, "corp")
+    .replace(/incorporated/g, "inc")
+    .replace(/[^a-z0-9]/g, "");
 }
