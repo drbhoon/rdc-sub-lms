@@ -38,7 +38,7 @@ export default async function CourseAdminPage({ params }: { params: Promise<{ id
   if (!course) notFound();
 
   const [employees, companies, teachers] = await Promise.all([
-    course.isActive
+    course.isActive && course.status === "PUBLISHED"
       ? db.employee.findMany({
         where: {
           ...eligibleLearnerForCourseWhere(course.companies.map((company) => company.companyId)),
@@ -239,7 +239,7 @@ export default async function CourseAdminPage({ params }: { params: Promise<{ id
 
         <div className="card">
           <h2>Enroll employees</h2>
-          {!course.isActive ? <p>Reactivate this course before enrolling new learners.</p> : employees.length ? <CourseEnrollmentPicker
+          {course.status !== "PUBLISHED" ? <p>Publish this course before enrolling learners.</p> : !course.isActive ? <p>Reactivate this course before enrolling new learners.</p> : employees.length ? <CourseEnrollmentPicker
             courseId={course.id}
             employees={employees.map((employee) => ({
               id: employee.id,

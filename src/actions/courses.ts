@@ -210,6 +210,7 @@ export async function enrollEmployees(formData: FormData) {
   const employeeIds = uniqueIds(formData.getAll("employeeIds"));
   if (!employeeIds.length) return { message: "Select at least one employee." };
   const course = await db.course.findUniqueOrThrow({ where: { id: courseId }, include: { companies: true } });
+  if (course.status !== CourseStatus.PUBLISHED) return { message: "Publish this course before enrolling learners." };
   if (!course.isActive) throw new Error("Inactive courses cannot receive new learner enrollments.");
   const eligible = await db.employee.findMany({
     where: eligibleLearnerForCourseWhere(course.companies.map((company) => company.companyId), employeeIds),
@@ -241,10 +242,16 @@ export async function enrollEmployeeInCourses(_: { message?: string }, formData:
   if (!employee || employee.status !== "ACTIVE") return { message: "Only active employees can be enrolled." };
   const isSuperAdminLearner = employee.user?.roles.some((role) => role.role === UserRole.SUPER_ADMIN) ?? false;
   const courses = await db.course.findMany({
-    where: { id: { in: courseIds }, isActive: true, ...(isSuperAdminLearner ? {} : { companies: { some: { companyId: employee.companyId } } }) },
+    where: {
+      id: { in: courseIds },
+      isActive: true,
+      status: CourseStatus.PUBLISHED,
+      ...(isSuperAdminLearner ? {} : { companies: { some: { companyId: employee.companyId } } }),
+    },
     include: { companies: true },
     orderBy: { title: "asc" },
   });
+  if (!courses.length) return { message: "Only active, published courses can receive learner enrollments." };
   const existing = await db.enrollment.findMany({ where: { employeeId, courseId: { in: courses.map((course) => course.id) } }, select: { courseId: true } });
   const existingIds = new Set(existing.map((enrollment) => enrollment.courseId));
   const newCourses = courses.filter((course) => !existingIds.has(course.id));
@@ -256,7 +263,9 @@ export async function enrollEmployeeInCourses(_: { message?: string }, formData:
   revalidatePath("/admin/employees");
   revalidatePath("/admin/courses");
   for (const course of newCourses) revalidatePath(`/admin/courses/${course.id}`);
-  return { message: `${newCourses.length} course(s) allocated to ${employee.name}. ${courses.length - newCourses.length} were already allocated or not eligible.` };
+  return {
+    message: `${newCourses.length} course(s) allocated to ${employee.name}. ${courses.length - newCourses.length} were already allocated. ${courseIds.length - courses.length} were unavailable or not eligible.`,
+  };
 }
 
 export async function deleteCourse(_: { message?: string }, formData: FormData): Promise<{ message?: string }> {

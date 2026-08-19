@@ -16,7 +16,7 @@ export default async function EmployeesPage() {
       take: 1000,
     }),
     db.course.findMany({
-      where: { isActive: true },
+      where: { isActive: true, status: "PUBLISHED" },
       include: { companies: true },
       orderBy: { title: "asc" },
       take: 1000,
