@@ -259,18 +259,23 @@ export async function updateUserRoles(_: { message?: string }, formData: FormDat
   return { message: "Roles updated." };
 }
 
-
 /**
  * Pull learners straight from the shared employee master.
  *
  * LMS kept its own list, filled from an Excel upload, so the same people were
  * maintained twice and drifted apart between uploads. The master is already
- * refreshed nightly from ZingHR (on-roll) and Truein (off-roll), and every
+ * refreshed nightly from ZingHR (on roll) and Truein (off roll), and every
  * other app on the platform reads it — this makes LMS one of them.
  *
- * The Excel upload stays. It is the only way in for a learner who is in
- * neither feed, which is a real case here: LMS is deliberately open to people
- * the employee master will never hold.
+ * The Excel upload stays. It is the only way in for a learner who is in neither
+ * feed, which is a real case here: LMS is deliberately open to people the
+ * employee master will never hold.
+ *
+ * NOT one big transaction. The first version wrapped all ~1500 upserts in one,
+ * and a single e-mail collision aborted the entire import — HR pressed the
+ * button and got a server error with nothing imported at all. Work is committed
+ * in chunks now, so one bad row costs that chunk and nothing else, and the whole
+ * operation is idempotent, so re-running finishes the job.
  */
 export async function importEmployeesFromMaster(
   _: EmployeeImportState,
@@ -294,74 +299,149 @@ export async function importEmployeesFromMaster(
     return { message: error instanceof Error ? error.message : "The employee master could not be reached." };
   }
 
-  // No e-mail means no login: LMS signs people in with an emailed OTP, so such
-  // a record could never be used. Counted rather than dropped quietly.
-  const usable = people.filter((person) => String(person.official_email_id ?? "").trim());
-  const skippedNoEmail = people.length - usable.length;
-  if (!usable.length) {
+  // No e-mail means no login: LMS signs people in with an emailed code, so such
+  // a record could never be used.
+  const withEmail = people.filter((person) => String(person.official_email_id ?? "").trim());
+  const skippedNoEmail = people.length - withEmail.length;
+
+  // One record per address. employee_master is keyed on employee_code, so two
+  // codes CAN share an address — a person in both feeds, most obviously — but
+  // Employee.email here is unique. Collapsing them now rather than letting the
+  // database refuse turns a failure into a counted note.
+  const byEmail = new Map<string, (typeof withEmail)[number]>();
+  let duplicateEmails = 0;
+  for (const person of withEmail) {
+    const email = person.official_email_id!.trim().toLowerCase();
+    const seen = byEmail.get(email);
+    if (!seen) {
+      byEmail.set(email, person);
+      continue;
+    }
+    duplicateEmails += 1;
+    // On roll wins: it is the fuller record and the one HR treats as primary.
+    if (seen.source !== "onroll" && person.source === "onroll") byEmail.set(email, person);
+  }
+  if (!byEmail.size) {
     return { message: `The employee master returned ${people.length} people, none with an e-mail address.` };
+  }
+
+  // An address already held by a DIFFERENT employee code — usually a leftover
+  // from the old spreadsheet import under another code. Reported rather than
+  // silently rewritten: moving a code would detach that learner from their
+  // enrolments and progress, which is not a decision an import should take.
+  const wanted = [...byEmail.values()];
+  const existing = await db.employee.findMany({
+    where: {
+      OR: [
+        { email: { in: [...byEmail.keys()] } },
+        { employeeCode: { in: wanted.map((person) => person.employee_code) } },
+      ],
+    },
+    select: { employeeCode: true, email: true },
+  });
+  const codeForEmail = new Map(existing.map((row) => [row.email, row.employeeCode]));
+  const knownCodes = new Set(existing.map((row) => row.employeeCode));
+
+  const conflicts: string[] = [];
+  const importable = [...byEmail.entries()].filter(([email, person]) => {
+    const heldBy = codeForEmail.get(email);
+    if (heldBy && heldBy !== person.employee_code) {
+      conflicts.push(`${email} (here as ${heldBy}, master says ${person.employee_code})`);
+      return false;
+    }
+    return true;
+  });
+
+  // Companies once, not once per person: ~1500 upserts for a handful of names.
+  const companyIds = new Map<string, string>();
+  for (const name of new Set(importable.map(([, p]) => String(p.company ?? "").trim() || "Third Party"))) {
+    const company = await db.company.upsert({ where: { name }, update: {}, create: { name } });
+    companyIds.set(name, company.id);
   }
 
   let created = 0;
   let updated = 0;
+  const failedCodes: string[] = [];
+  const CHUNK = 50;
 
-  await db.$transaction(async (tx) => {
-    for (const person of usable) {
-      const email = person.official_email_id!.trim().toLowerCase();
-      // The master's company is a name; LMS wants a row. Off-roll records may
-      // carry none, so they land under one clearly-labelled company rather
-      // than blocking the import.
-      const companyName = String(person.company ?? "").trim() || "Third Party";
-      const company = await tx.company.upsert({
-        where: { name: companyName }, update: {}, create: { name: companyName },
-      });
+  for (let start = 0; start < importable.length; start += CHUNK) {
+    const chunk = importable.slice(start, start + CHUNK);
+    try {
+      await db.$transaction(async (tx) => {
+        for (const [email, person] of chunk) {
+          const companyName = String(person.company ?? "").trim() || "Third Party";
+          const data = {
+            name: person.employee_name,
+            email,
+            companyId: companyIds.get(companyName)!,
+            // The master holds no department. "General" matches what the Excel
+            // import already defaults to, so the two paths agree.
+            department: "General",
+            designation: String(person.designation ?? "").trim() || "Not specified",
+            locationPlant: String(person.location ?? "").trim() || null,
+            managerName: String(person.manager_name ?? "").trim() || null,
+            mobileNumber: String(person.contact_number ?? "").trim() || null,
+            // Joined in by the portal, so this costs no extra call per person.
+            personId: person.person_id,
+          };
 
-      const data = {
-        name: person.employee_name,
-        email,
-        companyId: company.id,
-        // The master holds no department. "General" matches what the Excel
-        // import already defaults to, so the two paths agree.
-        department: "General",
-        designation: String(person.designation ?? "").trim() || "Not specified",
-        locationPlant: String(person.location ?? "").trim() || null,
-        managerName: String(person.manager_name ?? "").trim() || null,
-        mobileNumber: String(person.contact_number ?? "").trim() || null,
-        // Joined in by the portal, so this costs no extra call per person.
-        personId: person.person_id,
-      };
+          const employee = await tx.employee.upsert({
+            where: { employeeCode: person.employee_code },
+            // Roles, status, enrolments and progress belong to LMS and are
+            // never touched by a refresh from the master.
+            update: data,
+            create: { ...data, employeeCode: person.employee_code, status: EmployeeStatus.ACTIVE },
+          });
+          if (knownCodes.has(person.employee_code)) updated += 1;
+          else created += 1;
 
-      const existing = await tx.employee.findUnique({
-        where: { employeeCode: person.employee_code }, select: { id: true },
-      });
-      const employee = await tx.employee.upsert({
-        where: { employeeCode: person.employee_code },
-        // Roles, status and enrollments are LMS's own and are never touched by
-        // a refresh from the master.
-        update: data,
-        create: { ...data, employeeCode: person.employee_code, status: EmployeeStatus.ACTIVE },
-      });
-      if (existing) updated += 1; else created += 1;
-
-      const user = await tx.user.upsert({
-        where: { email }, update: { employeeId: employee.id },
-        create: { email, employeeId: employee.id },
-      });
-      await tx.userRoleGrant.upsert({
-        where: { userId_role: { userId: user.id, role: UserRole.LEARNER } },
-        update: {}, create: { userId: user.id, role: UserRole.LEARNER },
-      });
+          const user = await tx.user.upsert({
+            where: { email },
+            update: { employeeId: employee.id },
+            create: { email, employeeId: employee.id },
+          });
+          await tx.userRoleGrant.upsert({
+            where: { userId_role: { userId: user.id, role: UserRole.LEARNER } },
+            update: {},
+            create: { userId: user.id, role: UserRole.LEARNER },
+          });
+        }
+      }, { timeout: 60_000 });
+    } catch (error) {
+      // One chunk failing must not lose the rest. Named, so HR can see who.
+      const codes = chunk.map(([, person]) => person.employee_code).join(", ");
+      failedCodes.push(codes);
+      console.error("[import-from-master] chunk failed", codes, error);
     }
-  }, { timeout: 120_000 });
+  }
 
   await audit(actor.id, "EMPLOYEES_IMPORTED_FROM_MASTER", "Employee", undefined, {
-    sources: sources.length ? sources : ["all"], created, updated, skippedNoEmail,
+    sources: sources.length ? sources : ["all"],
+    created,
+    updated,
+    skippedNoEmail,
+    duplicateEmails,
+    conflicts: conflicts.length,
+    failedChunks: failedCodes.length,
   });
   revalidatePath("/admin/employees");
   revalidatePath("/admin/courses");
+
+  const notes: string[] = [];
+  if (skippedNoEmail) notes.push(`${skippedNoEmail} skipped with no e-mail address`);
+  if (duplicateEmails) notes.push(`${duplicateEmails} duplicate address${duplicateEmails === 1 ? "" : "es"} collapsed`);
+  if (conflicts.length) {
+    notes.push(
+      `${conflicts.length} address${conflicts.length === 1 ? "" : "es"} already held by a different employee code `
+        + `(${conflicts.slice(0, 3).join("; ")}${conflicts.length > 3 ? "; and more" : ""}) — `
+        + "correct or delete the older record, then import again",
+    );
+  }
+  if (failedCodes.length) notes.push(`${failedCodes.length} batch${failedCodes.length === 1 ? "" : "es"} failed, see the server log`);
+
   return {
     message: `${created} added, ${updated} updated from the employee master`
-      + `${skippedNoEmail ? ` — ${skippedNoEmail} skipped with no e-mail address` : ""}.`,
+      + `${notes.length ? ` — ${notes.join("; ")}` : ""}.`,
     preview: false,
   };
 }
