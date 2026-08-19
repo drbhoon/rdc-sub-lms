@@ -1,6 +1,6 @@
 import { withBase } from "@/lib/base-path";
 import { UserRole } from "@prisma/client";
-import { createEmployee, deleteEmployee, updateUserRoles } from "@/actions/employees";
+import { createEmployee, deleteEmployee, updateUserRoles, importEmployeesFromMaster } from "@/actions/employees";
 import { ActionForm } from "@/components/action-form";
 import { EmployeeCourseEnrollmentForm } from "@/components/employee-course-enrollment-form";
 import { EmployeeImportForm } from "@/components/employee-import-form";
@@ -66,6 +66,24 @@ export default async function EmployeesPage() {
           </table>
         </div>
       </section>
+
+      <aside className="card">
+        <h2>Import from Employee Master</h2>
+        <p className="muted">
+          Pulls learners from the shared employee master, refreshed nightly from
+          ZingHR (on roll) and Truein (off roll). Existing learners are updated in
+          place — roles, enrolments and progress are never touched. Anyone without
+          an e-mail address is skipped, since sign-in here is an emailed code.
+        </p>
+        <ActionForm action={importEmployeesFromMaster} submitLabel="Import from master">
+          <fieldset>
+            <legend>Who to import</legend>
+            <label className="checkbox"><input type="checkbox" name="onroll" defaultChecked />On roll (ZingHR)</label>
+            <label className="checkbox"><input type="checkbox" name="offroll" defaultChecked />Off roll / third party (Truein)</label>
+            <span className="muted">Leave both ticked for everyone.</span>
+          </fieldset>
+        </ActionForm>
+      </aside>
 
       <aside className="card">
         <h2>Add one employee</h2>

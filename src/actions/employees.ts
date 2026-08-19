@@ -10,6 +10,7 @@ import { db } from "@/lib/db";
 import { audit } from "@/lib/audit";
 import { missingEmployeeColumns, normalizeEmployeeImportRow } from "@/lib/employee-import";
 import { resolvePersonId } from "@/lib/identity";
+import { fetchMasterEmployees, masterConfigured, type MasterSource } from "@/lib/master";
 import { requireRole } from "@/lib/session";
 
 type ImportRow = Record<string, unknown>;
@@ -256,4 +257,111 @@ export async function updateUserRoles(_: { message?: string }, formData: FormDat
   revalidatePath("/admin/courses");
   revalidatePath("/teacher/courses");
   return { message: "Roles updated." };
+}
+
+
+/**
+ * Pull learners straight from the shared employee master.
+ *
+ * LMS kept its own list, filled from an Excel upload, so the same people were
+ * maintained twice and drifted apart between uploads. The master is already
+ * refreshed nightly from ZingHR (on-roll) and Truein (off-roll), and every
+ * other app on the platform reads it — this makes LMS one of them.
+ *
+ * The Excel upload stays. It is the only way in for a learner who is in
+ * neither feed, which is a real case here: LMS is deliberately open to people
+ * the employee master will never hold.
+ */
+export async function importEmployeesFromMaster(
+  _: EmployeeImportState,
+  formData: FormData,
+): Promise<EmployeeImportState> {
+  const actor = await requireRole(UserRole.SUPER_ADMIN);
+  if (!masterConfigured()) {
+    return { message: "The employee master is not configured for this deployment." };
+  }
+
+  // Unticking both means everybody, which is what an empty filter means to the
+  // master too — better than refusing and making HR guess.
+  const sources: MasterSource[] = [];
+  if (formData.get("onroll") === "on") sources.push("onroll");
+  if (formData.get("offroll") === "on") sources.push("offroll");
+
+  let people;
+  try {
+    people = await fetchMasterEmployees(sources);
+  } catch (error) {
+    return { message: error instanceof Error ? error.message : "The employee master could not be reached." };
+  }
+
+  // No e-mail means no login: LMS signs people in with an emailed OTP, so such
+  // a record could never be used. Counted rather than dropped quietly.
+  const usable = people.filter((person) => String(person.official_email_id ?? "").trim());
+  const skippedNoEmail = people.length - usable.length;
+  if (!usable.length) {
+    return { message: `The employee master returned ${people.length} people, none with an e-mail address.` };
+  }
+
+  let created = 0;
+  let updated = 0;
+
+  await db.$transaction(async (tx) => {
+    for (const person of usable) {
+      const email = person.official_email_id!.trim().toLowerCase();
+      // The master's company is a name; LMS wants a row. Off-roll records may
+      // carry none, so they land under one clearly-labelled company rather
+      // than blocking the import.
+      const companyName = String(person.company ?? "").trim() || "Third Party";
+      const company = await tx.company.upsert({
+        where: { name: companyName }, update: {}, create: { name: companyName },
+      });
+
+      const data = {
+        name: person.employee_name,
+        email,
+        companyId: company.id,
+        // The master holds no department. "General" matches what the Excel
+        // import already defaults to, so the two paths agree.
+        department: "General",
+        designation: String(person.designation ?? "").trim() || "Not specified",
+        locationPlant: String(person.location ?? "").trim() || null,
+        managerName: String(person.manager_name ?? "").trim() || null,
+        mobileNumber: String(person.contact_number ?? "").trim() || null,
+        // Joined in by the portal, so this costs no extra call per person.
+        personId: person.person_id,
+      };
+
+      const existing = await tx.employee.findUnique({
+        where: { employeeCode: person.employee_code }, select: { id: true },
+      });
+      const employee = await tx.employee.upsert({
+        where: { employeeCode: person.employee_code },
+        // Roles, status and enrollments are LMS's own and are never touched by
+        // a refresh from the master.
+        update: data,
+        create: { ...data, employeeCode: person.employee_code, status: EmployeeStatus.ACTIVE },
+      });
+      if (existing) updated += 1; else created += 1;
+
+      const user = await tx.user.upsert({
+        where: { email }, update: { employeeId: employee.id },
+        create: { email, employeeId: employee.id },
+      });
+      await tx.userRoleGrant.upsert({
+        where: { userId_role: { userId: user.id, role: UserRole.LEARNER } },
+        update: {}, create: { userId: user.id, role: UserRole.LEARNER },
+      });
+    }
+  }, { timeout: 120_000 });
+
+  await audit(actor.id, "EMPLOYEES_IMPORTED_FROM_MASTER", "Employee", undefined, {
+    sources: sources.length ? sources : ["all"], created, updated, skippedNoEmail,
+  });
+  revalidatePath("/admin/employees");
+  revalidatePath("/admin/courses");
+  return {
+    message: `${created} added, ${updated} updated from the employee master`
+      + `${skippedNoEmail ? ` — ${skippedNoEmail} skipped with no e-mail address` : ""}.`,
+    preview: false,
+  };
 }
