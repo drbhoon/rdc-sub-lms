@@ -4,6 +4,7 @@ import { BUDGET_INR, spentInr } from "@/lib/ai-budget";
 import { buildCourseAiSource } from "@/lib/course-ai-source";
 import { COURSE_AI_LANGUAGE_NAMES, isCourseAiLanguage } from "@/lib/course-ai-languages";
 import { db } from "@/lib/db";
+import { env } from "@/lib/env";
 import { routeUserWithRole } from "@/lib/route-auth";
 
 export const runtime = "nodejs";
@@ -40,7 +41,10 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
 
   const sdp = await request.text();
   if (!sdp || sdp.length > 256_000) return new Response("Invalid WebRTC offer", { status: 400 });
-  const model = process.env.OPENAI_REALTIME_MODEL ?? "gpt-realtime-2.1-mini";
+  // Through env, not process.env: compose forwards this as an empty string
+  // when the .env omits it, and `?? "gpt-realtime-2.1-mini"` kept the empty
+  // value, so every call posted model: "" and OpenAI refused it.
+  const model = env.OPENAI_REALTIME_MODEL;
   const spokenLanguage = COURSE_AI_LANGUAGE_NAMES[language];
   const session = {
     type: "realtime",
@@ -58,7 +62,7 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
     max_output_tokens: 900,
     audio: {
       input: {
-        transcription: { model: process.env.OPENAI_REALTIME_TRANSCRIPTION_MODEL ?? "gpt-realtime-whisper", language },
+        transcription: { model: env.OPENAI_REALTIME_TRANSCRIPTION_MODEL, language },
         turn_detection: { type: "semantic_vad", create_response: true, interrupt_response: true },
       },
       output: { voice: "marin" },
@@ -82,7 +86,9 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
   }
   const body = await upstream.text();
   if (!upstream.ok) {
-    console.error("OpenAI Realtime session failed", upstream.status, body.slice(0, 500));
+    // The model is in the line because the failure is almost always about
+    // WHICH model was asked for, and the status alone never says that.
+    console.error("OpenAI Realtime session failed", upstream.status, model, body.slice(0, 500));
     return new Response("OpenAI voice session could not be started", { status: upstream.status });
   }
   return new Response(body, { status: 200, headers: { "Content-Type": "application/sdp", "Cache-Control": "no-store", "X-RDC-AI-Model": model } });
