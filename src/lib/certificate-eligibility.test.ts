@@ -28,4 +28,14 @@ describe("certificateEligibility", () => {
     expect(result.ready).toBe(false);
     expect(result.missing).toContain("Submit course feedback.");
   });
+
+  it("does not block a course with no assessment configured", () => {
+    const result = certificateEligibility({ ...completeInput, hasActiveAssessment: false, hasPassedAssessment: false });
+    expect(result.ready).toBe(true);
+  });
+
+  it("does not block a course with no feedback form configured", () => {
+    const result = certificateEligibility({ ...completeInput, hasActiveFeedbackForm: false, hasSubmittedFeedback: false });
+    expect(result.ready).toBe(true);
+  });
 });
