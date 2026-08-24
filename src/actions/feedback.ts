@@ -74,13 +74,38 @@ function validateFeedbackValue(type: FeedbackQuestionType, value: FormDataEntryV
   return { ok: true, value: strings[0] };
 }
 
+/**
+ * A course's feedback is answered once PER MODULE the learner completes, not
+ * once for the whole course — a course is commonly several modules, and
+ * waiting for every one of them to finish before a learner can say anything
+ * about the first meant feedback on an early module was often never given at
+ * all by the time the course wrapped up weeks later.
+ *
+ * The gate mirrors what used to gate the whole course: a module's single
+ * lesson has to be COMPLETE before feedback on it is accepted. Enrollment is
+ * still required — an unenrolled request has no legitimate way to reach this
+ * action, but is refused explicitly rather than by a query returning nothing.
+ */
 export async function submitFeedback(_: FeedbackSubmitState, formData: FormData): Promise<FeedbackSubmitState> {
   const user = await requireRole(UserRole.LEARNER);
   if (!user.employeeId) return { message: "Learner profile required." };
   const courseId = String(formData.get("courseId") ?? "");
   const formId = String(formData.get("formId") ?? "");
+  const courseContentId = String(formData.get("courseContentId") ?? "");
+  if (!courseContentId) return { message: "Which module this feedback is for was not specified." };
+
   const enrollment = await db.enrollment.findUnique({ where: { employeeId_courseId: { employeeId: user.employeeId, courseId } } });
-  if (!enrollment || !enrollment.completedAt) return { message: "Feedback is available only after course completion." };
+  if (!enrollment) return { message: "You are not enrolled in this course." };
+
+  const moduleDone = await db.lessonProgress.findFirst({
+    where: {
+      enrollmentId: enrollment.id,
+      completedAt: { not: null },
+      lesson: { courseContentId, content: { courseId, isPublished: true } },
+    },
+  });
+  if (!moduleDone) return { message: "Feedback for this module is available once you complete it." };
+
   const form = await db.feedbackForm.findFirst({ where: { id: formId, courseId, isActive: true }, include: { questions: { orderBy: { order: "asc" } } } });
   if (!form) return { message: "Active feedback form not found." };
   const answers = form.questions.map((question) => {
@@ -91,9 +116,9 @@ export async function submitFeedback(_: FeedbackSubmitState, formData: FormData)
   try {
     await db.$transaction(async (tx) => {
       const response = await tx.feedbackResponse.upsert({
-        where: { formId_employeeId: { formId: form.id, employeeId: user.employeeId! } },
+        where: { formId_employeeId_courseContentId: { formId: form.id, employeeId: user.employeeId!, courseContentId } },
         update: { submittedAt: new Date() },
-        create: { formId: form.id, employeeId: user.employeeId! },
+        create: { formId: form.id, employeeId: user.employeeId!, courseContentId },
       });
       await tx.feedbackAnswer.deleteMany({ where: { responseId: response.id } });
       await tx.feedbackAnswer.createMany({ data: answers.map((answer) => ({ responseId: response.id, questionId: answer.questionId, value: answer.value as never })) });

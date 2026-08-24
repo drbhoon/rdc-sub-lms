@@ -12,16 +12,25 @@ type Question = {
   options: string[];
 };
 
-export function FeedbackResponseForm({ courseId, formId, questions, alreadySubmitted }: { courseId: string; formId: string; questions: Question[]; alreadySubmitted: boolean }) {
+export function FeedbackResponseForm({ courseId, formId, courseContentId, moduleTitle, questions, alreadySubmitted }: {
+  courseId: string;
+  formId: string;
+  /** Which module (course content) this feedback is scoped to — a course is answered once per module, not once overall. */
+  courseContentId: string;
+  moduleTitle: string;
+  questions: Question[];
+  alreadySubmitted: boolean;
+}) {
   const initialState: FeedbackSubmitState = {};
   const [state, action, pending] = useActionState(submitFeedback, initialState);
 
-  if (state.ok) return <div className="card"><h2>Feedback submitted</h2><p>{state.message}</p></div>;
+  if (state.ok) return <div className="card"><h2>Feedback submitted — {moduleTitle}</h2><p>{state.message}</p></div>;
 
   return <form action={action} className="form card">
     <input type="hidden" name="courseId" value={courseId} />
     <input type="hidden" name="formId" value={formId} />
-    <h2>{alreadySubmitted ? "Update feedback" : "Course feedback"}</h2>
+    <input type="hidden" name="courseContentId" value={courseContentId} />
+    <h2>{alreadySubmitted ? "Update feedback" : "Feedback"} — {moduleTitle}</h2>
     <p className="muted">Please answer the feedback questions below. Required questions are marked.</p>
     {questions.map((question) => <fieldset key={question.id} className="feedback-question">
       <legend>{question.questionText}{question.required ? " *" : ""}</legend>

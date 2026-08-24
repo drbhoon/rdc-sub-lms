@@ -226,32 +226,33 @@ model CourseTeacher {
 }
 
 model CourseContent {
-  id               String           @id @default(cuid())
-  courseId         String
-  version          Int
-  originalName     String
-  storedKey        String
-  mimeType         String
-  sizeBytes        Int
-  type             ContentType
-  processingStatus ProcessingStatus @default(QUEUED)
-  processingError  String?
-  extractedText    String?
-  summary          String?
-  keyPoints        Json?
-  glossary         Json?
-  quizQuestions    Json?
-  aiModel          String?
-  aiGeneratedAt    DateTime?
-  approvedAt       DateTime?
-  rejectedAt       DateTime?
-  rejectionReason  String?
-  isPublished      Boolean          @default(false)
-  course           Course           @relation(fields: [courseId], references: [id], onDelete: Cascade)
-  lessons          Lesson[]
-  jobs             ProcessingJob[]
-  createdAt        DateTime         @default(now())
-  updatedAt        DateTime         @updatedAt
+  id                String             @id @default(cuid())
+  courseId          String
+  version           Int
+  originalName      String
+  storedKey         String
+  mimeType          String
+  sizeBytes         Int
+  type              ContentType
+  processingStatus  ProcessingStatus   @default(QUEUED)
+  processingError   String?
+  extractedText     String?
+  summary           String?
+  keyPoints         Json?
+  glossary          Json?
+  quizQuestions     Json?
+  aiModel           String?
+  aiGeneratedAt     DateTime?
+  approvedAt        DateTime?
+  rejectedAt        DateTime?
+  rejectionReason   String?
+  isPublished       Boolean            @default(false)
+  course            Course             @relation(fields: [courseId], references: [id], onDelete: Cascade)
+  lessons           Lesson[]
+  jobs              ProcessingJob[]
+  feedbackResponses FeedbackResponse[]
+  createdAt         DateTime           @default(now())
+  updatedAt         DateTime           @updatedAt
 
   @@unique([courseId, version])
   @@index([processingStatus])
@@ -447,16 +448,32 @@ model FeedbackQuestion {
 }
 
 model FeedbackResponse {
-  id          String           @id @default(cuid())
-  formId      String
-  employeeId  String
-  submittedAt DateTime         @default(now())
-  form        FeedbackForm     @relation(fields: [formId], references: [id], onDelete: Cascade)
-  employee    Employee         @relation(fields: [employeeId], references: [id], onDelete: Cascade)
-  answers     FeedbackAnswer[]
+  id              String           @id @default(cuid())
+  formId          String
+  employeeId      String
+  /// Which module (course content) this response is about. A course has as
+  /// many feedback opportunities as it has modules — one feedback FORM is
+  /// still uploaded per course, but a learner answers it once per module they
+  /// complete, not once for the whole course.
+  ///
+  /// Nullable only for rows written before this column existed, where
+  /// feedback was course-wide. Every response created from here on sets it —
+  /// see submitFeedback in actions/feedback.ts, which requires it.
+  courseContentId String?
+  submittedAt     DateTime         @default(now())
+  form            FeedbackForm     @relation(fields: [formId], references: [id], onDelete: Cascade)
+  employee        Employee         @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+  courseContent   CourseContent?   @relation(fields: [courseContentId], references: [id], onDelete: Cascade)
+  answers         FeedbackAnswer[]
 
-  @@unique([formId, employeeId])
+  // Postgres treats NULL as distinct in a unique index, so this does not
+  // stop two legacy NULL rows for the same person colliding — it never needs
+  // to, since nothing written after this migration leaves courseContentId
+  // null. What it stops is the case that matters: the same learner answering
+  // the same MODULE'S feedback twice.
+  @@unique([formId, employeeId, courseContentId])
   @@index([formId, submittedAt])
+  @@index([courseContentId])
 }
 
 model FeedbackAnswer {

@@ -31,7 +31,10 @@ export default async function LearnCourse({ params }: { params: Promise<{ id: st
           },
           feedbackForms: {
             where: { isActive: true },
-            include: { questions: { orderBy: { order: "asc" } }, responses: { where: { employeeId: user.employeeId }, take: 1 } },
+            // Every response of THIS learner's, not just one — feedback is
+            // per module now, so "already submitted" has to be answered
+            // separately for each module rather than once for the form.
+            include: { questions: { orderBy: { order: "asc" } }, responses: { where: { employeeId: user.employeeId } } },
             take: 1,
           },
         },
@@ -57,7 +60,26 @@ export default async function LearnCourse({ params }: { params: Promise<{ id: st
   const assessment = enrollment.course.assessments[0];
   const bestAttempt = assessment?.attempts[0];
   const feedbackForm = enrollment.course.feedbackForms[0];
-  const feedbackSubmitted = Boolean(feedbackForm?.responses.length);
+
+  // One feedback opportunity per module, not one for the whole course. A
+  // module is open for feedback once its (single) lesson is complete, and
+  // "submitted" is tracked per module via the response's courseContentId.
+  const respondedContentIds = new Set((feedbackForm?.responses ?? []).map((response) => response.courseContentId));
+  const feedbackModules = enrollment.course.contents
+    .filter((content) => content.lessons.length && content.lessons.every((lesson) => progress.get(lesson.id)?.completedAt))
+    .map((content) => ({
+      courseContentId: content.id,
+      // The lesson carries the title a learner actually recognises ("Week 2
+      // — Safety Protocols"); the content's own originalName is a filename.
+      title: content.lessons[0]?.title ?? content.originalName,
+      alreadySubmitted: respondedContentIds.has(content.id),
+    }));
+  // Required for every PUBLISHED module, not only the ones open for feedback
+  // right now — by the time all lessons are complete (which certificate
+  // eligibility already demands) the two sets are the same course.
+  const publishedContentIds = enrollment.course.contents.map((content) => content.id);
+  const feedbackSubmitted = Boolean(feedbackForm) && publishedContentIds.length > 0
+    && publishedContentIds.every((contentId) => respondedContentIds.has(contentId));
   const certificate = certificateEligibility({
     certificateEnabled: enrollment.course.certificateEnabled,
     totalLessons: lessons.length,
@@ -110,10 +132,16 @@ export default async function LearnCourse({ params }: { params: Promise<{ id: st
           </>}
         </div>
 
-        {feedbackForm && enrollment.completedAt && <FeedbackResponseForm
+        {/* One form per module completed so far — a course finished over
+            several sessions gets feedback recorded as each part is done,
+            rather than one form waiting for every module together. */}
+        {feedbackForm && feedbackModules.map((module) => <FeedbackResponseForm
+          key={module.courseContentId}
           courseId={id}
           formId={feedbackForm.id}
-          alreadySubmitted={feedbackForm.responses.length > 0}
+          courseContentId={module.courseContentId}
+          moduleTitle={module.title}
+          alreadySubmitted={module.alreadySubmitted}
           questions={feedbackForm.questions.map((question) => ({
             id: question.id,
             questionText: question.questionText,
@@ -121,7 +149,7 @@ export default async function LearnCourse({ params }: { params: Promise<{ id: st
             required: question.required,
             options: Array.isArray(question.options) ? question.options.map(String) : [],
           }))}
-        />}
+        />)}
       </aside>
     </div>
   </main>;

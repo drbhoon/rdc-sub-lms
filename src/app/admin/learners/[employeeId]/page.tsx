@@ -26,7 +26,11 @@ export default async function LearnerActivityPage({ params }: { params: Promise<
         orderBy: { startedAt: "desc" },
       },
       feedbackResponses: {
-        include: { form: { include: { course: true } }, answers: { include: { question: true } } },
+        // courseContent + its lesson, so each response can say WHICH module
+        // it is about -- with feedback answered per module, a learner who
+        // finished three modules of one course now has three rows here, and
+        // without this they would look like unexplained duplicates.
+        include: { form: { include: { course: true } }, courseContent: { include: { lessons: true } }, answers: { include: { question: true } } },
         orderBy: { submittedAt: "desc" },
       },
       aiInteractions: { include: { course: true }, orderBy: { createdAt: "desc" }, take: 1000 },
@@ -62,7 +66,7 @@ export default async function LearnerActivityPage({ params }: { params: Promise<
       {!employee.assessmentAttempts.length && <tr><td colSpan={9}>No assessment attempts.</td></tr>}
     </tbody></table></div></section>
 
-    <section className="card"><h2>Feedback responses</h2>{employee.feedbackResponses.map((response) => <div className="activity-group" key={response.id}><h3>{response.form.course.title} · {response.form.title} v{response.form.version}</h3><p className="muted">Submitted {response.submittedAt.toLocaleString("en-IN")}</p><ol>{response.answers.sort((a, b) => a.question.order - b.question.order).map((answer) => <li key={answer.id}><strong>{answer.question.questionText}</strong><br />{answerText(answer.value)}</li>)}</ol></div>)}{!employee.feedbackResponses.length && <p>No feedback submitted.</p>}</section>
+    <section className="card"><h2>Feedback responses</h2>{employee.feedbackResponses.map((response) => <div className="activity-group" key={response.id}><h3>{response.form.course.title} · {response.courseContent?.lessons[0]?.title ?? "Whole course"} <span className="muted">({response.form.title} v{response.form.version})</span></h3><p className="muted">Submitted {response.submittedAt.toLocaleString("en-IN")}</p><ol>{response.answers.sort((a, b) => a.question.order - b.question.order).map((answer) => <li key={answer.id}><strong>{answer.question.questionText}</strong><br />{answerText(answer.value)}</li>)}</ol></div>)}{!employee.feedbackResponses.length && <p>No feedback submitted.</p>}</section>
 
     <section className="card"><h2>AI question and answer history</h2><div className="table-wrap"><table><thead><tr><th>Course</th><th>Mode</th><th>Language</th><th>Question</th><th>Answer / Status</th><th>Date</th></tr></thead><tbody>
       {employee.aiInteractions.map((item) => <tr key={item.id}><td>{item.course.title}</td><td>{item.channel}</td><td>{item.language?.toUpperCase() ?? ""}</td><td>{item.question}</td><td>{item.answer ?? item.error ?? item.status}</td><td>{item.createdAt.toLocaleString("en-IN")}</td></tr>)}

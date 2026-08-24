@@ -30,7 +30,10 @@ export default async function FeedbackReportsPage({ searchParams }: { searchPara
     include: {
       course: true,
       questions: { orderBy: { order: "asc" } },
-      responses: { include: { employee: { include: { company: true } }, answers: true }, orderBy: { submittedAt: "desc" } },
+      // courseContent + its lesson so the "Individual responses" table can
+      // label which module each row is about. With feedback answered per
+      // module, one learner now legitimately has several rows per form.
+      responses: { include: { employee: { include: { company: true } }, courseContent: { include: { lessons: true } }, answers: true }, orderBy: { submittedAt: "desc" } },
     },
   }) : null;
   const ratingValues = form?.questions.filter((question) => question.type === "RATING_1_5").flatMap((question) => form.responses.flatMap((response) => {
@@ -65,9 +68,9 @@ export default async function FeedbackReportsPage({ searchParams }: { searchPara
           return <tr key={question.id}><td>Q{question.order}</td><td>{question.questionText}</td><td>{question.type.replaceAll("_", " ")}</td><td>{values.length}</td><td>{summary}</td></tr>;
         })}
       </tbody></table></div></section>
-      <section className="card"><h2>Individual responses</h2><div className="table-wrap"><table><thead><tr><th>Learner</th><th>Company</th><th>Submitted</th>{form.questions.map((question) => <th key={question.id}>Q{question.order}</th>)}</tr></thead><tbody>
-        {form.responses.map((response) => { const answers = new Map(response.answers.map((answer) => [answer.questionId, answer.value])); return <tr key={response.id}><td>{response.employee.name}<br /><span className="muted">{response.employee.employeeCode}</span></td><td>{response.employee.company.name}</td><td>{response.submittedAt.toLocaleString("en-IN")}</td>{form.questions.map((question) => <td key={question.id}>{text(answers.get(question.id))}</td>)}</tr>; })}
-        {!form.responses.length && <tr><td colSpan={3 + form.questions.length}>No feedback responses yet.</td></tr>}
+      <section className="card"><h2>Individual responses</h2><div className="table-wrap"><table><thead><tr><th>Learner</th><th>Company</th><th>Module</th><th>Submitted</th>{form.questions.map((question) => <th key={question.id}>Q{question.order}</th>)}</tr></thead><tbody>
+        {form.responses.map((response) => { const answers = new Map(response.answers.map((answer) => [answer.questionId, answer.value])); return <tr key={response.id}><td>{response.employee.name}<br /><span className="muted">{response.employee.employeeCode}</span></td><td>{response.employee.company.name}</td><td>{response.courseContent?.lessons[0]?.title ?? "Whole course"}</td><td>{response.submittedAt.toLocaleString("en-IN")}</td>{form.questions.map((question) => <td key={question.id}>{text(answers.get(question.id))}</td>)}</tr>; })}
+        {!form.responses.length && <tr><td colSpan={4 + form.questions.length}>No feedback responses yet.</td></tr>}
       </tbody></table></div></section>
     </>}
   </main>;

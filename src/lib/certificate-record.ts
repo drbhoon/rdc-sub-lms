@@ -35,7 +35,10 @@ export async function getCertificateRecord(employeeId: string, courseId: string)
           },
           feedbackForms: {
             where: { isActive: true },
-            include: { responses: { where: { employeeId }, take: 1 } },
+            // Every response, not one: feedback is answered per module now, so
+            // whether it is "done" means every published module is covered,
+            // not merely that a row exists somewhere.
+            include: { responses: { where: { employeeId } } },
             take: 1,
           },
         },
@@ -53,6 +56,15 @@ export async function getCertificateRecord(employeeId: string, courseId: string)
   ).length;
   const activeAssessment = enrollment.course.assessments[0];
   const activeFeedbackForm = enrollment.course.feedbackForms[0];
+  // Complete only once every PUBLISHED module has a response — the same rule
+  // the learner-facing page uses (see feedbackSubmitted in
+  // learn/courses/[id]/page.tsx). This function is the one both the
+  // certificate PAGE and the certificate PDF route call, so it is the actual
+  // gate: getting this wrong would let a certificate through on one module's
+  // feedback out of several.
+  const respondedContentIds = new Set((activeFeedbackForm?.responses ?? []).map((response) => response.courseContentId));
+  const publishedContentIds = enrollment.course.contents.map((content) => content.id);
+  const hasSubmittedFeedback = publishedContentIds.length > 0 && publishedContentIds.every((id) => respondedContentIds.has(id));
   const eligibility = certificateEligibility({
     certificateEnabled: enrollment.course.certificateEnabled,
     totalLessons: lessonIds.size,
@@ -61,7 +73,7 @@ export async function getCertificateRecord(employeeId: string, courseId: string)
     hasActiveAssessment: Boolean(activeAssessment),
     hasPassedAssessment: Boolean(activeAssessment?.attempts.length),
     hasActiveFeedbackForm: Boolean(activeFeedbackForm),
-    hasSubmittedFeedback: Boolean(activeFeedbackForm?.responses.length),
+    hasSubmittedFeedback,
   });
 
   if (!eligibility.ready) return null;
