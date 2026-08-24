@@ -16,12 +16,20 @@ type ActionState = { message?: string };
 
 const uploadSchema = z.object({
   courseId: z.string().min(1),
+  courseContentId: z.string().min(1, "Select which module this quiz belongs to."),
   title: z.string().trim().min(3).max(150).default("Course Assessment"),
   passPercentage: z.coerce.number().int().min(1).max(100),
   timeLimitMinutes: z.coerce.number().int().min(1).max(480),
   questionsPerAttempt: z.coerce.number().int().min(1).max(200),
 });
 
+/**
+ * A quiz belongs to one module. "One quiz per course" meant a second
+ * module's quiz could not go ACTIVE without knocking the first one out —
+ * every course-wide "only one" check below is scoped to (courseId,
+ * courseContentId) rather than courseId alone, so module 1's and module 2's
+ * quizzes run independently.
+ */
 export async function uploadAssessment(_: ActionState, formData: FormData): Promise<ActionState> {
   const courseId = String(formData.get("courseId") ?? "");
   const actor = await requireCourseManager(courseId);
@@ -29,6 +37,9 @@ export async function uploadAssessment(_: ActionState, formData: FormData): Prom
   if (!(file instanceof File)) return { message: "Select an assessment CSV or Excel file." };
   const parsed = uploadSchema.safeParse(Object.fromEntries(formData));
   if (!parsed.success) return { message: parsed.error.issues[0].message };
+  const { courseContentId } = parsed.data;
+  const targetModule = await db.courseContent.findFirst({ where: { id: courseContentId, courseId, isPublished: true } });
+  if (!targetModule) return { message: "Selected module was not found on this course." };
 
   try {
     const rows = await readTabularFile(file);
@@ -44,13 +55,14 @@ export async function uploadAssessment(_: ActionState, formData: FormData): Prom
     if (parsed.data.questionsPerAttempt > questions.length) {
       throw new Error(`Questions offered per attempt cannot exceed the ${questions.length} questions in this bank.`);
     }
-    const latest = await db.assessment.aggregate({ where: { courseId }, _max: { version: true } });
+    const latest = await db.assessment.aggregate({ where: { courseId, courseContentId }, _max: { version: true } });
     const version = (latest._max.version ?? 0) + 1;
     const assessment = await db.$transaction(async (tx) => {
-      await tx.assessment.updateMany({ where: { courseId, status: AssessmentStatus.ACTIVE }, data: { status: AssessmentStatus.INACTIVE } });
+      await tx.assessment.updateMany({ where: { courseId, courseContentId, status: AssessmentStatus.ACTIVE }, data: { status: AssessmentStatus.INACTIVE } });
       return tx.assessment.create({
         data: {
           courseId,
+          courseContentId,
           title: parsed.data.title,
           passPercentage: parsed.data.passPercentage,
           shuffleQuestions: formData.get("shuffleQuestions") === "on",
@@ -74,11 +86,11 @@ export async function uploadAssessment(_: ActionState, formData: FormData): Prom
         },
       });
     });
-    await audit(actor.id, "ASSESSMENT_UPLOADED", "Assessment", assessment.id, { courseId, questionCount: questions.length, questionsPerAttempt: parsed.data.questionsPerAttempt, fileName: file.name, timeLimitMinutes: parsed.data.timeLimitMinutes, shuffleQuestions: formData.get("shuffleQuestions") === "on" });
+    await audit(actor.id, "ASSESSMENT_UPLOADED", "Assessment", assessment.id, { courseId, courseContentId, questionCount: questions.length, questionsPerAttempt: parsed.data.questionsPerAttempt, fileName: file.name, timeLimitMinutes: parsed.data.timeLimitMinutes, shuffleQuestions: formData.get("shuffleQuestions") === "on" });
     revalidatePath(`/admin/courses/${courseId}`);
     revalidatePath(`/teacher/courses/${courseId}`);
     revalidatePath(`/learn/courses/${courseId}`);
-    return { message: `Assessment v${version} activated with a ${questions.length}-question bank; each attempt offers ${parsed.data.questionsPerAttempt}.` };
+    return { message: `Assessment v${version} activated for this module with a ${questions.length}-question bank; each attempt offers ${parsed.data.questionsPerAttempt}.` };
   } catch (error) {
     return { message: error instanceof Error ? error.message : "Assessment upload failed." };
   }
@@ -92,7 +104,9 @@ export async function setAssessmentStatus(formData: FormData) {
   const actor = await requireCourseManager(assessment.courseId);
   await db.$transaction(async (tx) => {
     if (status === AssessmentStatus.ACTIVE) {
-      await tx.assessment.updateMany({ where: { courseId: assessment.courseId, status: AssessmentStatus.ACTIVE }, data: { status: AssessmentStatus.INACTIVE } });
+      // Same module only — a different module's quiz is a different quiz and
+      // is untouched by this one activating.
+      await tx.assessment.updateMany({ where: { courseId: assessment.courseId, courseContentId: assessment.courseContentId, status: AssessmentStatus.ACTIVE }, data: { status: AssessmentStatus.INACTIVE } });
     }
     await tx.assessment.update({ where: { id: assessmentId }, data: { status } });
   });
@@ -102,20 +116,26 @@ export async function setAssessmentStatus(formData: FormData) {
   revalidatePath(`/learn/courses/${assessment.courseId}`);
 }
 
+/**
+ * A course can now have several active quizzes at once (one per module), so
+ * the learner page hands back the SPECIFIC assessment they picked rather than
+ * "the" course id and leaving this to guess which one. courseId is derived
+ * from the assessment itself, not trusted from the form.
+ */
 export async function startAssessment(formData: FormData) {
-  const courseId = String(formData.get("courseId") ?? "");
+  const assessmentId = String(formData.get("assessmentId") ?? "");
   const user = await requireRole(UserRole.LEARNER);
   if (!user.employeeId) redirect("/unauthorized");
-  const enrollment = await db.enrollment.findUnique({
-    where: { employeeId_courseId: { employeeId: user.employeeId, courseId } },
-    include: { course: true },
-  });
-  if (!enrollment || enrollment.course.status !== "PUBLISHED") redirect("/unauthorized");
   const assessment = await db.assessment.findFirst({
-    where: { courseId, status: AssessmentStatus.ACTIVE },
-    include: { _count: { select: { questions: true } } },
+    where: { id: assessmentId, status: AssessmentStatus.ACTIVE },
+    include: { course: true, _count: { select: { questions: true } } },
   });
-  if (!assessment || assessment._count.questions === 0) redirect(`/learn/courses/${courseId}`);
+  if (!assessment || assessment.course.status !== "PUBLISHED") redirect("/unauthorized");
+  const enrollment = await db.enrollment.findUnique({
+    where: { employeeId_courseId: { employeeId: user.employeeId, courseId: assessment.courseId } },
+  });
+  if (!enrollment) redirect("/unauthorized");
+  if (assessment._count.questions === 0) redirect(`/learn/courses/${assessment.courseId}`);
   const offeredCount = Math.min(assessment.questionsPerAttempt ?? assessment._count.questions, assessment._count.questions);
   const latest = await db.assessmentAttempt.aggregate({
     where: { assessmentId: assessment.id, employeeId: user.employeeId },
@@ -130,7 +150,7 @@ export async function startAssessment(formData: FormData) {
       totalQuestions: offeredCount,
     },
   });
-  redirect(`/learn/courses/${courseId}/assessment/${attempt.id}`);
+  redirect(`/learn/courses/${assessment.courseId}/assessment/${attempt.id}`);
 }
 
 const answerSchema = z.object({

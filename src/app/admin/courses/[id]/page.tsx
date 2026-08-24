@@ -25,8 +25,11 @@ export default async function CourseAdminPage({ params }: { params: Promise<{ id
       contents: { include: { lessons: true }, orderBy: { version: "desc" } },
       enrollments: { include: { employee: { include: { company: true } }, progress: true }, orderBy: { employee: { name: "asc" } } },
       aiInteractions: { include: { employee: { include: { company: true } } }, orderBy: { createdAt: "desc" }, take: 25 },
+      // courseContent + its lesson, so the versions table and the leaderboard
+      // can both say WHICH MODULE a quiz belongs to now that a course can
+      // have several active at once.
       assessments: {
-        include: { questions: true, attempts: { where: { status: "SUBMITTED" }, include: { employee: { include: { company: true } } }, orderBy: [{ scorePercent: "desc" }, { timeTakenSeconds: "asc" }] } },
+        include: { questions: true, courseContent: { include: { lessons: true } }, attempts: { where: { status: "SUBMITTED" }, include: { employee: { include: { company: true } } }, orderBy: [{ scorePercent: "desc" }, { timeTakenSeconds: "asc" }] } },
         orderBy: { version: "desc" },
       },
       feedbackForms: {
@@ -67,13 +70,37 @@ export default async function CourseAdminPage({ params }: { params: Promise<{ id
     .filter((content) => content.isPublished)
     .flatMap((content) => content.lessons.filter((lesson) => lesson.approvedAt))
     .length;
-  const activeAssessment = course.assessments.find((assessment) => assessment.status === "ACTIVE");
+  const publishedModules = course.contents.filter((content) => content.isPublished && content.lessons.length);
   const latestFeedbackForm = course.feedbackForms[0];
-  const bestAssessmentAttempts = new Map<string, (typeof course.assessments)[number]["attempts"][number]>();
-  for (const attempt of activeAssessment?.attempts ?? []) {
-    const existing = bestAssessmentAttempts.get(attempt.employeeId);
-    if (!existing || attempt.scorePercent > existing.scorePercent || (attempt.scorePercent === existing.scorePercent && attempt.timeTakenSeconds < existing.timeTakenSeconds)) {
-      bestAssessmentAttempts.set(attempt.employeeId, attempt);
+
+  // A quiz belongs to a module now, so a course can have several ACTIVE at
+  // once. The combined leaderboard averages each employee's best score
+  // across whichever of those they have attempted (excluding any a teacher
+  // marked out of the leaderboard), and sums their time on those attempts —
+  // more quizzes attempted costs more time, same as it always did for one.
+  const leaderboardAssessments = course.assessments.filter((assessment) => assessment.status === "ACTIVE" && assessment.showLeaderboard);
+  const combinedAssessmentByEmployee = new Map<string, {
+    employee: (typeof course.assessments)[number]["attempts"][number]["employee"];
+    scores: number[];
+    totalSeconds: number;
+    lastSubmittedAt: Date;
+  }>();
+  for (const assessment of leaderboardAssessments) {
+    const bestPerEmployee = new Map<string, (typeof assessment.attempts)[number]>();
+    for (const attempt of assessment.attempts) {
+      const existing = bestPerEmployee.get(attempt.employeeId);
+      if (!existing || attempt.scorePercent > existing.scorePercent || (attempt.scorePercent === existing.scorePercent && attempt.timeTakenSeconds < existing.timeTakenSeconds)) {
+        bestPerEmployee.set(attempt.employeeId, attempt);
+      }
+    }
+    for (const attempt of bestPerEmployee.values()) {
+      const entry = combinedAssessmentByEmployee.get(attempt.employeeId)
+        ?? { employee: attempt.employee, scores: [], totalSeconds: 0, lastSubmittedAt: attempt.submittedAt ?? attempt.startedAt };
+      entry.scores.push(attempt.scorePercent);
+      entry.totalSeconds += attempt.timeTakenSeconds;
+      const submitted = attempt.submittedAt ?? attempt.startedAt;
+      if (submitted > entry.lastSubmittedAt) entry.lastSubmittedAt = submitted;
+      combinedAssessmentByEmployee.set(attempt.employeeId, entry);
     }
   }
   const progressLeaderboard = buildLeaderboardRows(course.enrollments.map((enrollment) => ({
@@ -89,20 +116,20 @@ export default async function CourseAdminPage({ params }: { params: Promise<{ id
     totalLessons,
     completedLessons: enrollment.progress.filter((progress) => progress.completedAt).length,
   })), 5);
-  const assessmentLeaderboard = buildLeaderboardRows([...bestAssessmentAttempts.values()].map((attempt) => ({
-    enrollmentId: attempt.id,
+  const assessmentLeaderboard = buildLeaderboardRows([...combinedAssessmentByEmployee.entries()].map(([employeeId, entry]) => ({
+    enrollmentId: employeeId,
     courseId: course.id,
     courseTitle: course.title,
-    employeeCode: attempt.employee.employeeCode,
-    employeeName: attempt.employee.name,
-    companyName: attempt.employee.company.name,
-    enrolledAt: attempt.startedAt,
-    startedAt: attempt.startedAt,
-    completedAt: attempt.submittedAt,
+    employeeCode: entry.employee.employeeCode,
+    employeeName: entry.employee.name,
+    companyName: entry.employee.company.name,
+    enrolledAt: entry.lastSubmittedAt,
+    startedAt: entry.lastSubmittedAt,
+    completedAt: entry.lastSubmittedAt,
     totalLessons: 100,
     completedLessons: 0,
-    assessmentScorePercent: attempt.scorePercent,
-    completionSecondsOverride: attempt.timeTakenSeconds,
+    assessmentScorePercent: Math.round(entry.scores.reduce((sum, score) => sum + score, 0) / entry.scores.length * 10) / 10,
+    completionSecondsOverride: entry.totalSeconds,
   })), 5);
 
   return <main className="container">
@@ -139,23 +166,27 @@ export default async function CourseAdminPage({ params }: { params: Promise<{ id
 
         <div className="card">
           <h2>Assessment</h2>
-          <p className="muted">Upload MCQ questions using the RDC realtime quiz format. The latest upload becomes the active assessment.</p>
+          <p className="muted">Upload MCQ questions for one module using the RDC realtime quiz format. The latest upload for that module becomes its active quiz — other modules&apos; quizzes are untouched.</p>
           <p><a className="button secondary" href={withBase("/api/templates/assessment")}>Download MCQ template</a></p>
-          <ActionForm action={uploadAssessment} submitLabel="Upload and activate assessment">
+          {publishedModules.length ? <ActionForm action={uploadAssessment} submitLabel="Upload and activate assessment">
             <input type="hidden" name="courseId" value={course.id} />
-            <label>Assessment title<input name="title" defaultValue={activeAssessment?.title ?? "Course Assessment"} required /></label>
-            <label>Pass percentage<input name="passPercentage" type="number" min="1" max="100" defaultValue={activeAssessment?.passPercentage ?? course.passPercentage} /></label>
-            <label>Overall time limit (minutes)<input name="timeLimitMinutes" type="number" min="1" max="480" defaultValue={activeAssessment ? Math.ceil(activeAssessment.timeLimitSeconds / 60) : 30} /></label>
-            <label>Questions offered per attempt<input name="questionsPerAttempt" type="number" min="1" max="200" defaultValue={activeAssessment?.questionsPerAttempt ?? 20} required /></label>
+            <label>Module<select name="courseContentId" required>
+              {publishedModules.map((content) => <option key={content.id} value={content.id}>{content.lessons[0]?.title ?? content.originalName}</option>)}
+            </select></label>
+            <label>Assessment title<input name="title" defaultValue="Course Assessment" required /></label>
+            <label>Pass percentage<input name="passPercentage" type="number" min="1" max="100" defaultValue={course.passPercentage} /></label>
+            <label>Overall time limit (minutes)<input name="timeLimitMinutes" type="number" min="1" max="480" defaultValue={30} /></label>
+            <label>Questions offered per attempt<input name="questionsPerAttempt" type="number" min="1" max="200" defaultValue={20} required /></label>
             <label>Question bank CSV or Excel<input type="file" name="file" accept=".csv,.xlsx,.xls" required /></label>
-            <label className="checkbox"><input type="checkbox" name="shuffleQuestions" defaultChecked={activeAssessment?.shuffleQuestions ?? false} />Shuffle questions for learners</label>
-            <label className="checkbox"><input type="checkbox" name="showLeaderboard" defaultChecked={activeAssessment?.showLeaderboard ?? true} />Show leaderboard to learners</label>
-          </ActionForm>
+            <label className="checkbox"><input type="checkbox" name="shuffleQuestions" />Shuffle questions for learners</label>
+            <label className="checkbox"><input type="checkbox" name="showLeaderboard" defaultChecked />Show leaderboard to learners</label>
+          </ActionForm> : <p className="muted">Publish a module with at least one lesson before uploading a quiz for it.</p>}
           <hr />
           <h3>Assessment versions</h3>
-          <div className="table-wrap"><table><thead><tr><th>Version</th><th>Status</th><th>Question bank</th><th>Offered</th><th>Time</th><th>Shuffle</th><th>Attempts</th><th>Action</th></tr></thead><tbody>
+          <div className="table-wrap"><table><thead><tr><th>Version</th><th>Module</th><th>Status</th><th>Question bank</th><th>Offered</th><th>Time</th><th>Shuffle</th><th>Attempts</th><th>Action</th></tr></thead><tbody>
             {course.assessments.map((assessment) => <tr key={assessment.id}>
               <td>v{assessment.version}<br /><span className="muted">{assessment.title}</span></td>
+              <td>{assessment.courseContent?.lessons[0]?.title ?? "Whole course"}</td>
               <td><span className="badge">{assessment.status}</span></td>
               <td>{assessment.questions.length}</td>
               <td>{assessment.questionsPerAttempt ?? assessment.questions.length}</td>
@@ -164,7 +195,7 @@ export default async function CourseAdminPage({ params }: { params: Promise<{ id
               <td>{assessment.attempts.length}</td>
               <td><form action={setAssessmentStatus}><input type="hidden" name="assessmentId" value={assessment.id} /><input type="hidden" name="status" value={assessment.status === "ACTIVE" ? "INACTIVE" : "ACTIVE"} /><button className="secondary">{assessment.status === "ACTIVE" ? "Inactivate" : "Activate"}</button></form></td>
             </tr>)}
-            {!course.assessments.length && <tr><td colSpan={8}>No assessment uploaded.</td></tr>}
+            {!course.assessments.length && <tr><td colSpan={9}>No assessment uploaded.</td></tr>}
           </tbody></table></div>
           <p><a className="button secondary" href={withBase(`/api/courses/${course.id}/assessment-results`)}>Download assessment results Excel</a></p>
         </div>
@@ -289,14 +320,14 @@ export default async function CourseAdminPage({ params }: { params: Promise<{ id
 
         {course.leaderboardEnabled && <div className="card">
           <h2>Toppers</h2>
-          <p className="muted">{activeAssessment ? "Formula: assessment score 70% + assessment speed 30%." : "Formula: progress score 70% + speed score 30%."}</p>
+          <p className="muted">{assessmentLeaderboard.length ? "Formula: assessment score 70% + assessment speed 30%. Assessment score is averaged across every quiz-eligible module attempted." : "Formula: progress score 70% + speed score 30%."}</p>
           <ol className="leaderboard-list">
-            {(activeAssessment ? assessmentLeaderboard : progressLeaderboard).map((row) => <li key={row.enrollmentId}>
+            {(assessmentLeaderboard.length ? assessmentLeaderboard : progressLeaderboard).map((row) => <li key={row.enrollmentId}>
               <strong>{row.employeeName}</strong>
               <span>{row.rankScore}% - {formatDuration(row.completionSeconds)}</span>
             </li>)}
           </ol>
-          {!(activeAssessment ? assessmentLeaderboard : progressLeaderboard).length && <p>No learner progress yet.</p>}
+          {!(assessmentLeaderboard.length ? assessmentLeaderboard : progressLeaderboard).length && <p>No learner progress yet.</p>}
         </div>}
       </aside>
     </div>

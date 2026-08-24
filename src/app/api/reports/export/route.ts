@@ -44,7 +44,11 @@ export async function GET(request: Request) {
         ...(courseId ? { assessment: { courseId } } : {}),
         ...(companyId ? { employee: { companyId } } : {}),
       },
-      include: { employee: { include: { company: true } }, assessment: { include: { course: true } } },
+      // courseContent + its lesson, so the tracker sheet can say WHICH
+      // MODULE the "latest attempt" shown for each learner-course row
+      // belongs to — a course can have several active quizzes now, and
+      // showing one without saying which would be misleading.
+      include: { employee: { include: { company: true } }, assessment: { include: { course: true, courseContent: { include: { lessons: true } } } } },
       orderBy: [{ scorePercent: "desc" }, { timeTakenSeconds: "asc" }],
       take: 5000,
     }),
@@ -63,7 +67,7 @@ export async function GET(request: Request) {
   const progress = workbook.addWorksheet("Progress Assessment Tracker");
   progress.addRow(["Period", period.label]);
   progress.addRow([]);
-  progress.addRow(["Employee Code", "Learner", "Company", "Course", "Status", "Lessons Completed", "Total Lessons", "Progress %", "Completed At", "Assessment Version", "Attempt", "Score %", "Correct", "Total Questions", "Passed", "Assessment Time Seconds", "Submitted At"]);
+  progress.addRow(["Employee Code", "Learner", "Company", "Course", "Status", "Lessons Completed", "Total Lessons", "Progress %", "Completed At", "Assessment Version", "Assessment Module", "Attempt", "Score %", "Correct", "Total Questions", "Passed", "Assessment Time Seconds", "Submitted At"]);
   styleHeader(progress.getRow(3));
   for (const enrollment of progressRows) {
     const totalLessons = enrollment.course.contents.flatMap((content) => content.lessons).length;
@@ -80,6 +84,7 @@ export async function GET(request: Request) {
       totalLessons ? completedLessons / totalLessons : 0,
       enrollment.completedAt,
       attempt?.assessment.version ?? "",
+      attempt ? attempt.assessment.courseContent?.lessons[0]?.title ?? "Whole course" : "",
       attempt?.attemptNumber ?? "",
       attempt?.scorePercent ?? "",
       attempt?.correctAnswers ?? "",
@@ -91,8 +96,8 @@ export async function GET(request: Request) {
   }
   progress.getColumn(8).numFmt = "0.0%";
   progress.getColumn(9).numFmt = "yyyy-mm-dd";
-  progress.getColumn(12).numFmt = "0.0";
-  progress.getColumn(17).numFmt = "yyyy-mm-dd hh:mm";
+  progress.getColumn(13).numFmt = "0.0";
+  progress.getColumn(18).numFmt = "yyyy-mm-dd hh:mm";
   autoFit(progress);
 
   const learners = workbook.addWorksheet("Active Learners");

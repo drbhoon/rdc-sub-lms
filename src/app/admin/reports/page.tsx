@@ -68,7 +68,10 @@ export default async function ReportsPage({ searchParams }: { searchParams: Prom
         ...(courseId ? { assessment: { courseId } } : {}),
         ...(companyId ? { employee: { companyId } } : {}),
       },
-      include: { assessment: { include: { course: true } } },
+      // courseContent + its lesson, to label which module the "latest
+      // attempt" shown per learner-course row belongs to — a course can
+      // have several active quizzes now.
+      include: { assessment: { include: { course: true, courseContent: { include: { lessons: true } } } } },
       orderBy: [{ scorePercent: "desc" }, { timeTakenSeconds: "asc" }],
       take: 500,
     }),
@@ -146,7 +149,7 @@ export default async function ReportsPage({ searchParams }: { searchParams: Prom
     <section className="card">
       <h2>Progress and assessment tracker</h2>
       <div className="table-wrap"><table>
-        <thead><tr><th>Learner</th><th>Company</th><th>Course</th><th>Status</th><th>Progress</th><th>Completed</th><th>Assessment v</th><th>Attempt</th><th>Score %</th><th>Correct</th><th>Passed</th><th>Assessment time</th><th>Submitted</th></tr></thead>
+        <thead><tr><th>Learner</th><th>Company</th><th>Course</th><th>Status</th><th>Progress</th><th>Completed</th><th>Assessment v</th><th>Module</th><th>Attempt</th><th>Score %</th><th>Correct</th><th>Passed</th><th>Assessment time</th><th>Submitted</th></tr></thead>
         <tbody>
           {progressRows.map((enrollment) => {
             const totalLessons = enrollment.course.contents.flatMap((content) => content.lessons).length;
@@ -161,6 +164,7 @@ export default async function ReportsPage({ searchParams }: { searchParams: Prom
               <td>{completedLessons}/{totalLessons} lessons ({percent}%)</td>
               <td>{enrollment.completedAt ? enrollment.completedAt.toLocaleDateString("en-IN") : "-"}</td>
               <td>{attempt?.assessment.version ?? ""}</td>
+              <td>{attempt ? attempt.assessment.courseContent?.lessons[0]?.title ?? "Whole course" : ""}</td>
               <td>{attempt?.attemptNumber ?? ""}</td>
               <td>{attempt ? attempt.scorePercent : ""}</td>
               <td>{attempt ? `${attempt.correctAnswers}/${attempt.totalQuestions}` : ""}</td>
@@ -169,7 +173,7 @@ export default async function ReportsPage({ searchParams }: { searchParams: Prom
               <td>{attempt?.submittedAt ? attempt.submittedAt.toLocaleString("en-IN") : ""}</td>
             </tr>;
           })}
-          {!progressRows.length && <tr><td colSpan={13}>No learner-course records match this filter.</td></tr>}
+          {!progressRows.length && <tr><td colSpan={14}>No learner-course records match this filter.</td></tr>}
         </tbody>
       </table></div>
     </section>

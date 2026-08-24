@@ -21,8 +21,10 @@ export default async function LearnerActivityPage({ params }: { params: Promise<
         include: { course: true, progress: { include: { lesson: true }, orderBy: { updatedAt: "desc" } } },
         orderBy: { enrolledAt: "desc" },
       },
+      // courseContent + its lesson, so each attempt can say WHICH module its
+      // quiz belongs to -- a course can have several active quizzes now.
       assessmentAttempts: {
-        include: { assessment: { include: { course: true } }, answers: { include: { question: true } } },
+        include: { assessment: { include: { course: true, courseContent: { include: { lessons: true } } } }, answers: { include: { question: true } } },
         orderBy: { startedAt: "desc" },
       },
       feedbackResponses: {
@@ -61,9 +63,9 @@ export default async function LearnerActivityPage({ params }: { params: Promise<
       {!employee.enrollments.some((enrollment) => enrollment.progress.length) && <tr><td colSpan={6}>No lesson activity.</td></tr>}
     </tbody></table></div></section>
 
-    <section className="card"><h2>Assessment attempts</h2><div className="table-wrap"><table><thead><tr><th>Course</th><th>Assessment</th><th>Attempt</th><th>Status</th><th>Score</th><th>Correct</th><th>Answers</th><th>Started</th><th>Submitted</th></tr></thead><tbody>
-      {employee.assessmentAttempts.map((attempt) => <tr key={attempt.id}><td>{attempt.assessment.course.title}</td><td>{attempt.assessment.title} v{attempt.assessment.version}</td><td>{attempt.attemptNumber}</td><td>{attempt.status.replaceAll("_", " ")}{attempt.status === "SUBMITTED" ? attempt.passed ? " · Passed" : " · Not passed" : ""}</td><td>{attempt.status === "SUBMITTED" ? `${attempt.scorePercent}%` : ""}</td><td>{attempt.status === "SUBMITTED" ? `${attempt.correctAnswers}/${attempt.totalQuestions}` : ""}</td><td>{attempt.answers.sort((a, b) => a.question.order - b.question.order).map((answer) => `Q${answer.question.order}: ${answer.selectedOption ?? "blank"} ${answer.isCorrect ? "✓" : "✗"}`).join("; ")}</td><td>{attempt.startedAt.toLocaleString("en-IN")}</td><td>{attempt.submittedAt?.toLocaleString("en-IN") ?? ""}</td></tr>)}
-      {!employee.assessmentAttempts.length && <tr><td colSpan={9}>No assessment attempts.</td></tr>}
+    <section className="card"><h2>Assessment attempts</h2><div className="table-wrap"><table><thead><tr><th>Course</th><th>Module</th><th>Assessment</th><th>Attempt</th><th>Status</th><th>Score</th><th>Correct</th><th>Answers</th><th>Started</th><th>Submitted</th></tr></thead><tbody>
+      {employee.assessmentAttempts.map((attempt) => <tr key={attempt.id}><td>{attempt.assessment.course.title}</td><td>{attempt.assessment.courseContent?.lessons[0]?.title ?? "Whole course"}</td><td>{attempt.assessment.title} v{attempt.assessment.version}</td><td>{attempt.attemptNumber}</td><td>{attempt.status.replaceAll("_", " ")}{attempt.status === "SUBMITTED" ? attempt.passed ? " · Passed" : " · Not passed" : ""}</td><td>{attempt.status === "SUBMITTED" ? `${attempt.scorePercent}%` : ""}</td><td>{attempt.status === "SUBMITTED" ? `${attempt.correctAnswers}/${attempt.totalQuestions}` : ""}</td><td>{attempt.answers.sort((a, b) => a.question.order - b.question.order).map((answer) => `Q${answer.question.order}: ${answer.selectedOption ?? "blank"} ${answer.isCorrect ? "✓" : "✗"}`).join("; ")}</td><td>{attempt.startedAt.toLocaleString("en-IN")}</td><td>{attempt.submittedAt?.toLocaleString("en-IN") ?? ""}</td></tr>)}
+      {!employee.assessmentAttempts.length && <tr><td colSpan={10}>No assessment attempts.</td></tr>}
     </tbody></table></div></section>
 
     <section className="card"><h2>Feedback responses</h2>{employee.feedbackResponses.map((response) => <div className="activity-group" key={response.id}><h3>{response.form.course.title} · {response.courseContent?.lessons[0]?.title ?? "Whole course"} <span className="muted">({response.form.title} v{response.form.version})</span></h3><p className="muted">Submitted {response.submittedAt.toLocaleString("en-IN")}</p><ol>{response.answers.sort((a, b) => a.question.order - b.question.order).map((answer) => <li key={answer.id}><strong>{answer.question.questionText}</strong><br />{answerText(answer.value)}</li>)}</ol></div>)}{!employee.feedbackResponses.length && <p>No feedback submitted.</p>}</section>

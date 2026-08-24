@@ -24,10 +24,15 @@ export default async function LearnCourse({ params }: { params: Promise<{ id: st
             include: { lessons: { where: { approvedAt: { not: null } }, orderBy: { order: "asc" } } },
             orderBy: { version: "asc" },
           },
+          // Every ACTIVE assessment, not one — a quiz belongs to a module now,
+          // so a course can have several running together (one per module).
           assessments: {
             where: { status: "ACTIVE" },
-            include: { questions: true, attempts: { where: { employeeId: user.employeeId, status: "SUBMITTED" }, orderBy: [{ scorePercent: "desc" }, { timeTakenSeconds: "asc" }], take: 1 } },
-            take: 1,
+            include: {
+              questions: true,
+              courseContent: { include: { lessons: true } },
+              attempts: { where: { employeeId: user.employeeId, status: "SUBMITTED" }, orderBy: [{ scorePercent: "desc" }, { timeTakenSeconds: "asc" }], take: 1 },
+            },
           },
           feedbackForms: {
             where: { isActive: true },
@@ -57,8 +62,19 @@ export default async function LearnCourse({ params }: { params: Promise<{ id: st
   })));
   const completed = lessons.filter((lesson) => lesson.completed).length;
   const percent = lessons.length ? Math.round(completed / lessons.length * 100) : 0;
-  const assessment = enrollment.course.assessments[0];
-  const bestAttempt = assessment?.attempts[0];
+
+  // One quiz card per module that has one, not one card for the whole
+  // course. Only the modules a teacher actually put a quiz on are required
+  // for the certificate — a course with 5 modules and 2 quizzes is not
+  // blocked on the 3 that were never meant to have one.
+  const assessmentModules = enrollment.course.assessments.map((assessment) => ({
+    assessment,
+    bestAttempt: assessment.attempts[0],
+    title: assessment.courseContent?.lessons[0]?.title ?? "Whole course",
+  }));
+  const hasActiveAssessment = assessmentModules.length > 0;
+  const hasPassedAssessment = hasActiveAssessment && assessmentModules.every((module) => module.bestAttempt?.passed);
+
   const feedbackForm = enrollment.course.feedbackForms[0];
 
   // One feedback opportunity per module, not one for the whole course. A
@@ -85,8 +101,8 @@ export default async function LearnCourse({ params }: { params: Promise<{ id: st
     totalLessons: lessons.length,
     completedLessons: completed,
     courseCompleted: Boolean(enrollment.completedAt),
-    hasActiveAssessment: Boolean(assessment),
-    hasPassedAssessment: Boolean(bestAttempt?.passed),
+    hasActiveAssessment,
+    hasPassedAssessment,
     hasActiveFeedbackForm: Boolean(feedbackForm),
     hasSubmittedFeedback: feedbackSubmitted,
   });
@@ -103,16 +119,18 @@ export default async function LearnCourse({ params }: { params: Promise<{ id: st
         <LessonPlayer lessons={lessons} />
       </section>
       <aside className="learning-sidebar">
-        {assessment && <div className="card">
-          <h2>MCQ assessment</h2>
+        {/* One card per module quiz — a course with several modules has
+            several independent MCQ tests now, not one for the whole course. */}
+        {assessmentModules.map(({ assessment, bestAttempt, title }) => <div className="card" key={assessment.id}>
+          <h2>MCQ assessment — {title}</h2>
           <p>{assessment.title}</p>
           <p className="muted">{assessment.questionsPerAttempt ?? assessment.questions.length} random questions from a bank of {assessment.questions.length} - pass mark {assessment.passPercentage}%</p>
           {bestAttempt ? <p><span className="badge">{bestAttempt.passed ? "Passed" : "Submitted"}</span> Best score: {bestAttempt.scorePercent}%</p> : <p className="muted">No submitted attempts yet.</p>}
           <form action={startAssessment}>
-            <input type="hidden" name="courseId" value={enrollment.courseId} />
+            <input type="hidden" name="assessmentId" value={assessment.id} />
             <button>{bestAttempt ? "Retake assessment" : "Start assessment"}</button>
           </form>
-        </div>}
+        </div>)}
 
         <CourseAiAssistant courseId={id} />
 

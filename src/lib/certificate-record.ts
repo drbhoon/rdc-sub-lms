@@ -23,6 +23,9 @@ export async function getCertificateRecord(employeeId: string, courseId: string)
             where: { isPublished: true },
             include: { lessons: { where: { approvedAt: { not: null } } } },
           },
+          // Every ACTIVE assessment, not one — a quiz belongs to a module now,
+          // and a certificate requires passing every module a teacher put one
+          // on, not just whichever quiz happened to exist first.
           assessments: {
             where: { status: "ACTIVE" },
             include: {
@@ -31,7 +34,6 @@ export async function getCertificateRecord(employeeId: string, courseId: string)
                 take: 1,
               },
             },
-            take: 1,
           },
           feedbackForms: {
             where: { isActive: true },
@@ -54,7 +56,6 @@ export async function getCertificateRecord(employeeId: string, courseId: string)
   const completedLessons = enrollment.progress.filter(
     (progress) => lessonIds.has(progress.lessonId) && progress.completedAt,
   ).length;
-  const activeAssessment = enrollment.course.assessments[0];
   const activeFeedbackForm = enrollment.course.feedbackForms[0];
   // Complete only once every PUBLISHED module has a response — the same rule
   // the learner-facing page uses (see feedbackSubmitted in
@@ -65,13 +66,20 @@ export async function getCertificateRecord(employeeId: string, courseId: string)
   const respondedContentIds = new Set((activeFeedbackForm?.responses ?? []).map((response) => response.courseContentId));
   const publishedContentIds = enrollment.course.contents.map((content) => content.id);
   const hasSubmittedFeedback = publishedContentIds.length > 0 && publishedContentIds.every((id) => respondedContentIds.has(id));
+
+  // Only the modules a teacher actually quizzed have to be PASSED — a module
+  // with no active quiz is not a blocker, same reasoning as a course with no
+  // quiz at all was never blocked on "pass the quiz you don't have".
+  const hasActiveAssessment = enrollment.course.assessments.length > 0;
+  const hasPassedAssessment = hasActiveAssessment && enrollment.course.assessments.every((assessment) => assessment.attempts.length > 0);
+
   const eligibility = certificateEligibility({
     certificateEnabled: enrollment.course.certificateEnabled,
     totalLessons: lessonIds.size,
     completedLessons,
     courseCompleted: true,
-    hasActiveAssessment: Boolean(activeAssessment),
-    hasPassedAssessment: Boolean(activeAssessment?.attempts.length),
+    hasActiveAssessment,
+    hasPassedAssessment,
     hasActiveFeedbackForm: Boolean(activeFeedbackForm),
     hasSubmittedFeedback,
   });

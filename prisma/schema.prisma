@@ -251,6 +251,7 @@ model CourseContent {
   lessons           Lesson[]
   jobs              ProcessingJob[]
   feedbackResponses FeedbackResponse[]
+  assessments       Assessment[]
   createdAt         DateTime           @default(now())
   updatedAt         DateTime           @updatedAt
 
@@ -342,6 +343,15 @@ model Assessment {
   id                  String               @id @default(cuid())
   courseId            String
   title               String               @default("Course Assessment")
+  /// Which module (course content) this quiz belongs to. A course commonly
+  /// has several modules, each needing its own MCQ test — "one quiz per
+  /// course" meant a second module's quiz could not go active without
+  /// deactivating the first. Nullable only for quizzes uploaded before this
+  /// column existed, which stay whole-course; every quiz uploaded from here
+  /// on requires one — see uploadAssessment in actions/assessments.ts, which
+  /// also re-scopes "only one ACTIVE at a time" to the module rather than the
+  /// whole course, so different modules' quizzes no longer fight each other.
+  courseContentId     String?
   version             Int
   status              AssessmentStatus     @default(DRAFT)
   passPercentage      Int                  @default(70)
@@ -352,13 +362,19 @@ model Assessment {
   questionsPerAttempt Int?
   timeLimitSeconds    Int                  @default(1800)
   course              Course               @relation(fields: [courseId], references: [id], onDelete: Cascade)
+  courseContent       CourseContent?       @relation(fields: [courseContentId], references: [id], onDelete: Cascade)
   questions           AssessmentQuestion[]
   attempts            AssessmentAttempt[]
   createdAt           DateTime             @default(now())
   updatedAt           DateTime             @updatedAt
 
-  @@unique([courseId, version])
+  // Versions now count per MODULE, not per course — module 2's quiz starts
+  // at v1 too, same as module 1's did. Legacy whole-course assessments keep
+  // their existing version numbers; NULL is distinct in Postgres, so this
+  // does not collide with them.
+  @@unique([courseId, courseContentId, version])
   @@index([courseId, status])
+  @@index([courseContentId])
 }
 
 model AssessmentQuestion {

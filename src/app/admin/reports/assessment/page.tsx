@@ -14,7 +14,13 @@ export default async function AssessmentReportsPage({ searchParams }: { searchPa
   const params = await searchParams;
   const courses = await db.course.findMany({
     where: { assessments: { some: {} } },
-    select: { id: true, title: true, assessments: { select: { id: true, title: true, version: true }, orderBy: { version: "desc" } } },
+    select: {
+      id: true,
+      title: true,
+      // courseContent + its lesson, purely to label the version dropdown
+      // below with which module each quiz belongs to.
+      assessments: { select: { id: true, title: true, version: true, courseContent: { select: { lessons: { select: { title: true } } } } }, orderBy: { version: "desc" } },
+    },
     orderBy: { title: "asc" },
   });
   const selectedCourseId = value(params, "courseId") || courses[0]?.id || "";
@@ -54,7 +60,7 @@ export default async function AssessmentReportsPage({ searchParams }: { searchPa
     <nav className="report-tabs" aria-label="Report sections"><Link href="/admin/reports">General</Link><Link className="active" href="/admin/reports/assessment">Assessment</Link><Link href="/admin/reports/feedback">Feedback</Link></nav>
     <form className="period-filter card" method="get">
       <label>Course<select name="courseId" defaultValue={selectedCourseId}>{courses.map((course) => <option key={course.id} value={course.id}>{course.title}</option>)}</select></label>
-      <label>Assessment version<select name="assessmentId" defaultValue={selectedAssessmentId}>{selectedCourse?.assessments.map((item) => <option key={item.id} value={item.id}>v{item.version} - {item.title}</option>)}</select></label>
+      <label>Assessment version<select name="assessmentId" defaultValue={selectedAssessmentId}>{selectedCourse?.assessments.map((item) => <option key={item.id} value={item.id}>v{item.version} - {item.title} ({item.courseContent?.lessons[0]?.title ?? "Whole course"})</option>)}</select></label>
       <button>Apply</button>
       {assessment && <a className="button secondary" href={withBase(`/api/courses/${assessment.courseId}/assessment-results?assessmentId=${assessment.id}`)}>Download Overview, Details & Timeline Excel</a>}
     </form>

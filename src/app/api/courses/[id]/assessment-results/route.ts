@@ -17,6 +17,9 @@ export async function GET(request: Request, context: { params: Promise<{ id: str
         where: assessmentId ? { id: assessmentId } : undefined,
         include: {
           questions: { orderBy: { order: "asc" } },
+          // courseContent + its lesson, to label which module each assessment
+          // in this report belongs to now that a course can have several.
+          courseContent: { include: { lessons: true } },
           attempts: {
             include: { employee: { include: { company: true } }, answers: { include: { question: true } } },
             orderBy: [{ startedAt: "asc" }],
@@ -28,12 +31,13 @@ export async function GET(request: Request, context: { params: Promise<{ id: str
   });
   if (!course) return new Response("Not found", { status: 404 });
   const workbook = new ExcelJS.Workbook();
+  const moduleLabel = (assessment: (typeof course.assessments)[number]) => assessment.courseContent?.lessons[0]?.title ?? "Whole course";
   const overview = workbook.addWorksheet("Overview");
   overview.addRow(["Assessment report", course.title]);
   styleHeader(overview.getRow(1));
   overview.addRow(["Summary basis", "Each learner's latest submitted attempt; Details contains every submitted attempt."]);
   overview.addRow([]);
-  overview.addRow(["Version", "Assessment", "Question", "Question text", "Times answered", "Correct", "Correct %", "Option A", "A %", "Option B", "B %", "Option C", "C %", "Option D", "D %", "Correct answer"]);
+  overview.addRow(["Version", "Module", "Assessment", "Question", "Question text", "Times answered", "Correct", "Correct %", "Option A", "A %", "Option B", "B %", "Option C", "C %", "Option D", "D %", "Correct answer"]);
   styleHeader(overview.getRow(4));
 
   for (const assessment of course.assessments) {
@@ -48,19 +52,19 @@ export async function GET(request: Request, context: { params: Promise<{ id: str
       const correct = answers.filter((answer) => answer.isCorrect).length;
       const total = answers.length;
       overview.addRow([
-        assessment.version, assessment.title, question.order, question.questionText, total, correct, total ? correct / total : 0,
+        assessment.version, moduleLabel(assessment), assessment.title, question.order, question.questionText, total, correct, total ? correct / total : 0,
         counts.A, total ? counts.A / total : 0, counts.B, total ? counts.B / total : 0,
         counts.C, total ? counts.C / total : 0, counts.D, total ? counts.D / total : 0, question.correctOption,
       ]);
     }
   }
-  [7, 9, 11, 13, 15].forEach((column) => { overview.getColumn(column).numFmt = "0.0%"; });
+  [8, 10, 12, 14, 16].forEach((column) => { overview.getColumn(column).numFmt = "0.0%"; });
   autoFit(overview);
-  overview.getColumn(4).width = 48;
+  overview.getColumn(5).width = 48;
 
   const details = workbook.addWorksheet("Details");
   const maxQuestions = Math.max(0, ...course.assessments.map((assessment) => assessment.questions.length));
-  details.addRow(["Employee Code", "Learner", "Email", "Company", "Location", "Assessment", "Version", "Date", "Time", "Score", "Status", "Attempt", ...Array.from({ length: maxQuestions }, (_, index) => `Q${index + 1}`), "Submission"]);
+  details.addRow(["Employee Code", "Learner", "Email", "Company", "Location", "Assessment", "Module", "Version", "Date", "Time", "Score", "Status", "Attempt", ...Array.from({ length: maxQuestions }, (_, index) => `Q${index + 1}`), "Submission"]);
   styleHeader(details.getRow(1));
   for (const assessment of course.assessments) {
     for (const attempt of assessment.attempts.filter((item) => item.status === "SUBMITTED")) {
@@ -68,7 +72,7 @@ export async function GET(request: Request, context: { params: Promise<{ id: str
       const submitted = attempt.submittedAt ?? attempt.startedAt;
       const row = details.addRow([
         attempt.employee.employeeCode, attempt.employee.name, attempt.employee.email, attempt.employee.company.name,
-        attempt.employee.locationPlant ?? "", assessment.title, assessment.version, submitted, submitted,
+        attempt.employee.locationPlant ?? "", assessment.title, moduleLabel(assessment), assessment.version, submitted, submitted,
         attempt.scorePercent / 100, attempt.passed ? "Passed" : "Not passed", attempt.attemptNumber,
         ...Array.from({ length: maxQuestions }, (_, index) => {
           const answer = answers.get(index + 1);
@@ -79,14 +83,14 @@ export async function GET(request: Request, context: { params: Promise<{ id: str
       ]);
       for (let index = 0; index < maxQuestions; index += 1) {
         const answer = answers.get(index + 1);
-        if (answer) row.getCell(13 + index).fill = { type: "pattern", pattern: "solid", fgColor: { argb: answer.isCorrect ? GREEN : RED } };
+        if (answer) row.getCell(14 + index).fill = { type: "pattern", pattern: "solid", fgColor: { argb: answer.isCorrect ? GREEN : RED } };
       }
     }
   }
-  details.getColumn(8).numFmt = "yyyy-mm-dd";
-  details.getColumn(9).numFmt = "hh:mm:ss";
-  details.getColumn(10).numFmt = "0.0%";
-  details.getColumn(13 + maxQuestions).numFmt = "yyyy-mm-dd hh:mm:ss";
+  details.getColumn(9).numFmt = "yyyy-mm-dd";
+  details.getColumn(10).numFmt = "hh:mm:ss";
+  details.getColumn(11).numFmt = "0.0%";
+  details.getColumn(14 + maxQuestions).numFmt = "yyyy-mm-dd hh:mm:ss";
   autoFit(details);
 
   const timeline = workbook.addWorksheet("Timeline");
@@ -96,7 +100,7 @@ export async function GET(request: Request, context: { params: Promise<{ id: str
   for (const assessment of course.assessments) {
     for (const attempt of assessment.attempts) {
       const learner = `${attempt.employee.name} (${attempt.employee.employeeCode})`;
-      events.push({ event: "Assessment started", user: learner, description: `${assessment.title} v${assessment.version}, attempt ${attempt.attemptNumber}`, date: attempt.startedAt });
+      events.push({ event: "Assessment started", user: learner, description: `${assessment.title} v${assessment.version} (${moduleLabel(assessment)}), attempt ${attempt.attemptNumber}`, date: attempt.startedAt });
       for (const answer of attempt.answers) {
         events.push({ event: "Answer submitted", user: learner, description: `Q${answer.question.order}: selected ${answer.selectedOption ?? "blank"} - ${answer.isCorrect ? "correct" : "incorrect"}`, date: answer.answeredAt });
       }
