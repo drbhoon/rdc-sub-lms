@@ -35,13 +35,12 @@ export async function getCertificateRecord(employeeId: string, courseId: string)
               },
             },
           },
+          // Every ACTIVE form, not one — a feedback form belongs to a module
+          // now, same as an assessment does, so a course can have several
+          // running together.
           feedbackForms: {
             where: { isActive: true },
-            // Every response, not one: feedback is answered per module now, so
-            // whether it is "done" means every published module is covered,
-            // not merely that a row exists somewhere.
             include: { responses: { where: { employeeId } } },
-            take: 1,
           },
         },
       },
@@ -56,16 +55,20 @@ export async function getCertificateRecord(employeeId: string, courseId: string)
   const completedLessons = enrollment.progress.filter(
     (progress) => lessonIds.has(progress.lessonId) && progress.completedAt,
   ).length;
-  const activeFeedbackForm = enrollment.course.feedbackForms[0];
-  // Complete only once every PUBLISHED module has a response — the same rule
-  // the learner-facing page uses (see feedbackSubmitted in
-  // learn/courses/[id]/page.tsx). This function is the one both the
-  // certificate PAGE and the certificate PDF route call, so it is the actual
-  // gate: getting this wrong would let a certificate through on one module's
-  // feedback out of several.
-  const respondedContentIds = new Set((activeFeedbackForm?.responses ?? []).map((response) => response.courseContentId));
+  // This function is the one both the certificate PAGE and the certificate
+  // PDF route call, so it is the actual gate — getting it wrong would let a
+  // certificate through on one module's feedback out of several. Every
+  // ACTIVE form needs its response(s): a module-scoped form needs its own
+  // module covered; a form uploaded before forms were module-scoped (see
+  // learn/courses/[id]/page.tsx for the same rule, in full) still needs
+  // every published module covered under that one shared form.
   const publishedContentIds = enrollment.course.contents.map((content) => content.id);
-  const hasSubmittedFeedback = publishedContentIds.length > 0 && publishedContentIds.every((id) => respondedContentIds.has(id));
+  const hasActiveFeedbackForm = enrollment.course.feedbackForms.length > 0;
+  const hasSubmittedFeedback = hasActiveFeedbackForm && enrollment.course.feedbackForms.every((form) => {
+    if (form.courseContentId) return form.responses.some((response) => response.courseContentId === form.courseContentId);
+    const responded = new Set(form.responses.map((response) => response.courseContentId));
+    return publishedContentIds.length > 0 && publishedContentIds.every((id) => responded.has(id));
+  });
 
   // Only the modules a teacher actually quizzed have to be PASSED — a module
   // with no active quiz is not a blocker, same reasoning as a course with no
@@ -80,7 +83,7 @@ export async function getCertificateRecord(employeeId: string, courseId: string)
     courseCompleted: true,
     hasActiveAssessment,
     hasPassedAssessment,
-    hasActiveFeedbackForm: Boolean(activeFeedbackForm),
+    hasActiveFeedbackForm,
     hasSubmittedFeedback,
   });
 

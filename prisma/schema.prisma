@@ -251,6 +251,7 @@ model CourseContent {
   lessons           Lesson[]
   jobs              ProcessingJob[]
   feedbackResponses FeedbackResponse[]
+  feedbackForms     FeedbackForm[]
   assessments       Assessment[]
   createdAt         DateTime           @default(now())
   updatedAt         DateTime           @updatedAt
@@ -434,19 +435,33 @@ model AssessmentAnswer {
 }
 
 model FeedbackForm {
-  id        String             @id @default(cuid())
-  courseId  String
-  title     String             @default("Course Feedback")
-  version   Int
-  isActive  Boolean            @default(false)
-  course    Course             @relation(fields: [courseId], references: [id], onDelete: Cascade)
-  questions FeedbackQuestion[]
-  responses FeedbackResponse[]
-  createdAt DateTime           @default(now())
-  updatedAt DateTime           @updatedAt
+  id              String             @id @default(cuid())
+  courseId        String
+  /// Which module (course content) this feedback belongs to. A course
+  /// commonly has several modules, each wanting its own feedback — "one
+  /// active form per course" meant a second module's feedback could not go
+  /// active without knocking the first one out, the exact bug Assessment had
+  /// before it was scoped the same way. Nullable only for forms uploaded
+  /// before this column existed, which stay whole-course; every form
+  /// uploaded from here on requires one — see uploadFeedbackTemplate in
+  /// actions/feedback.ts, which also re-scopes "only one ACTIVE at a time"
+  /// to the module rather than the whole course.
+  courseContentId String?
+  title           String             @default("Course Feedback")
+  version         Int
+  isActive        Boolean            @default(false)
+  course          Course             @relation(fields: [courseId], references: [id], onDelete: Cascade)
+  courseContent   CourseContent?     @relation(fields: [courseContentId], references: [id], onDelete: Cascade)
+  questions       FeedbackQuestion[]
+  responses       FeedbackResponse[]
+  createdAt       DateTime           @default(now())
+  updatedAt       DateTime           @updatedAt
 
-  @@unique([courseId, version])
+  // Versions now count per MODULE, not per course — same reasoning as
+  // Assessment's version numbering.
+  @@unique([courseId, courseContentId, version])
   @@index([courseId, isActive])
+  @@index([courseContentId])
 }
 
 model FeedbackQuestion {
@@ -467,14 +482,14 @@ model FeedbackResponse {
   id              String           @id @default(cuid())
   formId          String
   employeeId      String
-  /// Which module (course content) this response is about. A course has as
-  /// many feedback opportunities as it has modules — one feedback FORM is
-  /// still uploaded per course, but a learner answers it once per module they
-  /// complete, not once for the whole course.
+  /// Which module (course content) this response is about.
   ///
-  /// Nullable only for rows written before this column existed, where
-  /// feedback was course-wide. Every response created from here on sets it —
-  /// see submitFeedback in actions/feedback.ts, which requires it.
+  /// Redundant with form.courseContentId for a form uploaded after
+  /// FeedbackForm itself became module-scoped — every response under such a
+  /// form necessarily shares its module, since submitFeedback derives this
+  /// value from the form. It stays load-bearing for a form uploaded BEFORE
+  /// that column existed: those forms remain whole-course, and this is what
+  /// tells apart the several modules one shared form is answered for.
   courseContentId String?
   submittedAt     DateTime         @default(now())
   form            FeedbackForm     @relation(fields: [formId], references: [id], onDelete: Cascade)

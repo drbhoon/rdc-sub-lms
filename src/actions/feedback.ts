@@ -14,9 +14,17 @@ type ActionState = { message?: string };
 
 const uploadSchema = z.object({
   courseId: z.string().min(1),
+  courseContentId: z.string().min(1, "Select which module this feedback belongs to."),
   title: z.string().trim().min(3).max(150).default("Course Feedback"),
 });
 
+/**
+ * A feedback form belongs to one module now, same as an Assessment does.
+ * "One active form per course" meant uploading a second module's feedback
+ * deactivated the first — every course-wide "only one" check below is scoped
+ * to (courseId, courseContentId) instead of courseId alone, so module 1's
+ * and module 2's feedback run independently.
+ */
 export async function uploadFeedbackTemplate(_: ActionState, formData: FormData): Promise<ActionState> {
   const courseId = String(formData.get("courseId") ?? "");
   const actor = await requireCourseManager(courseId);
@@ -24,16 +32,20 @@ export async function uploadFeedbackTemplate(_: ActionState, formData: FormData)
   if (!(file instanceof File)) return { message: "Select a feedback CSV or Excel file." };
   const parsed = uploadSchema.safeParse(Object.fromEntries(formData));
   if (!parsed.success) return { message: parsed.error.issues[0].message };
+  const { courseContentId } = parsed.data;
+  const targetModule = await db.courseContent.findFirst({ where: { id: courseContentId, courseId, isPublished: true } });
+  if (!targetModule) return { message: "Selected module was not found on this course." };
 
   try {
     const questions = parseFeedbackRows(await readTabularFile(file));
-    const latest = await db.feedbackForm.aggregate({ where: { courseId }, _max: { version: true } });
+    const latest = await db.feedbackForm.aggregate({ where: { courseId, courseContentId }, _max: { version: true } });
     const version = (latest._max.version ?? 0) + 1;
     const form = await db.$transaction(async (tx) => {
-      await tx.feedbackForm.updateMany({ where: { courseId, isActive: true }, data: { isActive: false } });
+      await tx.feedbackForm.updateMany({ where: { courseId, courseContentId, isActive: true }, data: { isActive: false } });
       return tx.feedbackForm.create({
         data: {
           courseId,
+          courseContentId,
           title: parsed.data.title,
           version,
           isActive: true,
@@ -49,11 +61,11 @@ export async function uploadFeedbackTemplate(_: ActionState, formData: FormData)
         },
       });
     });
-    await audit(actor.id, "FEEDBACK_TEMPLATE_UPLOADED", "FeedbackForm", form.id, { courseId, questionCount: questions.length, fileName: file.name });
+    await audit(actor.id, "FEEDBACK_TEMPLATE_UPLOADED", "FeedbackForm", form.id, { courseId, courseContentId, questionCount: questions.length, fileName: file.name });
     revalidatePath(`/admin/courses/${courseId}`);
     revalidatePath(`/teacher/courses/${courseId}`);
     revalidatePath(`/learn/courses/${courseId}`);
-    return { message: `Feedback template v${version} activated with ${questions.length} questions.` };
+    return { message: `Feedback template v${version} activated for this module with ${questions.length} questions.` };
   } catch (error) {
     return { message: error instanceof Error ? error.message : "Feedback template upload failed." };
   }
@@ -85,17 +97,28 @@ function validateFeedbackValue(type: FeedbackQuestionType, value: FormDataEntryV
  * lesson has to be COMPLETE before feedback on it is accepted. Enrollment is
  * still required — an unenrolled request has no legitimate way to reach this
  * action, but is refused explicitly rather than by a query returning nothing.
+ *
+ * WHICH module this submission is for comes from the FORM, not the client —
+ * a form belongs to one module (see uploadFeedbackTemplate), so trusting a
+ * client-supplied module id would let a mismatched value get written. The
+ * one exception is a form uploaded before that column existed: those stay
+ * whole-course, so a client-supplied module id is still accepted for them,
+ * exactly as it was before this form-level scoping existed.
  */
 export async function submitFeedback(_: FeedbackSubmitState, formData: FormData): Promise<FeedbackSubmitState> {
   const user = await requireRole(UserRole.LEARNER);
   if (!user.employeeId) return { message: "Learner profile required." };
   const courseId = String(formData.get("courseId") ?? "");
   const formId = String(formData.get("formId") ?? "");
-  const courseContentId = String(formData.get("courseContentId") ?? "");
-  if (!courseContentId) return { message: "Which module this feedback is for was not specified." };
 
   const enrollment = await db.enrollment.findUnique({ where: { employeeId_courseId: { employeeId: user.employeeId, courseId } } });
   if (!enrollment) return { message: "You are not enrolled in this course." };
+
+  const form = await db.feedbackForm.findFirst({ where: { id: formId, courseId, isActive: true }, include: { questions: { orderBy: { order: "asc" } } } });
+  if (!form) return { message: "Active feedback form not found." };
+
+  const courseContentId = form.courseContentId ?? String(formData.get("courseContentId") ?? "");
+  if (!courseContentId) return { message: "Which module this feedback is for was not specified." };
 
   const moduleDone = await db.lessonProgress.findFirst({
     where: {
@@ -106,8 +129,6 @@ export async function submitFeedback(_: FeedbackSubmitState, formData: FormData)
   });
   if (!moduleDone) return { message: "Feedback for this module is available once you complete it." };
 
-  const form = await db.feedbackForm.findFirst({ where: { id: formId, courseId, isActive: true }, include: { questions: { orderBy: { order: "asc" } } } });
-  if (!form) return { message: "Active feedback form not found." };
   const answers = form.questions.map((question) => {
     const result = validateFeedbackValue(question.type, formData.getAll(`question_${question.id}`), question.required);
     if (!result.ok) throw new Error(`Answer required or invalid for: ${question.questionText}`);

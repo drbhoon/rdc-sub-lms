@@ -34,13 +34,17 @@ export default async function LearnCourse({ params }: { params: Promise<{ id: st
               attempts: { where: { employeeId: user.employeeId, status: "SUBMITTED" }, orderBy: [{ scorePercent: "desc" }, { timeTakenSeconds: "asc" }], take: 1 },
             },
           },
+          // Every ACTIVE form, not one — a feedback form belongs to a module
+          // now, same as an assessment does, so a course can have several
+          // running together. courseContent + its lesson label which module;
+          // responses are THIS learner's only, to know what they've answered.
           feedbackForms: {
             where: { isActive: true },
-            // Every response of THIS learner's, not just one — feedback is
-            // per module now, so "already submitted" has to be answered
-            // separately for each module rather than once for the form.
-            include: { questions: { orderBy: { order: "asc" } }, responses: { where: { employeeId: user.employeeId } } },
-            take: 1,
+            include: {
+              questions: { orderBy: { order: "asc" } },
+              courseContent: { include: { lessons: true } },
+              responses: { where: { employeeId: user.employeeId } },
+            },
           },
         },
       },
@@ -75,27 +79,53 @@ export default async function LearnCourse({ params }: { params: Promise<{ id: st
   const hasActiveAssessment = assessmentModules.length > 0;
   const hasPassedAssessment = hasActiveAssessment && assessmentModules.every((module) => module.bestAttempt?.passed);
 
-  const feedbackForm = enrollment.course.feedbackForms[0];
-
-  // One feedback opportunity per module, not one for the whole course. A
-  // module is open for feedback once its (single) lesson is complete, and
-  // "submitted" is tracked per module via the response's courseContentId.
-  const respondedContentIds = new Set((feedbackForm?.responses ?? []).map((response) => response.courseContentId));
-  const feedbackModules = enrollment.course.contents
-    .filter((content) => content.lessons.length && content.lessons.every((lesson) => progress.get(lesson.id)?.completedAt))
-    .map((content) => ({
+  // One feedback opportunity per module, not one for the whole course — same
+  // "only what a teacher actually configured matters" rule as the quiz. Most
+  // forms belong to one module now: one card, gated on that module's own
+  // completion. A form uploaded before forms were module-scoped stays
+  // whole-course (courseContentId null) and keeps its OLD behaviour — one
+  // shared form, one card per completed module — so nothing already
+  // collected under it is disturbed.
+  const completedContentIds = new Set(
+    enrollment.course.contents
+      .filter((content) => content.lessons.length && content.lessons.every((lesson) => progress.get(lesson.id)?.completedAt))
+      .map((content) => content.id),
+  );
+  const feedbackCards = enrollment.course.feedbackForms.flatMap((form) => {
+    if (form.courseContentId) {
+      if (!completedContentIds.has(form.courseContentId)) return [];
+      return [{
+        key: form.id,
+        formId: form.id,
+        courseContentId: form.courseContentId,
+        title: form.courseContent?.lessons[0]?.title ?? "Module",
+        alreadySubmitted: form.responses.some((response) => response.courseContentId === form.courseContentId),
+      }];
+    }
+    const responded = new Set(form.responses.map((response) => response.courseContentId));
+    return enrollment.course.contents.filter((content) => completedContentIds.has(content.id)).map((content) => ({
+      key: `${form.id}:${content.id}`,
+      formId: form.id,
       courseContentId: content.id,
       // The lesson carries the title a learner actually recognises ("Week 2
       // — Safety Protocols"); the content's own originalName is a filename.
       title: content.lessons[0]?.title ?? content.originalName,
-      alreadySubmitted: respondedContentIds.has(content.id),
+      alreadySubmitted: responded.has(content.id),
     }));
-  // Required for every PUBLISHED module, not only the ones open for feedback
-  // right now — by the time all lessons are complete (which certificate
-  // eligibility already demands) the two sets are the same course.
+  });
+
+  // Required for every ACTIVE form — a module-scoped form needs its own
+  // module's response; a legacy whole-course form still needs every
+  // published module covered, exactly as it did before forms could be
+  // scoped to one module.
   const publishedContentIds = enrollment.course.contents.map((content) => content.id);
-  const feedbackSubmitted = Boolean(feedbackForm) && publishedContentIds.length > 0
-    && publishedContentIds.every((contentId) => respondedContentIds.has(contentId));
+  const hasActiveFeedbackForm = enrollment.course.feedbackForms.length > 0;
+  const hasSubmittedFeedback = hasActiveFeedbackForm && enrollment.course.feedbackForms.every((form) => {
+    if (form.courseContentId) return form.responses.some((response) => response.courseContentId === form.courseContentId);
+    const responded = new Set(form.responses.map((response) => response.courseContentId));
+    return publishedContentIds.length > 0 && publishedContentIds.every((contentId) => responded.has(contentId));
+  });
+
   const certificate = certificateEligibility({
     certificateEnabled: enrollment.course.certificateEnabled,
     totalLessons: lessons.length,
@@ -103,8 +133,8 @@ export default async function LearnCourse({ params }: { params: Promise<{ id: st
     courseCompleted: Boolean(enrollment.completedAt),
     hasActiveAssessment,
     hasPassedAssessment,
-    hasActiveFeedbackForm: Boolean(feedbackForm),
-    hasSubmittedFeedback: feedbackSubmitted,
+    hasActiveFeedbackForm,
+    hasSubmittedFeedback,
   });
 
   return <main className="container learn-container">
@@ -150,24 +180,27 @@ export default async function LearnCourse({ params }: { params: Promise<{ id: st
           </>}
         </div>
 
-        {/* One form per module completed so far — a course finished over
+        {/* One card per module completed so far — a course finished over
             several sessions gets feedback recorded as each part is done,
             rather than one form waiting for every module together. */}
-        {feedbackForm && feedbackModules.map((module) => <FeedbackResponseForm
-          key={module.courseContentId}
-          courseId={id}
-          formId={feedbackForm.id}
-          courseContentId={module.courseContentId}
-          moduleTitle={module.title}
-          alreadySubmitted={module.alreadySubmitted}
-          questions={feedbackForm.questions.map((question) => ({
-            id: question.id,
-            questionText: question.questionText,
-            type: question.type,
-            required: question.required,
-            options: Array.isArray(question.options) ? question.options.map(String) : [],
-          }))}
-        />)}
+        {feedbackCards.map((card) => {
+          const form = enrollment.course.feedbackForms.find((f) => f.id === card.formId)!;
+          return <FeedbackResponseForm
+            key={card.key}
+            courseId={id}
+            formId={card.formId}
+            courseContentId={card.courseContentId}
+            moduleTitle={card.title}
+            alreadySubmitted={card.alreadySubmitted}
+            questions={form.questions.map((question) => ({
+              id: question.id,
+              questionText: question.questionText,
+              type: question.type,
+              required: question.required,
+              options: Array.isArray(question.options) ? question.options.map(String) : [],
+            }))}
+          />;
+        })}
       </aside>
     </div>
   </main>;

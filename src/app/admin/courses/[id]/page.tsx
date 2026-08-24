@@ -32,8 +32,11 @@ export default async function CourseAdminPage({ params }: { params: Promise<{ id
         include: { questions: true, courseContent: { include: { lessons: true } }, attempts: { where: { status: "SUBMITTED" }, include: { employee: { include: { company: true } } }, orderBy: [{ scorePercent: "desc" }, { timeTakenSeconds: "asc" }] } },
         orderBy: { version: "desc" },
       },
+      // courseContent + its lesson, so the versions table can say WHICH
+      // MODULE a form belongs to now that a course can have several active
+      // at once.
       feedbackForms: {
-        include: { questions: true, responses: { include: { employee: true, answers: true }, orderBy: { submittedAt: "desc" } } },
+        include: { questions: true, courseContent: { include: { lessons: true } }, responses: { include: { employee: true, answers: true }, orderBy: { submittedAt: "desc" } } },
         orderBy: { version: "desc" },
       },
     },
@@ -71,7 +74,6 @@ export default async function CourseAdminPage({ params }: { params: Promise<{ id
     .flatMap((content) => content.lessons.filter((lesson) => lesson.approvedAt))
     .length;
   const publishedModules = course.contents.filter((content) => content.isPublished && content.lessons.length);
-  const latestFeedbackForm = course.feedbackForms[0];
 
   // A quiz belongs to a module now, so a course can have several ACTIVE at
   // once. The combined leaderboard averages each employee's best score
@@ -202,18 +204,21 @@ export default async function CourseAdminPage({ params }: { params: Promise<{ id
 
         <div className="card">
           <h2>Feedback</h2>
-          <p className="muted">Upload a Google Forms-style feedback template. Learners see it after course completion.</p>
+          <p className="muted">Upload a Google Forms-style feedback template for one module. Learners see it once they complete that module — other modules&apos; feedback is untouched.</p>
           <p><a className="button secondary" href={withBase("/api/templates/feedback")}>Download feedback template</a></p>
-          <ActionForm action={uploadFeedbackTemplate} submitLabel="Upload and activate feedback">
+          {publishedModules.length ? <ActionForm action={uploadFeedbackTemplate} submitLabel="Upload and activate feedback">
             <input type="hidden" name="courseId" value={course.id} />
-            <label>Feedback title<input name="title" defaultValue={latestFeedbackForm?.title ?? "Course Feedback"} required /></label>
+            <label>Module<select name="courseContentId" required>
+              {publishedModules.map((content) => <option key={content.id} value={content.id}>{content.lessons[0]?.title ?? content.originalName}</option>)}
+            </select></label>
+            <label>Feedback title<input name="title" defaultValue="Course Feedback" required /></label>
             <label>Feedback CSV or Excel<input type="file" name="file" accept=".csv,.xlsx,.xls" required /></label>
-          </ActionForm>
+          </ActionForm> : <p className="muted">Publish a module with at least one lesson before uploading feedback for it.</p>}
           <hr />
           <h3>Feedback forms</h3>
-          <div className="table-wrap"><table><thead><tr><th>Version</th><th>Status</th><th>Questions</th><th>Responses</th></tr></thead><tbody>
-            {course.feedbackForms.map((form) => <tr key={form.id}><td>v{form.version}<br /><span className="muted">{form.title}</span></td><td><span className="badge">{form.isActive ? "ACTIVE" : "INACTIVE"}</span></td><td>{form.questions.length}</td><td>{form.responses.length}</td></tr>)}
-            {!course.feedbackForms.length && <tr><td colSpan={4}>No feedback template uploaded.</td></tr>}
+          <div className="table-wrap"><table><thead><tr><th>Version</th><th>Module</th><th>Status</th><th>Questions</th><th>Responses</th></tr></thead><tbody>
+            {course.feedbackForms.map((form) => <tr key={form.id}><td>v{form.version}<br /><span className="muted">{form.title}</span></td><td>{form.courseContent?.lessons[0]?.title ?? "Whole course"}</td><td><span className="badge">{form.isActive ? "ACTIVE" : "INACTIVE"}</span></td><td>{form.questions.length}</td><td>{form.responses.length}</td></tr>)}
+            {!course.feedbackForms.length && <tr><td colSpan={5}>No feedback template uploaded.</td></tr>}
           </tbody></table></div>
           <p><a className="button secondary" href={withBase(`/api/courses/${course.id}/feedback-export`)}>Download feedback Excel</a></p>
         </div>
