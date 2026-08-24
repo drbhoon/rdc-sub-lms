@@ -33,8 +33,13 @@ export async function uploadAssessment(_: ActionState, formData: FormData): Prom
   try {
     const rows = await readTabularFile(file);
     const questions = parseAssessmentRows(rows);
-    if (questions.length < 50 || questions.length > 200) {
-      throw new Error("A new assessment question bank must contain between 50 and 200 questions.");
+    // No floor: some courses genuinely only have a handful of questions to
+    // test (Dr Bhoon, 2026-08-22) — a fixed course, say, with 10 real MCQs,
+    // should not be forced to pad a bank to 50 just to activate. The ceiling
+    // stays; it exists to catch a wrong file being uploaded, not to enforce a
+    // training minimum.
+    if (questions.length > 200) {
+      throw new Error("A new assessment question bank cannot exceed 200 questions.");
     }
     if (parsed.data.questionsPerAttempt > questions.length) {
       throw new Error(`Questions offered per attempt cannot exceed the ${questions.length} questions in this bank.`);

@@ -15,7 +15,7 @@ export async function GET() {
   const instructions = workbook.addWorksheet("Instructions");
   instructions.addRows([
     ["RDC MCQ question bank"],
-    ["Requirement", "Enter between 50 and 200 complete questions in the first sheet."],
+    ["Requirement", "Enter up to 200 complete questions in the first sheet."],
     ["Answer Option", "Use A, B, C or D only."],
     ["Quiz offer", "The administrator separately chooses how many random questions each learner receives."],
     ["Timer", "The overall quiz timer is configured in the portal; no individual question timer is needed."],
