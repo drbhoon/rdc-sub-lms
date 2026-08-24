@@ -2,7 +2,7 @@ import { withBase } from "@/lib/base-path";
 import { notFound } from "next/navigation";
 import { UserRole } from "@prisma/client";
 import { setAssessmentStatus, uploadAssessment } from "@/actions/assessments";
-import { deleteCourse, setCourseActive, updateCourse, updateCourseTeachers } from "@/actions/courses";
+import { deleteCourse, enrollFromTemplate, setCourseActive, updateCourse, updateCourseTeachers } from "@/actions/courses";
 import { deleteCourseContent, retryContent } from "@/actions/content";
 import { uploadFeedbackTemplate } from "@/actions/feedback";
 import { ActionForm } from "@/components/action-form";
@@ -243,17 +243,32 @@ export default async function CourseAdminPage({ params }: { params: Promise<{ id
 
         <div className="card">
           <h2>Enroll employees</h2>
-          {course.status !== "PUBLISHED" ? <p>Publish this course before enrolling learners.</p> : !course.isActive ? <p>Reactivate this course before enrolling new learners.</p> : employees.length ? <CourseEnrollmentPicker
-            courseId={course.id}
-            employees={employees.map((employee) => ({
-              id: employee.id,
-              name: employee.name,
-              employeeCode: employee.employeeCode,
-              email: employee.email,
-              companyName: employee.company.name,
-              isAdminLearner: employee.user?.roles.some((role) => role.role === UserRole.SUPER_ADMIN) ?? false,
-            }))}
-          /> : <p>All eligible employees are enrolled.</p>}
+          {course.status !== "PUBLISHED" ? <p>Publish this course before enrolling learners.</p> : !course.isActive ? <p>Reactivate this course before enrolling new learners.</p> : <>
+            {employees.length ? <CourseEnrollmentPicker
+              courseId={course.id}
+              employees={employees.map((employee) => ({
+                id: employee.id,
+                name: employee.name,
+                employeeCode: employee.employeeCode,
+                email: employee.email,
+                companyName: employee.company.name,
+                isAdminLearner: employee.user?.roles.some((role) => role.role === UserRole.SUPER_ADMIN) ?? false,
+              }))}
+            /> : <p>All existing employees are enrolled.</p>}
+
+            <hr />
+            <h3>Or upload a roster</h3>
+            <p className="muted">
+              For a full class list at once. Matches existing employees by e-mail;
+              an e-mail nobody has seen — an intern, for example — is registered
+              as a new learner and enrolled in the same step.{" "}
+              <a href={withBase("/api/templates/enrollment")}>Download the template</a>.
+            </p>
+            <ActionForm action={enrollFromTemplate} submitLabel="Upload and enroll">
+              <input type="hidden" name="courseId" value={course.id} />
+              <label>Roster CSV or Excel<input type="file" name="file" accept=".csv,.xlsx,.xls" required /></label>
+            </ActionForm>
+          </>}
         </div>
 
         <div className="card">
