@@ -137,6 +137,7 @@ model User {
   sessions      Session[]
   otpChallenges OtpChallenge[]
   coursesTaught CourseTeacher[]
+  classrooms    Classroom[]
   auditLogs     AuditLog[]
   createdAt     DateTime        @default(now())
   updatedAt     DateTime        @updatedAt
@@ -201,6 +202,7 @@ model Course {
   feedbackForms        FeedbackForm[]
   aiInteractions       CourseAiInteraction[]
   emailLogs            CourseEmailLog[]
+  classrooms           Classroom[]
   createdAt            DateTime              @default(now())
   updatedAt            DateTime              @updatedAt
 
@@ -223,6 +225,31 @@ model CourseTeacher {
   user     User   @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@id([courseId, userId])
+}
+
+/// A named group of learners within one course, with one teacher of its own.
+///
+/// CourseTeacher stays what it always was — who may MANAGE the course. A
+/// classroom is who a teacher actually TEACHES. Assigning a teacher to a
+/// classroom also grants them CourseTeacher, or they could not open the course
+/// at all (see requireCourseManager).
+///
+/// teacherUserId is nullable on purpose: a room outlives the person running it,
+/// so a teacher leaving must not block their deletion or destroy the room and
+/// its roster. Such a room is simply unassigned until someone is named.
+model Classroom {
+  id            String       @id @default(cuid())
+  courseId      String
+  name          String
+  teacherUserId String?
+  course        Course       @relation(fields: [courseId], references: [id], onDelete: Cascade)
+  teacher       User?        @relation(fields: [teacherUserId], references: [id], onDelete: SetNull)
+  enrollments   Enrollment[]
+  createdAt     DateTime     @default(now())
+  updatedAt     DateTime     @updatedAt
+
+  @@unique([courseId, name])
+  @@index([teacherUserId])
 }
 
 model CourseContent {
@@ -286,11 +313,17 @@ model Enrollment {
   employeeId         String
   courseId           String
   status             EnrollmentStatus    @default(NOT_STARTED)
+  /// Which classroom this learner sits in for this course. Null means
+  /// unassigned — every enrolment made before classrooms existed is null and
+  /// stays that way until someone places them, which is deliberate: nobody is
+  /// silently moved into a room they were never put in.
+  classroomId        String?
   enrolledAt         DateTime            @default(now())
   startedAt          DateTime?
   completedAt        DateTime?
   employee           Employee            @relation(fields: [employeeId], references: [id], onDelete: Cascade)
   course             Course              @relation(fields: [courseId], references: [id], onDelete: Cascade)
+  classroom          Classroom?          @relation(fields: [classroomId], references: [id], onDelete: SetNull)
   progress           LessonProgress[]
   assessmentAttempts AssessmentAttempt[]
 

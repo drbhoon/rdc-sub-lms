@@ -4,6 +4,7 @@ import { UserRole } from "@prisma/client";
 import { setAssessmentStatus, uploadAssessment } from "@/actions/assessments";
 import { deleteCourse, enrollFromTemplate, setCourseActive, updateCourse, updateCourseTeachers } from "@/actions/courses";
 import { deleteCourseContent, retryContent } from "@/actions/content";
+import { assignLearnersToClassroom, createClassroom, deleteClassroom, updateClassroom } from "@/actions/classrooms";
 import { setFeedbackFormActive, uploadFeedbackTemplate } from "@/actions/feedback";
 import { ActionForm } from "@/components/action-form";
 import { ContentUploadForm } from "@/components/content-upload-form";
@@ -23,7 +24,8 @@ export default async function CourseAdminPage({ params }: { params: Promise<{ id
       companies: { include: { company: true } },
       teachers: { include: { user: { include: { employee: true } } } },
       contents: { include: { lessons: true }, orderBy: { version: "desc" } },
-      enrollments: { include: { employee: { include: { company: true } }, progress: true }, orderBy: { employee: { name: "asc" } } },
+      enrollments: { include: { employee: { include: { company: true } }, progress: true, classroom: { select: { name: true } } }, orderBy: { employee: { name: "asc" } } },
+      classrooms: { include: { teacher: { include: { employee: true } }, _count: { select: { enrollments: true } } }, orderBy: { name: "asc" } },
       aiInteractions: { include: { employee: { include: { company: true } } }, orderBy: { createdAt: "desc" }, take: 25 },
       // courseContent + its lesson, so the versions table and the leaderboard
       // can both say WHICH MODULE a quiz belongs to now that a course can
@@ -260,6 +262,53 @@ export default async function CourseAdminPage({ params }: { params: Promise<{ id
       </section>
 
       <aside className="form">
+        <div className="card">
+          <h2>Classrooms</h2>
+          <p className="muted">A classroom groups learners under one teacher. Assessments, feedback and the leaderboard stay course-wide; a classroom decides who a teacher sees.</p>
+          <ActionForm action={createClassroom} submitLabel="Create classroom">
+            <input type="hidden" name="courseId" value={course.id} />
+            <label>Classroom name<input name="name" placeholder="Class Room No 1" required /></label>
+            <label>Teacher<select name="teacherUserId" defaultValue="">
+              <option value="">Unassigned for now</option>
+              {teachers.map((teacher) => <option key={teacher.id} value={teacher.id}>{teacher.employee?.name ?? teacher.email}</option>)}
+            </select></label>
+          </ActionForm>
+          {course.classrooms.length > 0 && <div className="table-wrap"><table><thead><tr><th>Classroom</th><th>Teacher</th><th>Learners</th><th>Action</th></tr></thead><tbody>
+            {course.classrooms.map((room) => <tr key={room.id}>
+              <td>{room.name}</td>
+              <td>{room.teacher ? (room.teacher.employee?.name ?? room.teacher.email) : <span className="muted">Unassigned</span>}</td>
+              <td>{room._count.enrollments}</td>
+              <td>{room._count.enrollments === 0
+                ? <ActionForm action={deleteClassroom} submitLabel="Delete" buttonClassName="danger"><input type="hidden" name="classroomId" value={room.id} /></ActionForm>
+                : <span className="muted">Move learners out to delete</span>}</td>
+            </tr>)}
+          </tbody></table></div>}
+          {course.classrooms.length > 0 && <ActionForm action={updateClassroom} submitLabel="Rename or reassign">
+            <label>Classroom<select name="classroomId" required>
+              {course.classrooms.map((room) => <option key={room.id} value={room.id}>{room.name}</option>)}
+            </select></label>
+            <label>New name<input name="name" placeholder="Class Room No 1" required /></label>
+            <label>Teacher<select name="teacherUserId" defaultValue="">
+              <option value="">Unassigned</option>
+              {teachers.map((teacher) => <option key={teacher.id} value={teacher.id}>{teacher.employee?.name ?? teacher.email}</option>)}
+            </select></label>
+          </ActionForm>}
+          {/* Assigning is a plain multi-select rather than a per-row control:
+              a cohort is normally placed in one go, and a blank target is how a
+              learner is taken back out of a classroom. */}
+          {course.enrollments.length > 0 && <ActionForm action={assignLearnersToClassroom} submitLabel="Move selected learners">
+            <input type="hidden" name="courseId" value={course.id} />
+            <label>Move to<select name="classroomId" defaultValue="">
+              <option value="">— Remove from classroom —</option>
+              {course.classrooms.map((room) => <option key={room.id} value={room.id}>{room.name}</option>)}
+            </select></label>
+            <label>Learners<select name="enrollmentIds" multiple size={8} required>
+              {course.enrollments.map((enrollment) => <option key={enrollment.id} value={enrollment.id}>
+                {enrollment.employee.name} ({enrollment.employee.employeeCode}) — {enrollment.classroom?.name ?? "Unassigned"}
+              </option>)}
+            </select></label>
+          </ActionForm>}
+        </div>
         <div className="card">
           <h2>Course controls</h2>
           <p><strong>Teachers:</strong> {course.teachers.length ? course.teachers.map((t) => t.user.employee?.name ?? t.user.email).join(", ") : "None assigned"}</p>

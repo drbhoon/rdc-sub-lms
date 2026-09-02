@@ -8,15 +8,24 @@ import { parseQuizQuestions } from "@/lib/ai-study-pack";
 import { requireCourseManager } from "@/lib/course-access";
 import { db } from "@/lib/db";
 import { buildLeaderboardRows, formatDuration } from "@/lib/leaderboard";
+import { classroomScope, enrollmentScopeWhere } from "@/lib/classroom-scope";
 
 export default async function TeacherCourse({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
-  await requireCourseManager(id);
+  const viewer = await requireCourseManager(id);
+  // A teacher who runs classrooms here sees only their own learners. One who
+  // runs none still sees everybody — see classroom-scope for why that matters.
+  const ownedClassrooms = await db.classroom.findMany({
+    where: { courseId: id, teacherUserId: viewer.id },
+    select: { id: true, name: true },
+    orderBy: { name: "asc" },
+  });
+  const scope = classroomScope({ roles: viewer.roles.map((grant) => grant.role), ownedClassroomIds: ownedClassrooms.map((room) => room.id) });
   const course = await db.course.findUnique({
     where: { id },
     include: {
       contents: { include: { lessons: true }, orderBy: { version: "asc" } },
-      enrollments: { include: { employee: { include: { company: true } }, progress: true }, orderBy: { employee: { name: "asc" } } },
+      enrollments: { where: enrollmentScopeWhere(scope), include: { employee: { include: { company: true } }, progress: true, classroom: { select: { name: true } } }, orderBy: { employee: { name: "asc" } } },
       // courseContent + its lesson, so this page can label which module a
       // quiz belongs to now that a course can have several active at once.
       assessments: { include: { questions: true, courseContent: { include: { lessons: true } }, attempts: { where: { status: "SUBMITTED" }, include: { employee: { include: { company: true } } } } }, orderBy: { version: "desc" } },
@@ -134,8 +143,8 @@ export default async function TeacherCourse({ params }: { params: Promise<{ id: 
         </div>
         {canPublish && <div className="card"><h2>{course.status === "PUBLISHED" ? "Publish approved changes" : "Publish course"}</h2><p>All current content is processed and approved.</p><form action={setCourseStatus}><input type="hidden" name="courseId" value={course.id}/><input type="hidden" name="status" value="PUBLISHED"/><button>{course.status === "PUBLISHED" ? "Publish changes" : "Publish to enrolled learners"}</button></form></div>}
       </section>
-      <aside className="form"><div className="card"><h2>Learners</h2>{course.hasPendingChanges && course.status === "PUBLISHED" && <p className="message">Learners continue seeing the current version until approved changes are published.</p>}{!course.isActive && <p className="message">This course is inactive for new enrolments, but enrolled learners can still see it.</p>}<div className="table-wrap"><table><thead><tr><th>Name</th><th>Progress</th></tr></thead><tbody>
-        {course.enrollments.map((enrollment) => <tr key={enrollment.id}><td>{enrollment.employee.name}<br/><small>{enrollment.employee.employeeCode}</small></td><td><span className="badge">{enrollment.status.replaceAll("_", " ")}</span></td></tr>)}
+      <aside className="form"><div className="card"><h2>Learners</h2>{scope.scoped && <p className="message">Showing only your classroom{ownedClassrooms.length > 1 ? "s" : ""}: {ownedClassrooms.map((room) => room.name).join(", ")}.</p>}{course.hasPendingChanges && course.status === "PUBLISHED" && <p className="message">Learners continue seeing the current version until approved changes are published.</p>}{!course.isActive && <p className="message">This course is inactive for new enrolments, but enrolled learners can still see it.</p>}<div className="table-wrap"><table><thead><tr><th>Name</th><th>Classroom</th><th>Progress</th></tr></thead><tbody>
+        {course.enrollments.map((enrollment) => <tr key={enrollment.id}><td>{enrollment.employee.name}<br/><small>{enrollment.employee.employeeCode}</small></td><td>{enrollment.classroom?.name ?? <span className="muted">Unassigned</span>}</td><td><span className="badge">{enrollment.status.replaceAll("_", " ")}</span></td></tr>)}
         {!course.enrollments.length && <tr><td colSpan={2}>No learners enrolled.</td></tr>}
       </tbody></table></div>{course.leaderboardEnabled && <section className="topper-panel"><h2>Toppers</h2><p className="muted">{assessmentLeaderboard.length ? "Formula: assessment score 70% + speed 30%. Assessment score is averaged across every quiz-eligible module attempted." : "Formula: progress score 70% + speed score 30%."}</p><ol className="leaderboard-list">{(assessmentLeaderboard.length ? assessmentLeaderboard : progressLeaderboard).map((row) => <li key={row.enrollmentId}><strong>{row.employeeName}</strong><span>{row.rankScore}% - {formatDuration(row.completionSeconds)}</span></li>)}</ol>{!(assessmentLeaderboard.length ? assessmentLeaderboard : progressLeaderboard).length && <p>No learner progress yet.</p>}</section>}</div>
         <div className="card"><h2>Learner AI history</h2><p className="muted">Latest learner questions asked in this course.</p><p><a className="button secondary" href={withBase(`/api/courses/${course.id}/ai-history`)}>Download complete AI history Excel</a></p><div className="table-wrap"><table><thead><tr><th>Learner</th><th>Mode</th><th>Question</th><th>Answer / Status</th></tr></thead><tbody>{course.aiInteractions.map((item) => <tr key={item.id}><td>{item.employee.name}<br/><small>{item.employee.employeeCode} - {item.employee.company.name}</small></td><td>{item.channel}{item.language ? ` · ${item.language.toUpperCase()}` : ""}</td><td>{item.question}</td><td>{item.answer ?? item.error ?? item.status}<br/><small>{item.createdAt.toLocaleString("en-IN")}</small></td></tr>)}{!course.aiInteractions.length && <tr><td colSpan={4}>No learner AI history is available yet.</td></tr>}</tbody></table></div></div>
