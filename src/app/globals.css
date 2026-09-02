@@ -151,3 +151,6 @@ h1 { color:var(--navy); margin-top:0; }
 .archived-forms[open] > summary { border-bottom:1px solid var(--line); }
 .archived-forms > *:not(summary) { padding:0 .9rem; }
 .archived-forms > p { padding-bottom:.75rem; }
+.teacher-threads { display:grid; gap:.75rem; }
+.teacher-thread { border:1px solid var(--line); border-radius:10px; padding:.7rem .9rem; background:white; }
+.teacher-thread p { margin:.25rem 0; }

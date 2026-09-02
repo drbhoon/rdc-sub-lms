@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { startAssessment } from "@/actions/assessments";
+import { findLearnerTeacher } from "@/actions/course-questions";
 import { CourseAiAssistant } from "@/components/course-ai-assistant";
 import { FeedbackResponseForm } from "@/components/feedback-response-form";
 import { LessonPlayer } from "@/components/lesson-player";
@@ -126,6 +127,22 @@ export default async function LearnCourse({ params }: { params: Promise<{ id: st
     return publishedContentIds.length > 0 && publishedContentIds.every((contentId) => responded.has(contentId));
   });
 
+  // Who this learner may ask, and what they have asked so far. Null teacher =
+  // no classroom yet, and the "Ask your teacher" tab stays hidden.
+  const { teacher } = await findLearnerTeacher(user.employeeId, id);
+  const teacherName = teacher ? (teacher.employee?.name ?? teacher.email) : null;
+  const teacherThreads = (await db.courseQuestion.findMany({
+    where: { courseId: id, employeeId: user.employeeId },
+    orderBy: { createdAt: "desc" },
+    take: 20,
+  })).map((row) => ({
+    id: row.id,
+    question: row.question,
+    answer: row.answer,
+    createdAt: `Asked ${row.createdAt.toLocaleString("en-IN")}`,
+    answeredAt: row.answeredAt ? `Answered ${row.answeredAt.toLocaleString("en-IN")}` : null,
+  }));
+
   const certificate = certificateEligibility({
     certificateEnabled: enrollment.course.certificateEnabled,
     totalLessons: lessons.length,
@@ -162,7 +179,7 @@ export default async function LearnCourse({ params }: { params: Promise<{ id: st
           </form>
         </div>)}
 
-        <CourseAiAssistant courseId={id} />
+        <CourseAiAssistant courseId={id} teacherName={teacherName} threads={teacherThreads} />
 
         <div className="card">
           <h2>Certificate</h2>

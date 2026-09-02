@@ -2,6 +2,7 @@
 
 import { useActionState, useCallback, useEffect, useRef, useState } from "react";
 import { askCourseAi, type CourseAiState } from "@/actions/course-ai";
+import { askTeacher, type QuestionState } from "@/actions/course-questions";
 import { withBase } from "@/lib/base-path";
 import { COURSE_AI_LANGUAGE_CODES, COURSE_AI_LANGUAGE_NAMES, isCourseAiLanguage, type CourseAiLanguage } from "@/lib/course-ai-languages";
 
@@ -20,9 +21,28 @@ function transcriptFromResponse(response: unknown) {
   return (payload.output ?? []).flatMap((item) => item.content ?? []).map((content) => content.transcript ?? content.text ?? "").join(" ").trim();
 }
 
-export function CourseAiAssistant({ courseId }: { courseId: string }) {
+export type TeacherThread = {
+  id: string;
+  question: string;
+  answer: string | null;
+  answeredAt: string | null;
+  createdAt: string;
+};
+
+/**
+ * `teacherName` is null when the learner is in no classroom, or their classroom
+ * has no teacher yet. The Ask-a-teacher tab is then hidden rather than shown
+ * and refused — offering a route that cannot deliver is worse than not offering
+ * it. The AI assistant is unchanged and always available.
+ */
+export function CourseAiAssistant({ courseId, teacherName = null, threads = [] }: {
+  courseId: string;
+  teacherName?: string | null;
+  threads?: TeacherThread[];
+}) {
   const [open, setOpen] = useState(false);
-  const [mode, setMode] = useState<"text" | "voice">("text");
+  const [mode, setMode] = useState<"text" | "voice" | "teacher">("text");
+  const [teacherState, teacherFormAction, teacherPending] = useActionState<QuestionState, FormData>(askTeacher, {});
   const [language, setLanguage] = useState<CourseAiLanguage>("en");
   const [voiceStatus, setVoiceStatus] = useState("Voice is off.");
   const [voiceActive, setVoiceActive] = useState(false);
@@ -161,9 +181,28 @@ export function CourseAiAssistant({ courseId }: { courseId: string }) {
       <div className="ai-mode-tabs" role="tablist" aria-label="AI assistant mode">
         <button className={mode === "text" ? "" : "secondary"} type="button" onClick={() => { stopVoice(); setMode("text"); }}>Text</button>
         <button className={mode === "voice" ? "" : "secondary"} type="button" onClick={() => setMode("voice")}>Continuous voice</button>
+        {teacherName && <button className={mode === "teacher" ? "" : "secondary"} type="button" onClick={() => { stopVoice(); setMode("teacher"); }}>Ask your teacher</button>}
       </div>
 
-      {mode === "text" ? <form action={formAction} className="form">
+      {mode === "teacher" ? <div className="form">
+        <form action={teacherFormAction} className="form">
+          <input type="hidden" name="courseId" value={courseId} />
+          <label>Your question for {teacherName}<textarea name="question" placeholder="Ask your teacher about this course..." required /></label>
+          <button disabled={teacherPending}>{teacherPending ? "Sending..." : "Send to teacher"}</button>
+          {teacherState.message && <p className={`message${teacherState.ok ? "" : " error"}`}>{teacherState.message}</p>}
+        </form>
+        <p className="muted">A teacher answers these in person, so a reply is not instant. Answers appear below.</p>
+        {threads.length > 0 && <div className="teacher-threads">
+          {threads.map((thread) => <div className="teacher-thread" key={thread.id}>
+            <p><b>You:</b> {thread.question}</p>
+            {thread.answer
+              ? <p><b>Teacher:</b> {thread.answer}</p>
+              : <p className="muted">Waiting for your teacher to answer.</p>}
+            <small className="muted">{thread.answeredAt ?? thread.createdAt}</small>
+          </div>)}
+        </div>}
+        {!threads.length && <p className="muted">You have not asked your teacher anything yet.</p>}
+      </div> : mode === "text" ? <form action={formAction} className="form">
         <input type="hidden" name="courseId" value={courseId} />
         <label>Your question<textarea name="question" placeholder="Ask anything related to this course content..." required /></label>
         <button disabled={pending}>{pending ? "Asking..." : "Ask AI"}</button>
@@ -187,7 +226,7 @@ export function CourseAiAssistant({ courseId }: { courseId: string }) {
           {voiceTurns.map((turn, index) => <div className="voice-turn" key={`${index}-${turn.question}`}><p><b>You:</b> {turn.question}</p><p><b>AI:</b> {turn.answer}</p></div>)}
         </div>}
       </div>}
-      <p className="muted">Answers are limited to the published course material.</p>
+      {mode !== "teacher" && <p className="muted">Answers are limited to the published course material.</p>}
       <button className="secondary" type="button" onClick={closeAssistant}>Close assistant</button>
     </div>}
   </div>;

@@ -121,6 +121,7 @@ model Employee {
   feedbackResponses  FeedbackResponse[]
   aiInteractions     CourseAiInteraction[]
   emailLogs          CourseEmailLog[]
+  questions          CourseQuestion[]
   createdAt          DateTime              @default(now())
   updatedAt          DateTime              @updatedAt
 
@@ -129,18 +130,19 @@ model Employee {
 }
 
 model User {
-  id            String          @id @default(cuid())
-  email         String          @unique
-  employeeId    String?         @unique
-  employee      Employee?       @relation(fields: [employeeId], references: [id])
-  roles         UserRoleGrant[]
-  sessions      Session[]
-  otpChallenges OtpChallenge[]
-  coursesTaught CourseTeacher[]
-  classrooms    Classroom[]
-  auditLogs     AuditLog[]
-  createdAt     DateTime        @default(now())
-  updatedAt     DateTime        @updatedAt
+  id                String           @id @default(cuid())
+  email             String           @unique
+  employeeId        String?          @unique
+  employee          Employee?        @relation(fields: [employeeId], references: [id])
+  roles             UserRoleGrant[]
+  sessions          Session[]
+  otpChallenges     OtpChallenge[]
+  coursesTaught     CourseTeacher[]
+  classrooms        Classroom[]
+  answeredQuestions CourseQuestion[]
+  auditLogs         AuditLog[]
+  createdAt         DateTime         @default(now())
+  updatedAt         DateTime         @updatedAt
 }
 
 model UserRoleGrant {
@@ -203,6 +205,7 @@ model Course {
   aiInteractions       CourseAiInteraction[]
   emailLogs            CourseEmailLog[]
   classrooms           Classroom[]
+  questions            CourseQuestion[]
   createdAt            DateTime              @default(now())
   updatedAt            DateTime              @updatedAt
 
@@ -575,6 +578,34 @@ model CourseAiInteraction {
   createdAt         DateTime                  @default(now())
   course            Course                    @relation(fields: [courseId], references: [id], onDelete: Cascade)
   employee          Employee                  @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+
+  @@index([courseId, createdAt])
+  @@index([employeeId, createdAt])
+}
+
+/// A question a learner put to their TEACHER, and the teacher's reply.
+///
+/// Separate from CourseAiInteraction on purpose: that is a billed OpenAI call
+/// with token counts and a spend cap, this is two people talking. The learner
+/// picks who to ask; the AI assistant is unchanged and still answers instantly.
+///
+/// There is no classroomId here. Who answers is derived from where the learner
+/// sits right now (enrolment → classroom → teacher), so moving a learner to
+/// another classroom hands their open questions to the new teacher instead of
+/// stranding them with someone who no longer teaches them.
+model CourseQuestion {
+  id           String    @id @default(cuid())
+  courseId     String
+  employeeId   String
+  question     String
+  answer       String?
+  answeredById String?
+  answeredAt   DateTime?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+  course       Course    @relation(fields: [courseId], references: [id], onDelete: Cascade)
+  employee     Employee  @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+  answeredBy   User?     @relation(fields: [answeredById], references: [id], onDelete: SetNull)
 
   @@index([courseId, createdAt])
   @@index([employeeId, createdAt])
