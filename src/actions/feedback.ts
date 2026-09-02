@@ -71,6 +71,48 @@ export async function uploadFeedbackTemplate(_: ActionState, formData: FormData)
   }
 }
 
+/**
+ * Archive or restore a feedback form.
+ *
+ * Until now `isActive` was set only by uploading a replacement, so the only way
+ * to retire a form was to upload another one over it — there was no way to
+ * simply stop collecting. Archiving is deliberately NOT deletion: the responses
+ * and every report built on them stay exactly as they were, which is the whole
+ * reason to prefer it. Learners and the certificate gate already read only
+ * active forms, so an archived one drops out of both with no special-casing.
+ *
+ * Restoring re-activates, and has to stand down whichever form is currently
+ * active for that module — one active form per module is the rule the upload
+ * path also enforces.
+ */
+export async function setFeedbackFormActive(formData: FormData) {
+  const formId = String(formData.get("formId") ?? "");
+  const isActive = String(formData.get("isActive") ?? "") === "true";
+  const form = await db.feedbackForm.findUniqueOrThrow({ where: { id: formId } });
+  const actor = await requireCourseManager(form.courseId);
+
+  await db.$transaction(async (tx) => {
+    if (isActive) {
+      // Same module only — another module's feedback is a different form and is
+      // untouched by this one being restored.
+      await tx.feedbackForm.updateMany({
+        where: { courseId: form.courseId, courseContentId: form.courseContentId, isActive: true },
+        data: { isActive: false },
+      });
+    }
+    await tx.feedbackForm.update({ where: { id: formId }, data: { isActive } });
+  });
+
+  await audit(actor.id, isActive ? "FEEDBACK_FORM_RESTORED" : "FEEDBACK_FORM_ARCHIVED", "FeedbackForm", formId, {
+    courseId: form.courseId,
+    courseContentId: form.courseContentId,
+    version: form.version,
+  });
+  revalidatePath(`/admin/courses/${form.courseId}`);
+  revalidatePath(`/teacher/courses/${form.courseId}`);
+  revalidatePath(`/learn/courses/${form.courseId}`);
+}
+
 export type FeedbackSubmitState = { message?: string; ok?: boolean };
 
 function validateFeedbackValue(type: FeedbackQuestionType, value: FormDataEntryValue[], required: boolean) {

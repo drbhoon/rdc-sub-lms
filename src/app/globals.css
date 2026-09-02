@@ -146,3 +146,8 @@ h1 { color:var(--navy); margin-top:0; }
 @media (max-width:1180px) { .learning-shell { grid-template-columns:1fr; } .learning-sidebar { position:static; grid-template-columns:repeat(auto-fit,minmax(260px,1fr)); } }
 @media (max-width:900px) { .login-page { grid-template-columns:1fr; } .login-hero { min-height:auto; } .lesson-player { grid-template-columns:1fr; } .lesson-list-card { position:static; } .lesson-page-frame { min-height:auto; max-height:none; } }
 @media (max-width:760px) { .two-col,.assessment-shell { grid-template-columns:1fr; } .topbar { align-items:flex-start; } .container,.learn-container { width:min(100% - 1rem,1760px); padding-top:1rem; } th,td { padding:.55rem; } .hero-images { grid-template-columns:1fr; } .certificate-footer { display:grid; justify-items:center; } .lesson-controls { grid-template-columns:1fr; text-align:center; } .lesson-controls button,.lesson-controls button:last-child { justify-self:stretch; } .assessment-nav { display:grid; } .view-only-banner { position:static; display:grid; } .ai-mode-tabs button,.button-row button { flex:1 1 140px; } }
+.archived-forms { margin-top:1rem; border:1px solid var(--line); border-radius:10px; background:var(--pale); }
+.archived-forms > summary { cursor:pointer; padding:.6rem .9rem; font-weight:600; color:var(--navy); }
+.archived-forms[open] > summary { border-bottom:1px solid var(--line); }
+.archived-forms > *:not(summary) { padding:0 .9rem; }
+.archived-forms > p { padding-bottom:.75rem; }

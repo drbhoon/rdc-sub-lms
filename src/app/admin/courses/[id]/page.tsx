@@ -4,7 +4,7 @@ import { UserRole } from "@prisma/client";
 import { setAssessmentStatus, uploadAssessment } from "@/actions/assessments";
 import { deleteCourse, enrollFromTemplate, setCourseActive, updateCourse, updateCourseTeachers } from "@/actions/courses";
 import { deleteCourseContent, retryContent } from "@/actions/content";
-import { uploadFeedbackTemplate } from "@/actions/feedback";
+import { setFeedbackFormActive, uploadFeedbackTemplate } from "@/actions/feedback";
 import { ActionForm } from "@/components/action-form";
 import { ContentUploadForm } from "@/components/content-upload-form";
 import { CourseEnrollmentPicker } from "@/components/course-enrollment-picker";
@@ -74,6 +74,8 @@ export default async function CourseAdminPage({ params }: { params: Promise<{ id
     .flatMap((content) => content.lessons.filter((lesson) => lesson.approvedAt))
     .length;
   const publishedModules = course.contents.filter((content) => content.isPublished && content.lessons.length);
+  const activeFeedbackForms = course.feedbackForms.filter((form) => form.isActive);
+  const archivedFeedbackForms = course.feedbackForms.filter((form) => !form.isActive);
 
   // A quiz belongs to a module now, so a course can have several ACTIVE at
   // once. The combined leaderboard averages each employee's best score
@@ -216,10 +218,20 @@ export default async function CourseAdminPage({ params }: { params: Promise<{ id
           </ActionForm> : <p className="muted">Publish a module with at least one lesson before uploading feedback for it.</p>}
           <hr />
           <h3>Feedback forms</h3>
-          <div className="table-wrap"><table><thead><tr><th>Version</th><th>Module</th><th>Status</th><th>Questions</th><th>Responses</th></tr></thead><tbody>
-            {course.feedbackForms.map((form) => <tr key={form.id}><td>v{form.version}<br /><span className="muted">{form.title}</span></td><td>{form.courseContent?.lessons[0]?.title ?? "Whole course"}</td><td><span className="badge">{form.isActive ? "ACTIVE" : "INACTIVE"}</span></td><td>{form.questions.length}</td><td>{form.responses.length}</td></tr>)}
-            {!course.feedbackForms.length && <tr><td colSpan={5}>No feedback template uploaded.</td></tr>}
+          {/* Only the live forms by default. Superseded versions pile up fast —
+              every upload retires the previous one — and they are kept, never
+              deleted, so that responses and past reports stay intact. */}
+          <div className="table-wrap"><table><thead><tr><th>Version</th><th>Module</th><th>Status</th><th>Questions</th><th>Responses</th><th>Action</th></tr></thead><tbody>
+            {activeFeedbackForms.map((form) => <tr key={form.id}><td>v{form.version}<br /><span className="muted">{form.title}</span></td><td>{form.courseContent?.lessons[0]?.title ?? "Whole course"}</td><td><span className="badge">ACTIVE</span></td><td>{form.questions.length}</td><td>{form.responses.length}</td><td><form action={setFeedbackFormActive}><input type="hidden" name="formId" value={form.id} /><input type="hidden" name="isActive" value="false" /><button className="secondary">Archive</button></form></td></tr>)}
+            {!activeFeedbackForms.length && <tr><td colSpan={6}>No active feedback form.</td></tr>}
           </tbody></table></div>
+          {archivedFeedbackForms.length > 0 && <details className="archived-forms">
+            <summary>Archived feedback forms ({archivedFeedbackForms.length})</summary>
+            <div className="table-wrap"><table><thead><tr><th>Version</th><th>Module</th><th>Questions</th><th>Responses</th><th>Action</th></tr></thead><tbody>
+              {archivedFeedbackForms.map((form) => <tr key={form.id}><td>v{form.version}<br /><span className="muted">{form.title}</span></td><td>{form.courseContent?.lessons[0]?.title ?? "Whole course"}</td><td>{form.questions.length}</td><td>{form.responses.length}</td><td><form action={setFeedbackFormActive}><input type="hidden" name="formId" value={form.id} /><input type="hidden" name="isActive" value="true" /><button className="secondary">Restore</button></form></td></tr>)}
+            </tbody></table></div>
+            <p className="muted">Restoring a form archives whichever form is currently active for the same module. Responses are never deleted.</p>
+          </details>}
           <p><a className="button secondary" href={withBase(`/api/courses/${course.id}/feedback-export`)}>Download feedback Excel</a></p>
         </div>
 
