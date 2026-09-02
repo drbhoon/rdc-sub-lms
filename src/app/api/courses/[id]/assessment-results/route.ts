@@ -64,7 +64,18 @@ export async function GET(request: Request, context: { params: Promise<{ id: str
 
   const details = workbook.addWorksheet("Details");
   const maxQuestions = Math.max(0, ...course.assessments.map((assessment) => assessment.questions.length));
-  details.addRow(["Employee Code", "Learner", "Email", "Company", "Location", "Assessment", "Module", "Version", "Date", "Time", "Score", "Status", "Attempt", ...Array.from({ length: maxQuestions }, (_, index) => `Q${index + 1}`), "Submission"]);
+  // "Score" is the percentage; Correct/Total are the raw marks behind it, which
+  // the general report already carried and this one did not. Kept as two numeric
+  // columns rather than a "2/10" string so they stay sortable and summable.
+  //
+  // The per-question cells are addressed by index when they are colour-filled,
+  // so FIRST_QUESTION_COLUMN is derived from the header itself — inserting a
+  // column previously meant remembering to bump two hard-coded 14s, and missing
+  // one would have tinted the wrong cells.
+  const detailHeader = ["Employee Code", "Learner", "Email", "Company", "Location", "Assessment", "Module", "Version", "Date", "Time", "Score", "Correct", "Total Questions", "Status", "Attempt", ...Array.from({ length: maxQuestions }, (_, index) => `Q${index + 1}`), "Submission"];
+  const FIRST_QUESTION_COLUMN = detailHeader.indexOf("Q1") + 1; // ExcelJS columns are 1-indexed
+  const SUBMISSION_COLUMN = detailHeader.length;
+  details.addRow(detailHeader);
   styleHeader(details.getRow(1));
   for (const assessment of course.assessments) {
     for (const attempt of assessment.attempts.filter((item) => item.status === "SUBMITTED")) {
@@ -73,7 +84,7 @@ export async function GET(request: Request, context: { params: Promise<{ id: str
       const row = details.addRow([
         attempt.employee.employeeCode, attempt.employee.name, attempt.employee.email, attempt.employee.company.name,
         attempt.employee.locationPlant ?? "", assessment.title, moduleLabel(assessment), assessment.version, submitted, submitted,
-        attempt.scorePercent / 100, attempt.passed ? "Passed" : "Not passed", attempt.attemptNumber,
+        attempt.scorePercent / 100, attempt.correctAnswers, attempt.totalQuestions, attempt.passed ? "Passed" : "Not passed", attempt.attemptNumber,
         ...Array.from({ length: maxQuestions }, (_, index) => {
           const answer = answers.get(index + 1);
           if (!answer) return "";
@@ -83,14 +94,14 @@ export async function GET(request: Request, context: { params: Promise<{ id: str
       ]);
       for (let index = 0; index < maxQuestions; index += 1) {
         const answer = answers.get(index + 1);
-        if (answer) row.getCell(14 + index).fill = { type: "pattern", pattern: "solid", fgColor: { argb: answer.isCorrect ? GREEN : RED } };
+        if (answer) row.getCell(FIRST_QUESTION_COLUMN + index).fill = { type: "pattern", pattern: "solid", fgColor: { argb: answer.isCorrect ? GREEN : RED } };
       }
     }
   }
   details.getColumn(9).numFmt = "yyyy-mm-dd";
   details.getColumn(10).numFmt = "hh:mm:ss";
   details.getColumn(11).numFmt = "0.0%";
-  details.getColumn(14 + maxQuestions).numFmt = "yyyy-mm-dd hh:mm:ss";
+  details.getColumn(SUBMISSION_COLUMN).numFmt = "yyyy-mm-dd hh:mm:ss";
   autoFit(details);
 
   const timeline = workbook.addWorksheet("Timeline");
