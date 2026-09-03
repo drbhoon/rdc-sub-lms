@@ -2,6 +2,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { startAssessment } from "@/actions/assessments";
 import { findLearnerTeacher } from "@/actions/course-questions";
+import { AskTeacherPanel } from "@/components/ask-teacher-panel";
 import { CourseAiAssistant } from "@/components/course-ai-assistant";
 import { FeedbackResponseForm } from "@/components/feedback-response-form";
 import { LessonPlayer } from "@/components/lesson-player";
@@ -128,7 +129,7 @@ export default async function LearnCourse({ params }: { params: Promise<{ id: st
   });
 
   // Who this learner may ask, and what they have asked so far. Null teacher =
-  // no classroom yet, and the "Ask your teacher" tab stays hidden.
+  // no classroom yet, and the Ask-your-teacher card is not rendered at all.
   const { teacher } = await findLearnerTeacher(user.employeeId, id);
   const teacherName = teacher ? (teacher.employee?.name ?? teacher.email) : null;
   const teacherThreads = (await db.courseQuestion.findMany({
@@ -179,7 +180,8 @@ export default async function LearnCourse({ params }: { params: Promise<{ id: st
           </form>
         </div>)}
 
-        <CourseAiAssistant courseId={id} teacherName={teacherName} threads={teacherThreads} />
+        {teacherName && <AskTeacherPanel courseId={id} teacherName={teacherName} threads={teacherThreads} />}
+        <CourseAiAssistant courseId={id} />
 
         <div className="card">
           <h2>Certificate</h2>
