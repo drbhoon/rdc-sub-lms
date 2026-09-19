@@ -56,7 +56,7 @@ export function LessonPlayer({ lessons }: { lessons: Lesson[] }) {
           <button disabled={pending} onClick={() => { save({ page }); if (page < lesson.pageCount) setPage(page + 1); }}>{page === lesson.pageCount ? "Mark page viewed" : "Next"}</button>
         </div>
       </>}
-      {lesson.type === "VIDEO" && lesson.videoKey && <video className="video" controls src={`/api/files/${lesson.videoKey}`} onPlay={(e) => { lastVideoTime.current = e.currentTarget.currentTime; }} onSeeking={(e) => { lastVideoTime.current = e.currentTarget.currentTime; }} onTimeUpdate={(e) => trackVideo(e.currentTarget.currentTime)} onPause={(e) => trackVideo(e.currentTarget.currentTime, true)} onEnded={(e) => trackVideo(e.currentTarget.currentTime, true)} />}
+      {lesson.type === "VIDEO" && lesson.videoKey && <video className="video" controls preload="metadata" src={withBase(`/api/files/${lesson.videoKey}`)} onPlay={(e) => { lastVideoTime.current = e.currentTarget.currentTime; }} onSeeking={(e) => { lastVideoTime.current = e.currentTarget.currentTime; }} onTimeUpdate={(e) => trackVideo(e.currentTarget.currentTime)} onPause={(e) => trackVideo(e.currentTarget.currentTime, true)} onEnded={(e) => trackVideo(e.currentTarget.currentTime, true)} />}
     </section>
     <aside className="card lesson-list-card">
       <h2>Lessons</h2>

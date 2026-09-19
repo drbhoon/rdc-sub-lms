@@ -11,7 +11,10 @@ const allowed = new Map([
   [".mp4", { mime: ["video/mp4", "application/octet-stream"], type: ContentType.VIDEO }],
 ]);
 
-export function validateUpload(file: File, bytes?: Uint8Array) {
+/** Only a File's name, size and type are read, so a chunked upload can describe the file it is assembling. */
+export type UploadDescription = Pick<File, "name" | "size" | "type">;
+
+export function validateUpload(file: UploadDescription, bytes?: Uint8Array) {
   if (file.size <= 0 || file.size > env.MAX_UPLOAD_MB * 1024 * 1024) throw new Error(`File must be under ${env.MAX_UPLOAD_MB} MB`);
   const extension = path.extname(file.name).toLowerCase();
   const rule = allowed.get(extension);

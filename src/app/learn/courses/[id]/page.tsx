@@ -6,6 +6,7 @@ import { AskTeacherPanel } from "@/components/ask-teacher-panel";
 import { CourseAiAssistant } from "@/components/course-ai-assistant";
 import { FeedbackResponseForm } from "@/components/feedback-response-form";
 import { LessonPlayer } from "@/components/lesson-player";
+import { ModuleTabs, type ModuleTab } from "@/components/module-tabs";
 import { certificateEligibility } from "@/lib/certificate-eligibility";
 import { withBase } from "@/lib/base-path";
 import { db } from "@/lib/db";
@@ -156,31 +157,68 @@ export default async function LearnCourse({ params }: { params: Promise<{ id: st
     hasSubmittedFeedback,
   });
 
-  // One card per module holding that module's quiz AND its feedback, in
-  // module order, instead of every quiz first and every feedback form at the
-  // bottom of the page. A quiz uploaded before quizzes were per-module has no
-  // module and gets its own "Whole course" card.
+  // One tab per module, holding that module's quiz AND its feedback side by
+  // side. They used to be cards stacked down the (sticky) sidebar, which ran
+  // off the bottom of the screen once a course had a few modules. A quiz
+  // uploaded before quizzes were per module gets a "Whole course" tab.
   const feedbackFormFor = (contentId: string) => enrollment.course.feedbackForms.some((form) => !form.courseContentId || form.courseContentId === contentId);
-  const moduleCards = enrollment.course.contents.map((content, index) => ({
-    id: content.id,
-    heading: `Module ${index + 1}: ${content.lessons[0]?.title ?? content.originalName}`,
-    complete: completedContentIds.has(content.id),
-    quizzes: assessmentModules.filter(({ assessment }) => assessment.courseContentId === content.id),
-    feedback: feedbackCards.filter((card) => card.courseContentId === content.id),
-    hasFeedback: feedbackFormFor(content.id),
-  })).filter((card) => card.quizzes.length || card.hasFeedback);
-  const wholeCourseQuizzes = assessmentModules.filter(({ assessment }) => !assessment.courseContentId);
-
-  const quizBlock = ({ assessment, bestAttempt }: (typeof assessmentModules)[number]) => <section key={assessment.id}>
+  const quizPart = ({ assessment, bestAttempt }: (typeof assessmentModules)[number]) => <section key={assessment.id}>
     <h3>MCQ assessment</h3>
-    <p>{assessment.title}</p>
-    <p className="muted">{assessment.questionsPerAttempt ?? assessment.questions.length} random questions from a bank of {assessment.questions.length} - pass mark {assessment.passPercentage}%</p>
-    {bestAttempt ? <p><span className="badge">{bestAttempt.passed ? "Passed" : "Submitted"}</span> Best score: {bestAttempt.scorePercent}%</p> : <p className="muted">No submitted attempts yet.</p>}
+    <p><strong>{assessment.title}</strong></p>
+    <p className="muted">{assessment.questionsPerAttempt ?? assessment.questions.length} random questions from a bank of {assessment.questions.length} · pass mark {assessment.passPercentage}%</p>
+    {bestAttempt ? <p><span className="badge">{bestAttempt.passed ? "Passed" : "Not passed yet"}</span> Best score: {bestAttempt.scorePercent}%</p> : <p className="muted">No submitted attempts yet.</p>}
     <form action={startAssessment}>
       <input type="hidden" name="assessmentId" value={assessment.id} />
       <button>{bestAttempt ? "Retake assessment" : "Start assessment"}</button>
     </form>
   </section>;
+  const moduleTabs: ModuleTab[] = enrollment.course.contents.map((content, index) => {
+    const quizzes = assessmentModules.filter(({ assessment }) => assessment.courseContentId === content.id);
+    const feedback = feedbackCards.filter((card) => card.courseContentId === content.id);
+    const hasFeedback = feedbackFormFor(content.id);
+    const complete = completedContentIds.has(content.id);
+    const done = quizzes.every((quiz) => quiz.bestAttempt?.passed) && (!hasFeedback || (feedback.length > 0 && feedback.every((card) => card.alreadySubmitted)));
+    return {
+      id: content.id,
+      label: `Module ${index + 1}: ${content.lessons[0]?.title ?? content.originalName}`,
+      status: done ? "done" as const : "todo" as const,
+      show: quizzes.length > 0 || hasFeedback,
+      panel: <div className="module-panel">
+        {quizzes.map(quizPart)}
+        {hasFeedback && <section>
+          {feedback.map((card) => {
+            const form = enrollment.course.feedbackForms.find((f) => f.id === card.formId)!;
+            const questions = form.questions.map((question) => ({
+              id: question.id,
+              questionText: question.questionText,
+              type: question.type,
+              required: question.required,
+              options: Array.isArray(question.options) ? question.options.map(String) : [],
+            }));
+            const responseForm = <FeedbackResponseForm embedded key={card.key} courseId={id} formId={card.formId}
+              courseContentId={card.courseContentId} moduleTitle={card.title}
+              alreadySubmitted={card.alreadySubmitted} questions={questions} />;
+            // Already answered: one line, with the option to revise.
+            return card.alreadySubmitted
+              ? <details key={card.key}><summary><span className="badge">Feedback submitted</span> Change my answers</summary>{responseForm}</details>
+              : responseForm;
+          })}
+          {!complete && <><h3>Feedback</h3><p className="muted">Feedback for this module opens once you have completed all its lessons.</p></>}
+        </section>}
+      </div>,
+    };
+  }).filter((tab) => tab.show);
+  const wholeCourseQuizzes = assessmentModules.filter(({ assessment }) => !assessment.courseContentId);
+  if (wholeCourseQuizzes.length) {
+    moduleTabs.push({
+      id: "whole-course",
+      label: "Whole course",
+      status: wholeCourseQuizzes.every((quiz) => quiz.bestAttempt?.passed) ? "done" : "todo",
+      panel: <div className="module-panel">{wholeCourseQuizzes.map(quizPart)}</div>,
+    });
+  }
+  // Open on the first module with something still to do.
+  const firstOpenTab = moduleTabs.find((tab) => tab.status === "todo")?.id;
 
   return <main className="container learn-container">
     <div className="badge-row"><span className="badge">{enrollment.status.replaceAll("_", " ")}</span>{!enrollment.course.isActive && <span className="badge badge-muted">Inactive</span>}</div>
@@ -189,38 +227,13 @@ export default async function LearnCourse({ params }: { params: Promise<{ id: st
     <div className="progress"><span style={{ width: `${percent}%` }} /></div>
     <p>{completed} of {lessons.length} lessons complete</p>
 
+    <ModuleTabs title="Assessments and feedback" intro="Choose a module to see its assessment and feedback." tabs={moduleTabs} initialId={firstOpenTab} />
+
     <div className="learning-shell">
       <section className="learning-main">
         <LessonPlayer lessons={lessons} />
       </section>
       <aside className="learning-sidebar">
-        {moduleCards.map((card) => <div className="card" key={card.id}>
-          <h2>{card.heading}</h2>
-          {card.quizzes.map(quizBlock)}
-          {card.feedback.map((feedback) => {
-            const form = enrollment.course.feedbackForms.find((f) => f.id === feedback.formId)!;
-            const questions = form.questions.map((question) => ({
-              id: question.id,
-              questionText: question.questionText,
-              type: question.type,
-              required: question.required,
-              options: Array.isArray(question.options) ? question.options.map(String) : [],
-            }));
-            const responseForm = <FeedbackResponseForm embedded key={feedback.key} courseId={id} formId={feedback.formId}
-              courseContentId={feedback.courseContentId} moduleTitle={feedback.title}
-              alreadySubmitted={feedback.alreadySubmitted} questions={questions} />;
-            // Already answered: keep it to one line, with the option to revise.
-            return feedback.alreadySubmitted
-              ? <details key={feedback.key}><summary><span className="badge">Feedback submitted</span> Change my answers</summary>{responseForm}</details>
-              : responseForm;
-          })}
-          {card.hasFeedback && !card.complete && <p className="muted">Feedback for this module opens once you have completed all its lessons.</p>}
-        </div>)}
-        {wholeCourseQuizzes.length > 0 && <div className="card">
-          <h2>Whole course</h2>
-          {wholeCourseQuizzes.map(quizBlock)}
-        </div>}
-
         {teacherName && <AskTeacherPanel courseId={id} teacherName={teacherName} threads={teacherThreads} />}
         <CourseAiAssistant courseId={id} />
 

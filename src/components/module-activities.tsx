@@ -1,6 +1,7 @@
 import { setAssessmentStatus, uploadAssessment } from "@/actions/assessments";
 import { setFeedbackFormActive, uploadFeedbackTemplate } from "@/actions/feedback";
 import { ActionForm } from "@/components/action-form";
+import { ModuleTabs, type ModuleTab } from "@/components/module-tabs";
 import { withBase } from "@/lib/base-path";
 
 type Module = { id: string; version: number; isPublished: boolean; originalName: string; lessons: { title: string }[] };
@@ -18,13 +19,13 @@ const moduleTitle = (module: Module) => module.lessons[0]?.title ?? module.origi
  *
  * Both belong to a module, not to the course, so one card per course listing
  * every quiz and form of every module side by side made it hard to see what a
- * given module actually has. Each module now gets its own block holding its
+ * given module actually has. Each module now gets its own tab holding its
  * quiz and its feedback — what is live, older versions, and the upload for
  * that module alone.
  *
  * Shared by the admin and teacher course pages so the two cannot drift apart.
  * Quizzes and forms uploaded before they were per-module (no module) get a
- * "Whole course" block of their own, shown only when there are any.
+ * "Whole course" tab of their own, shown only when there are any.
  */
 export function ModuleActivities({ courseId, passPercentage, modules, assessments, feedbackForms }: {
   courseId: string;
@@ -42,35 +43,46 @@ export function ModuleActivities({ courseId, passPercentage, modules, assessment
   const wholeCourseQuizzes = assessments.filter((item) => !item.courseContentId);
   const wholeCourseForms = feedbackForms.filter((item) => !item.courseContentId);
 
-  return <div className="card">
-    <h2>Assessments and feedback, by module</h2>
-    <p className="muted">Each module has its own MCQ quiz and its own feedback form. Uploading for a module replaces only that module&apos;s live version; older versions and their results are kept.</p>
-    <div className="button-row">
-      <a className="button secondary" href={withBase("/api/templates/assessment")}>MCQ template</a>
-      <a className="button secondary" href={withBase("/api/templates/feedback")}>Feedback template</a>
-      <a className="button secondary" href={withBase(`/api/courses/${courseId}/assessment-results`)}>All assessment results</a>
-      <a className="button secondary" href={withBase(`/api/courses/${courseId}/feedback-export`)}>All feedback</a>
-    </div>
-    {!blocks.length && !wholeCourseQuizzes.length && !wholeCourseForms.length && <p className="muted">Publish a module with at least one lesson before adding a quiz or feedback to it.</p>}
-
-    {blocks.map((module) => <section className="module-block" key={module.id}>
-      <h3>Module {ordered.indexOf(module) + 1}: {moduleTitle(module)} {!live.includes(module) && <span className="badge badge-muted">Not live</span>}</h3>
-      <div className="module-parts">
-        <QuizPart courseId={courseId} passPercentage={passPercentage} moduleId={module.id} canUpload={live.includes(module)}
-          quizzes={assessments.filter((item) => item.courseContentId === module.id)} />
-        <FeedbackPart courseId={courseId} moduleId={module.id} canUpload={live.includes(module)}
-          forms={feedbackForms.filter((item) => item.courseContentId === module.id)} />
-      </div>
-    </section>)}
-
-    {(wholeCourseQuizzes.length > 0 || wholeCourseForms.length > 0) && <section className="module-block">
-      <h3>Whole course <span className="muted">(uploaded before quizzes and feedback were per module)</span></h3>
-      <div className="module-parts">
+  const tabs: ModuleTab[] = blocks.map((module) => ({
+    id: module.id,
+    label: `Module ${ordered.indexOf(module) + 1}: ${moduleTitle(module)}${live.includes(module) ? "" : " (not live)"}`,
+    panel: <div className="module-parts">
+      <QuizPart courseId={courseId} passPercentage={passPercentage} moduleId={module.id} canUpload={live.includes(module)}
+        quizzes={assessments.filter((item) => item.courseContentId === module.id)} />
+      <FeedbackPart courseId={courseId} moduleId={module.id} canUpload={live.includes(module)}
+        forms={feedbackForms.filter((item) => item.courseContentId === module.id)} />
+    </div>,
+  }));
+  if (wholeCourseQuizzes.length || wholeCourseForms.length) {
+    tabs.push({
+      id: "whole-course",
+      label: "Whole course (older uploads)",
+      panel: <div className="module-parts">
         <QuizPart courseId={courseId} passPercentage={passPercentage} moduleId={null} canUpload={false} quizzes={wholeCourseQuizzes} />
         <FeedbackPart courseId={courseId} moduleId={null} canUpload={false} forms={wholeCourseForms} />
-      </div>
-    </section>}
+      </div>,
+    });
+  }
+
+  const actions = <div className="button-row">
+    <a className="button secondary" href={withBase("/api/templates/assessment")}>MCQ template</a>
+    <a className="button secondary" href={withBase("/api/templates/feedback")}>Feedback template</a>
+    <a className="button secondary" href={withBase(`/api/courses/${courseId}/assessment-results`)}>All assessment results</a>
+    <a className="button secondary" href={withBase(`/api/courses/${courseId}/feedback-export`)}>All feedback</a>
   </div>;
+  if (!tabs.length) {
+    return <div className="card">
+      <h2>Assessments and feedback, by module</h2>
+      {actions}
+      <p className="muted">Publish a module with at least one lesson before adding a quiz or feedback to it.</p>
+    </div>;
+  }
+  return <ModuleTabs
+    title="Assessments and feedback, by module"
+    intro="Each module has its own MCQ quiz and its own feedback form. Uploading for a module replaces only that module's live version; older versions and their results are kept."
+    actions={actions}
+    tabs={tabs}
+  />;
 }
 
 function QuizPart({ courseId, passPercentage, moduleId, canUpload, quizzes }: {

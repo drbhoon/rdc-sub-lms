@@ -6,31 +6,6 @@ import { audit } from "@/lib/audit";
 import { db } from "@/lib/db";
 import { storage } from "@/lib/storage";
 import { requireRole } from "@/lib/session";
-import { validateUpload } from "@/lib/uploads";
-
-export async function uploadContent(_: { message?: string }, formData: FormData) {
-  const actor = await requireRole(UserRole.SUPER_ADMIN);
-  const courseId = String(formData.get("courseId") ?? "");
-  const file = formData.get("file");
-  if (!(file instanceof File)) return { message: "Select a content file." };
-  const course = await db.course.findUnique({ where: { id: courseId }, include: { _count: { select: { contents: true } } } });
-  if (!course || course.status === "ARCHIVED") return { message: "Course is unavailable." };
-  try {
-    const bytes = new Uint8Array(await file.arrayBuffer());
-    const validated = validateUpload(file, bytes);
-    await storage.put(validated.key, bytes);
-    const content = await db.courseContent.create({
-      data: {
-        courseId, version: course._count.contents + 1, originalName: file.name, storedKey: validated.key,
-        mimeType: file.type, sizeBytes: file.size, type: validated.type, jobs: { create: {} },
-      },
-    });
-    await db.course.update({ where: { id: courseId }, data: { status: course.status === "PUBLISHED" ? "PUBLISHED" : "CONTENT_UPLOADED", hasPendingChanges: true } });
-    await audit(actor.id, "CONTENT_UPLOADED", "CourseContent", content.id, { fileName: file.name, size: file.size });
-    revalidatePath(`/admin/courses/${courseId}`);
-    return { message: "Upload queued for processing." };
-  } catch (error) { return { message: error instanceof Error ? error.message : "Upload failed." }; }
-}
 
 export async function retryContent(formData: FormData) {
   const actor = await requireRole(UserRole.SUPER_ADMIN);
