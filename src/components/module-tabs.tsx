@@ -44,6 +44,8 @@ export function ModuleTabs({ title, intro, actions, tabs, initialId }: {
       </button>)}
     </div>
     {tabs.map((tab) => <div key={tab.id} role="tabpanel" id={`panel-${tab.id}`} aria-labelledby={`tab-${tab.id}`} hidden={tab.id !== active} className="module-tab-panel">
+      {/* Names the module again inside the panel, so what is on screen is never in doubt. */}
+      <h3 className="module-tab-heading">{tab.label}</h3>
       {tab.panel}
     </div>)}
   </section>;

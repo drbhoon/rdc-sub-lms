@@ -165,12 +165,18 @@ h1 { color:var(--navy); margin-top:0; }
 .module-part { border-top:1px solid var(--line); padding-top:.6rem; }
 .module-part h4 { margin:.1rem 0 .4rem; }
 .module-part details { margin-top:.5rem; }
-.module-tab-list { display:flex; flex-wrap:wrap; gap:.4rem; border-bottom:2px solid var(--line); margin:.6rem 0 1rem; }
-.module-tab { background:white; color:var(--navy); border:1px solid var(--line); border-bottom:0; border-radius:8px 8px 0 0; padding:.6rem .9rem; margin-bottom:-2px; font-weight:700; }
-.module-tab-active { background:var(--navy); border-color:var(--navy); color:white; }
-.module-tab-status { color:var(--green); }
-.module-tab-active .module-tab-status { color:#9be7b5; }
-.module-tab-todo { color:#d98c00; }
 .module-panel { display:grid; grid-template-columns:repeat(auto-fit,minmax(300px,1fr)); gap:1.25rem; align-items:start; }
 .module-panel > section { border:1px solid var(--line); border-radius:10px; padding:1rem; background:#fbfdff; }
 .module-panel > section > h3 { margin-top:0; }
+/* Module tabs. The chosen tab is dark navy and sits on a navy rule; the others
+   are pale grey. The first version had white unchosen tabs, which read as the
+   chosen one because they matched the white panel below them. */
+.module-tab-list { display:flex; flex-wrap:wrap; gap:.35rem; border-bottom:3px solid var(--navy); margin:.6rem 0 1rem; }
+.module-tab { background:#e9eef5; color:var(--muted); border:1px solid var(--line); border-bottom:0; border-radius:8px 8px 0 0; padding:.6rem .95rem; font-weight:700; }
+.module-tab:hover { background:#dbe4ef; color:var(--navy); }
+.module-tab-active, .module-tab-active:hover { background:var(--navy); border-color:var(--navy); color:white; }
+.module-tab-status { color:var(--green); }
+.module-tab-active .module-tab-status { color:#9be7b5; }
+.module-tab-todo, .module-tab-active .module-tab-todo { color:#f0a500; }
+.module-tab-heading { margin:0 0 .8rem; color:var(--navy); }
+.module-tabs-below { margin-top:1rem; }

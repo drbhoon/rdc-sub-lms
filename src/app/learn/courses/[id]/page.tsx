@@ -158,8 +158,9 @@ export default async function LearnCourse({ params }: { params: Promise<{ id: st
   });
 
   // One tab per module, holding that module's quiz AND its feedback side by
-  // side. They used to be cards stacked down the (sticky) sidebar, which ran
-  // off the bottom of the screen once a course had a few modules. A quiz
+  // side, below the course. They used to be cards stacked down the (sticky)
+  // sidebar, which ran off the bottom of the screen once a course had a few
+  // modules. A quiz
   // uploaded before quizzes were per module gets a "Whole course" tab.
   const feedbackFormFor = (contentId: string) => enrollment.course.feedbackForms.some((form) => !form.courseContentId || form.courseContentId === contentId);
   const quizPart = ({ assessment, bestAttempt }: (typeof assessmentModules)[number]) => <section key={assessment.id}>
@@ -227,8 +228,6 @@ export default async function LearnCourse({ params }: { params: Promise<{ id: st
     <div className="progress"><span style={{ width: `${percent}%` }} /></div>
     <p>{completed} of {lessons.length} lessons complete</p>
 
-    <ModuleTabs title="Assessments and feedback" intro="Choose a module to see its assessment and feedback." tabs={moduleTabs} initialId={firstOpenTab} />
-
     <div className="learning-shell">
       <section className="learning-main">
         <LessonPlayer lessons={lessons} />
@@ -254,6 +253,12 @@ export default async function LearnCourse({ params }: { params: Promise<{ id: st
         </div>
 
       </aside>
+    </div>
+
+    {/* Below the course: learners study first, then take the module's
+        assessment and give its feedback. */}
+    <div className="module-tabs-below">
+      <ModuleTabs title="Assessments and feedback" intro="Choose a module to see its assessment and feedback." tabs={moduleTabs} initialId={firstOpenTab} />
     </div>
   </main>;
 }
