@@ -9,12 +9,15 @@ const RED = "FFF4CCCC";
 export async function GET(request: Request, context: { params: Promise<{ id: string }> }) {
   const { id } = await context.params;
   if (!await routeCourseManager(id)) return new Response("Forbidden", { status: 403 });
-  const assessmentId = new URL(request.url).searchParams.get("assessmentId") ?? "";
+  const params = new URL(request.url).searchParams;
+  const assessmentId = params.get("assessmentId") ?? "";
+  // ?module= narrows the workbook to one module's quizzes, every version.
+  const moduleId = params.get("module") ?? "";
   const course = await db.course.findUnique({
     where: { id },
     include: {
       assessments: {
-        where: assessmentId ? { id: assessmentId } : undefined,
+        where: assessmentId ? { id: assessmentId } : moduleId ? { courseContentId: moduleId } : undefined,
         include: {
           questions: { orderBy: { order: "asc" } },
           // courseContent + its lesson, to label which module each assessment

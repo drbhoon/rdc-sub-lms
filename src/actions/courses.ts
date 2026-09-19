@@ -1,17 +1,15 @@
 "use server";
 
-import { EmployeeStatus, CourseStatus, UserRole } from "@prisma/client";
+import { CourseStatus, UserRole } from "@prisma/client";
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { z } from "zod";
 import { audit } from "@/lib/audit";
-import { normaliseCompany } from "@/lib/company-merge";
 import { requireCourseManager } from "@/lib/course-access";
-import { hasEmailColumn, internEmployeeCode, nameFromEmail, parseCourseEnrollmentRow } from "@/lib/course-enrollment-import";
-import { sendEnrollmentEmail } from "@/lib/course-notifications";
+import { hasEmailColumn, parseCourseEnrollmentRow } from "@/lib/course-enrollment-import";
 import { db } from "@/lib/db";
 import { eligibleLearnerForCourseWhere } from "@/lib/enrollment-eligibility";
-import { resolvePersonId } from "@/lib/identity";
+import { enrolRoster, queueEnrollmentEmails } from "@/lib/roster-enrolment";
 import { requireRole } from "@/lib/session";
 import { storage } from "@/lib/storage";
 import { readTabularFile } from "@/lib/tabular-import";
@@ -225,7 +223,7 @@ export async function enrollEmployees(formData: FormData) {
   const newEmployees = eligible.filter((employee) => !existingIds.has(employee.id));
   if (newEmployees.length) {
     await db.$transaction(newEmployees.map(({ id }) => db.enrollment.create({ data: { employeeId: id, courseId } })));
-    for (const employee of newEmployees) await sendEnrollmentEmail({ employee, course });
+    queueEnrollmentEmails(newEmployees, course);
   }
   await audit(actor.id, "EMPLOYEES_ENROLLED", "Course", courseId, { count: newEmployees.length });
   revalidatePath(`/admin/courses/${courseId}`);
@@ -240,26 +238,9 @@ export async function enrollEmployeesFromPicker(_: { message?: string }, formDat
 export type EnrollmentImportState = { message?: string };
 
 /**
- * Enrol a whole course roster from one uploaded file.
- *
- * Two things happen per row, and only the second one is new:
- *
- *   1. An e-mail already on file is matched to that employee. Everything else
- *      in the row — name, company, designation — is IGNORED for that row: the
- *      record on file is the truth, and a roster upload must not let a stray
- *      spelling in a spreadsheet quietly overwrite it.
- *   2. An e-mail nobody has seen becomes a new learner and is enrolled in the
- *      same pass. This is the point of the feature: a fixed course routinely
- *      has interns nobody has entered as an employee, and this admits them
- *      instead of bouncing the whole file back for one missing row. E-mail is
- *      the only thing that must be present — see course-enrollment-import.ts
- *      for the defaults used when a genuinely new row leaves the rest blank.
- *
- * Rows are handled one at a time, each in its own small transaction. A 1500-
- * row all-in-one-transaction import once meant a single e-mail collision threw
- * the entire batch away with nothing imported (see importEmployeesFromMaster);
- * a course roster is far smaller, but the failure mode is not one this app
- * repeats, so one bad row here costs that row and nothing else.
+ * Enrol a whole course roster from one uploaded file. Matching and admitting
+ * new learners is enrolRoster (lib/roster-enrolment.ts), shared with the
+ * classroom upload; the enrolment e-mails go out after the response.
  */
 export async function enrollFromTemplate(_: EnrollmentImportState, formData: FormData): Promise<EnrollmentImportState> {
   const courseId = String(formData.get("courseId") ?? "");
@@ -285,107 +266,8 @@ export async function enrollFromTemplate(_: EnrollmentImportState, formData: For
   const skippedNoEmail = rawRows.length - rows.length;
   if (!rows.length) return { message: "No row in the file has an e-mail address." };
 
-  // One row per address: a roster naming the same person twice should not be
-  // read as two people, and de-duplicating here means the per-row loop below
-  // never has to reason about a second row un-doing the first.
-  const byEmail = new Map(rows.map((row) => [row.email, row]));
-  const emails = [...byEmail.keys()];
-
-  const existingEmployees = await db.employee.findMany({
-    where: { email: { in: emails } },
-    select: { id: true, email: true },
-  });
-  const employeeIdByEmail = new Map(existingEmployees.map((employee) => [employee.email, employee.id]));
-  const newEmails = emails.filter((email) => !employeeIdByEmail.has(email));
-
-  // Companies for the NEW people only — existing employees keep the company
-  // they already have. Matched loosely against what LMS already holds, the
-  // same way importEmployeesFromMaster does: "Interns" and "interns" must
-  // resolve to one company, or half the batch ends up in a company no course
-  // is linked to and vanishes from the enrolment picker.
-  const existingCompanies = await db.company.findMany({ select: { id: true, name: true } });
-  const companyIdByNormalised = new Map(existingCompanies.map((c) => [normaliseCompany(c.name), c.id]));
-  const wantedCompanyNames = new Set(
-    newEmails.map((email) => byEmail.get(email)!.company.trim() || "Interns"),
-  );
-  for (const name of wantedCompanyNames) {
-    const key = normaliseCompany(name);
-    if (companyIdByNormalised.has(key)) continue;
-    const created = await db.company.create({ data: { name } });
-    companyIdByNormalised.set(key, created.id);
-  }
-
-  // Resolved OUTSIDE any transaction, same reasoning as everywhere else this
-  // is done in this file: it is a network call to another container, and
-  // holding a database transaction open across it is how a slow neighbour
-  // turns into lock contention here. Only the new people need it.
-  const personIds = new Map<string, string | null>();
-  for (let i = 0; i < newEmails.length; i += 10) {
-    const chunk = newEmails.slice(i, i + 10);
-    const resolved = await Promise.all(chunk.map((email) => {
-      const row = byEmail.get(email)!;
-      return resolvePersonId(email, row.name || nameFromEmail(email), row.employeeCode || undefined);
-    }));
-    chunk.forEach((email, index) => personIds.set(email, resolved[index]));
-  }
-
-  let created = 0;
-  let enrolled = 0;
-  let alreadyEnrolled = 0;
-  const rowErrors: string[] = [];
-
-  for (const email of emails) {
-    const row = byEmail.get(email)!;
-    try {
-      const employeeId = await db.$transaction(async (tx) => {
-        let id = employeeIdByEmail.get(email);
-        if (!id) {
-          const companyId = companyIdByNormalised.get(normaliseCompany(row.company.trim() || "Interns"))!;
-          const employee = await tx.employee.create({
-            data: {
-              employeeCode: row.employeeCode || internEmployeeCode(email),
-              name: row.name || nameFromEmail(email),
-              email,
-              companyId,
-              department: "General",
-              designation: row.designation || "Intern",
-              status: EmployeeStatus.ACTIVE,
-              personId: personIds.get(email) ?? null,
-            },
-          });
-          id = employee.id;
-          const user = await tx.user.upsert({
-            where: { email },
-            update: { employeeId: id },
-            create: { email, employeeId: id },
-          });
-          await tx.userRoleGrant.upsert({
-            where: { userId_role: { userId: user.id, role: UserRole.LEARNER } },
-            update: {},
-            create: { userId: user.id, role: UserRole.LEARNER },
-          });
-        }
-        return id;
-      });
-
-      const existingEnrollment = await db.enrollment.findUnique({
-        where: { employeeId_courseId: { employeeId, courseId } },
-        select: { id: true },
-      });
-      if (existingEnrollment) {
-        alreadyEnrolled += 1;
-        continue;
-      }
-
-      const employee = await db.employee.findUniqueOrThrow({ where: { id: employeeId } });
-      await db.enrollment.create({ data: { employeeId, courseId } });
-      if (!employeeIdByEmail.has(email)) created += 1;
-      enrolled += 1;
-      await sendEnrollmentEmail({ employee, course });
-    } catch (error) {
-      rowErrors.push(`${email}: ${error instanceof Error ? error.message : "could not be enrolled"}`);
-    }
-  }
+  const { created, enrolled, alreadyEnrolled, rowErrors, newlyEnrolled } = await enrolRoster(course, rows);
+  queueEnrollmentEmails(newlyEnrolled, course);
 
   await audit(actor.id, "COURSE_ROSTER_ENROLLED", "Course", courseId, {
     fileName: file.name, created, enrolled, alreadyEnrolled, skippedNoEmail, errors: rowErrors.length,
@@ -428,7 +310,7 @@ export async function enrollEmployeeInCourses(_: { message?: string }, formData:
   const newCourses = courses.filter((course) => !existingIds.has(course.id));
   if (newCourses.length) {
     await db.$transaction(newCourses.map((course) => db.enrollment.create({ data: { employeeId, courseId: course.id } })));
-    for (const course of newCourses) await sendEnrollmentEmail({ employee, course });
+    for (const course of newCourses) queueEnrollmentEmails([employee], course);
   }
   await audit(actor.id, "EMPLOYEE_ENROLLED_IN_COURSES", "Employee", employeeId, { count: newCourses.length });
   revalidatePath("/admin/employees");

@@ -2,6 +2,7 @@ import nodemailer from "nodemailer";
 import { CourseEmailStatus, CourseEmailType, type Course, type Employee } from "@prisma/client";
 import { db } from "@/lib/db";
 import { env } from "@/lib/env";
+import { type TeacherQuestionEmail, teacherQuestionMessage } from "./teacher-question-email";
 
 type CourseEmailInput = {
   type: CourseEmailType;
@@ -104,4 +105,26 @@ export async function sendEnrollmentEmail(input: Omit<CourseEmailInput, "type">)
 
 export async function sendReminderEmail(input: Omit<CourseEmailInput, "type">) {
   return sendCourseEmail({ ...input, type: CourseEmailType.REMINDER });
+}
+
+export type { TeacherQuestionEmail };
+
+/**
+ * Tell a teacher a learner has asked them something. Best effort: the
+ * question is already saved and shown on the teacher's course page, so a mail
+ * failure is logged and never undoes it or reaches the learner.
+ */
+export async function sendTeacherQuestionEmail(input: TeacherQuestionEmail) {
+  if (!isSmtpConfigured()) {
+    console.warn(`[course-question] SMTP is not configured; ${input.teacherEmail} was not e-mailed about a new question.`);
+    return "SKIPPED" as const;
+  }
+  const message = teacherQuestionMessage(input, env.APP_URL);
+  try {
+    await transport().sendMail({ from: env.SMTP_FROM, to: input.teacherEmail, ...message });
+    return "SENT" as const;
+  } catch (caught) {
+    console.error(`[course-question] could not e-mail ${input.teacherEmail}:`, caught instanceof Error ? caught.message : caught);
+    return "FAILED" as const;
+  }
 }

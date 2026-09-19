@@ -1,19 +1,21 @@
 import { withBase } from "@/lib/base-path";
 import { notFound } from "next/navigation";
 import { UserRole } from "@prisma/client";
-import { setAssessmentStatus, uploadAssessment } from "@/actions/assessments";
 import { deleteCourse, enrollFromTemplate, setCourseActive, updateCourse, updateCourseTeachers } from "@/actions/courses";
 import { deleteCourseContent, retryContent } from "@/actions/content";
-import { assignLearnersToClassroom, createClassroom, deleteClassroom, updateClassroom } from "@/actions/classrooms";
-import { setFeedbackFormActive, uploadFeedbackTemplate } from "@/actions/feedback";
+import { createClassroom, deleteClassroom, updateClassroom } from "@/actions/classrooms";
 import { ActionForm } from "@/components/action-form";
+import { ClassroomLearnerPicker } from "@/components/classroom-learner-picker";
+import { ClassroomUploadForm } from "@/components/classroom-upload-form";
 import { ContentUploadForm } from "@/components/content-upload-form";
 import { CourseEnrollmentPicker } from "@/components/course-enrollment-picker";
+import { ModuleActivities } from "@/components/module-activities";
 import { buildLeaderboardRows, formatDuration } from "@/lib/leaderboard";
 import { db } from "@/lib/db";
 import { eligibleLearnerForCourseWhere } from "@/lib/enrollment-eligibility";
 import { requireRole } from "@/lib/session";
 import { eligibleTeacherWhere } from "@/lib/teacher-eligibility";
+import { formatIst } from "@/lib/ist";
 
 export default async function CourseAdminPage({ params }: { params: Promise<{ id: string }> }) {
   await requireRole(UserRole.SUPER_ADMIN);
@@ -75,9 +77,6 @@ export default async function CourseAdminPage({ params }: { params: Promise<{ id
     .filter((content) => content.isPublished)
     .flatMap((content) => content.lessons.filter((lesson) => lesson.approvedAt))
     .length;
-  const publishedModules = course.contents.filter((content) => content.isPublished && content.lessons.length);
-  const activeFeedbackForms = course.feedbackForms.filter((form) => form.isActive);
-  const archivedFeedbackForms = course.feedbackForms.filter((form) => !form.isActive);
 
   // A quiz belongs to a module now, so a course can have several ACTIVE at
   // once. The combined leaderboard averages each employee's best score
@@ -170,72 +169,13 @@ export default async function CourseAdminPage({ params }: { params: Promise<{ id
           <ContentUploadForm courseId={course.id} />
         </div>
 
-        <div className="card">
-          <h2>Assessment</h2>
-          <p className="muted">Upload MCQ questions for one module using the RDC realtime quiz format. The latest upload for that module becomes its active quiz — other modules&apos; quizzes are untouched.</p>
-          <p><a className="button secondary" href={withBase("/api/templates/assessment")}>Download MCQ template</a></p>
-          {publishedModules.length ? <ActionForm action={uploadAssessment} submitLabel="Upload and activate assessment">
-            <input type="hidden" name="courseId" value={course.id} />
-            <label>Module<select name="courseContentId" required>
-              {publishedModules.map((content) => <option key={content.id} value={content.id}>{content.lessons[0]?.title ?? content.originalName}</option>)}
-            </select></label>
-            <label>Assessment title<input name="title" defaultValue="Course Assessment" required /></label>
-            <label>Pass percentage<input name="passPercentage" type="number" min="1" max="100" defaultValue={course.passPercentage} /></label>
-            <label>Overall time limit (minutes)<input name="timeLimitMinutes" type="number" min="1" max="480" defaultValue={30} /></label>
-            <label>Questions offered per attempt<input name="questionsPerAttempt" type="number" min="1" max="200" defaultValue={20} required /></label>
-            <label>Question bank CSV or Excel<input type="file" name="file" accept=".csv,.xlsx,.xls" required /></label>
-            <label className="checkbox"><input type="checkbox" name="shuffleQuestions" />Shuffle questions for learners</label>
-            <label className="checkbox"><input type="checkbox" name="showLeaderboard" defaultChecked />Show leaderboard to learners</label>
-          </ActionForm> : <p className="muted">Publish a module with at least one lesson before uploading a quiz for it.</p>}
-          <hr />
-          <h3>Assessment versions</h3>
-          <div className="table-wrap"><table><thead><tr><th>Version</th><th>Module</th><th>Status</th><th>Question bank</th><th>Offered</th><th>Time</th><th>Shuffle</th><th>Attempts</th><th>Action</th></tr></thead><tbody>
-            {course.assessments.map((assessment) => <tr key={assessment.id}>
-              <td>v{assessment.version}<br /><span className="muted">{assessment.title}</span></td>
-              <td>{assessment.courseContent?.lessons[0]?.title ?? "Whole course"}</td>
-              <td><span className="badge">{assessment.status}</span></td>
-              <td>{assessment.questions.length}</td>
-              <td>{assessment.questionsPerAttempt ?? assessment.questions.length}</td>
-              <td>{Math.ceil(assessment.timeLimitSeconds / 60)} min</td>
-              <td>{assessment.shuffleQuestions ? "YES" : "NO"}</td>
-              <td>{assessment.attempts.length}</td>
-              <td><form action={setAssessmentStatus}><input type="hidden" name="assessmentId" value={assessment.id} /><input type="hidden" name="status" value={assessment.status === "ACTIVE" ? "INACTIVE" : "ACTIVE"} /><button className="secondary">{assessment.status === "ACTIVE" ? "Inactivate" : "Activate"}</button></form></td>
-            </tr>)}
-            {!course.assessments.length && <tr><td colSpan={9}>No assessment uploaded.</td></tr>}
-          </tbody></table></div>
-          <p><a className="button secondary" href={withBase(`/api/courses/${course.id}/assessment-results`)}>Download assessment results Excel</a></p>
-        </div>
-
-        <div className="card">
-          <h2>Feedback</h2>
-          <p className="muted">Upload a Google Forms-style feedback template for one module. Learners see it once they complete that module — other modules&apos; feedback is untouched.</p>
-          <p><a className="button secondary" href={withBase("/api/templates/feedback")}>Download feedback template</a></p>
-          {publishedModules.length ? <ActionForm action={uploadFeedbackTemplate} submitLabel="Upload and activate feedback">
-            <input type="hidden" name="courseId" value={course.id} />
-            <label>Module<select name="courseContentId" required>
-              {publishedModules.map((content) => <option key={content.id} value={content.id}>{content.lessons[0]?.title ?? content.originalName}</option>)}
-            </select></label>
-            <label>Feedback title<input name="title" defaultValue="Course Feedback" required /></label>
-            <label>Feedback CSV or Excel<input type="file" name="file" accept=".csv,.xlsx,.xls" required /></label>
-          </ActionForm> : <p className="muted">Publish a module with at least one lesson before uploading feedback for it.</p>}
-          <hr />
-          <h3>Feedback forms</h3>
-          {/* Only the live forms by default. Superseded versions pile up fast —
-              every upload retires the previous one — and they are kept, never
-              deleted, so that responses and past reports stay intact. */}
-          <div className="table-wrap"><table><thead><tr><th>Version</th><th>Module</th><th>Status</th><th>Questions</th><th>Responses</th><th>Action</th></tr></thead><tbody>
-            {activeFeedbackForms.map((form) => <tr key={form.id}><td>v{form.version}<br /><span className="muted">{form.title}</span></td><td>{form.courseContent?.lessons[0]?.title ?? "Whole course"}</td><td><span className="badge">ACTIVE</span></td><td>{form.questions.length}</td><td>{form.responses.length}</td><td><form action={setFeedbackFormActive}><input type="hidden" name="formId" value={form.id} /><input type="hidden" name="isActive" value="false" /><button className="secondary">Archive</button></form></td></tr>)}
-            {!activeFeedbackForms.length && <tr><td colSpan={6}>No active feedback form.</td></tr>}
-          </tbody></table></div>
-          {archivedFeedbackForms.length > 0 && <details className="archived-forms">
-            <summary>Archived feedback forms ({archivedFeedbackForms.length})</summary>
-            <div className="table-wrap"><table><thead><tr><th>Version</th><th>Module</th><th>Questions</th><th>Responses</th><th>Action</th></tr></thead><tbody>
-              {archivedFeedbackForms.map((form) => <tr key={form.id}><td>v{form.version}<br /><span className="muted">{form.title}</span></td><td>{form.courseContent?.lessons[0]?.title ?? "Whole course"}</td><td>{form.questions.length}</td><td>{form.responses.length}</td><td><form action={setFeedbackFormActive}><input type="hidden" name="formId" value={form.id} /><input type="hidden" name="isActive" value="true" /><button className="secondary">Restore</button></form></td></tr>)}
-            </tbody></table></div>
-            <p className="muted">Restoring a form archives whichever form is currently active for the same module. Responses are never deleted.</p>
-          </details>}
-          <p><a className="button secondary" href={withBase(`/api/courses/${course.id}/feedback-export`)}>Download feedback Excel</a></p>
-        </div>
+        <ModuleActivities
+          courseId={course.id}
+          passPercentage={course.passPercentage}
+          modules={course.contents}
+          assessments={course.assessments}
+          feedbackForms={course.feedbackForms}
+        />
 
         <div className="card">
           <h2>Edit course</h2>
@@ -293,21 +233,30 @@ export default async function CourseAdminPage({ params }: { params: Promise<{ id
               {teachers.map((teacher) => <option key={teacher.id} value={teacher.id}>{teacher.employee?.name ?? teacher.email}</option>)}
             </select></label>
           </ActionForm>}
-          {/* Assigning is a plain multi-select rather than a per-row control:
-              a cohort is normally placed in one go, and a blank target is how a
-              learner is taken back out of a classroom. */}
-          {course.enrollments.length > 0 && <ActionForm action={assignLearnersToClassroom} submitLabel="Move selected learners">
-            <input type="hidden" name="courseId" value={course.id} />
-            <label>Move to<select name="classroomId" defaultValue="">
-              <option value="">— Remove from classroom —</option>
-              {course.classrooms.map((room) => <option key={room.id} value={room.id}>{room.name}</option>)}
-            </select></label>
-            <label>Learners<select name="enrollmentIds" multiple size={8} required>
-              {course.enrollments.map((enrollment) => <option key={enrollment.id} value={enrollment.id}>
-                {enrollment.employee.name} ({enrollment.employee.employeeCode}) — {enrollment.classroom?.name ?? "Unassigned"}
-              </option>)}
-            </select></label>
-          </ActionForm>}
+          {course.enrollments.length > 0 && course.classrooms.length > 0 && <>
+            <hr />
+            <h3>Put learners in a classroom</h3>
+            <ClassroomLearnerPicker
+              courseId={course.id}
+              rooms={course.classrooms.map((room) => ({ id: room.id, name: room.name }))}
+              learners={course.enrollments.map((enrollment) => ({
+                enrollmentId: enrollment.id,
+                name: enrollment.employee.name,
+                employeeCode: enrollment.employee.employeeCode,
+                email: enrollment.employee.email,
+                classroomId: enrollment.classroomId,
+              }))}
+            />
+          </>}
+          <hr />
+          <h3>Set up classrooms from a file</h3>
+          <p className="muted">
+            For many classrooms at once — for example 50 classrooms of 10 learners, each with its own teacher. One row per learner:
+            the file creates the classrooms, assigns their teachers, enrols anyone not yet on the course and places everyone.
+            Nothing is saved unless the whole file is correct.{" "}
+            <a href={withBase("/api/templates/classrooms")}>Download the template</a>.
+          </p>
+          <ClassroomUploadForm courseId={course.id} />
         </div>
         <div className="card">
           <h2>Course controls</h2>
@@ -378,7 +327,7 @@ export default async function CourseAdminPage({ params }: { params: Promise<{ id
               <td>{item.channel}{item.language ? ` · ${item.language.toUpperCase()}` : ""}</td>
               <td>{item.question}</td>
               <td>{item.answer ?? item.error ?? item.status}</td>
-              <td>{item.createdAt.toLocaleString("en-IN")}</td>
+              <td>{formatIst(item.createdAt)}</td>
             </tr>)}
             {!course.aiInteractions.length && <tr><td colSpan={5}>No learner AI history is available yet.</td></tr>}
           </tbody></table></div>

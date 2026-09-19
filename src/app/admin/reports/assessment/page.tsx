@@ -3,6 +3,7 @@ import Link from "next/link";
 import { withBase } from "@/lib/base-path";
 import { db } from "@/lib/db";
 import { requireRole } from "@/lib/session";
+import { formatIst } from "@/lib/ist";
 
 function value(params: Record<string, string | string[] | undefined>, key: string) {
   const item = params[key];
@@ -81,11 +82,11 @@ export default async function AssessmentReportsPage({ searchParams }: { searchPa
         })}
       </tbody></table></div></section>
       <section className="card"><h2>Individual responses: all attempts</h2><div className="table-wrap"><table><thead><tr><th>Learner</th><th>Company</th><th>Attempt</th><th>Score</th><th>Correct</th><th>Status</th><th>Started</th><th>Submitted</th>{assessment.questions.map((question) => <th key={question.id}>Q{question.order}</th>)}</tr></thead><tbody>
-        {submitted.map((attempt) => { const answerMap = new Map(attempt.answers.map((answer) => [answer.questionId, answer])); return <tr key={attempt.id}><td>{attempt.employee.name}<br /><span className="muted">{attempt.employee.employeeCode}</span></td><td>{attempt.employee.company.name}</td><td>{attempt.attemptNumber}</td><td>{attempt.scorePercent}%</td><td>{attempt.correctAnswers}/{attempt.totalQuestions}</td><td>{attempt.passed ? "Passed" : "Not passed"}</td><td>{attempt.startedAt.toLocaleString("en-IN")}</td><td>{attempt.submittedAt?.toLocaleString("en-IN")}</td>{assessment.questions.map((question) => { const answer = answerMap.get(question.id); return <td className={answer ? answer.isCorrect ? "cell-correct" : "cell-incorrect" : ""} key={question.id}>{answer ? `${answer.selectedOption ?? "Blank"} · ${answer.isCorrect ? "Correct" : "Incorrect"}` : ""}</td>; })}</tr>; })}
+        {submitted.map((attempt) => { const answerMap = new Map(attempt.answers.map((answer) => [answer.questionId, answer])); return <tr key={attempt.id}><td>{attempt.employee.name}<br /><span className="muted">{attempt.employee.employeeCode}</span></td><td>{attempt.employee.company.name}</td><td>{attempt.attemptNumber}</td><td>{attempt.scorePercent}%</td><td>{attempt.correctAnswers}/{attempt.totalQuestions}</td><td>{attempt.passed ? "Passed" : "Not passed"}</td><td>{formatIst(attempt.startedAt)}</td><td>{formatIst(attempt.submittedAt)}</td>{assessment.questions.map((question) => { const answer = answerMap.get(question.id); return <td className={answer ? answer.isCorrect ? "cell-correct" : "cell-incorrect" : ""} key={question.id}>{answer ? `${answer.selectedOption ?? "Blank"} · ${answer.isCorrect ? "Correct" : "Incorrect"}` : ""}</td>; })}</tr>; })}
         {!submitted.length && <tr><td colSpan={8 + assessment.questions.length}>No submitted attempts yet.</td></tr>}
       </tbody></table></div></section>
       <section className="card"><h2>Timeline</h2><div className="table-wrap"><table><thead><tr><th>Event</th><th>User</th><th>Description</th><th>Date</th></tr></thead><tbody>
-        {timeline.map((event, index) => <tr key={`${event.date.toISOString()}-${index}`}><td>{event.type}</td><td>{event.user}</td><td>{event.description}</td><td>{event.date.toLocaleString("en-IN")}</td></tr>)}
+        {timeline.map((event, index) => <tr key={`${event.date.toISOString()}-${index}`}><td>{event.type}</td><td>{event.user}</td><td>{event.description}</td><td>{formatIst(event.date)}</td></tr>)}
         {!timeline.length && <tr><td colSpan={4}>No assessment activity yet.</td></tr>}
       </tbody></table></div></section>
     </>}

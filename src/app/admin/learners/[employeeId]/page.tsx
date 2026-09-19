@@ -4,6 +4,7 @@ import { audit } from "@/lib/audit";
 import { withBase } from "@/lib/base-path";
 import { db } from "@/lib/db";
 import { requireRole } from "@/lib/session";
+import { formatIst } from "@/lib/ist";
 
 function answerText(value: unknown) {
   if (Array.isArray(value)) return value.map(String).join("; ");
@@ -54,24 +55,24 @@ export default async function LearnerActivityPage({ params }: { params: Promise<
     </div>
 
     <section className="card dashboard-row"><h2>Courses and progress</h2><div className="table-wrap"><table><thead><tr><th>Course</th><th>Status</th><th>Enrolled</th><th>Started</th><th>Completed</th><th>Lessons touched</th><th>Lessons completed</th></tr></thead><tbody>
-      {employee.enrollments.map((enrollment) => <tr key={enrollment.id}><td>{enrollment.course.title}</td><td>{enrollment.status.replaceAll("_", " ")}</td><td>{enrollment.enrolledAt.toLocaleString("en-IN")}</td><td>{enrollment.startedAt?.toLocaleString("en-IN") ?? ""}</td><td>{enrollment.completedAt?.toLocaleString("en-IN") ?? ""}</td><td>{enrollment.progress.length}</td><td>{enrollment.progress.filter((item) => item.completedAt).length}</td></tr>)}
+      {employee.enrollments.map((enrollment) => <tr key={enrollment.id}><td>{enrollment.course.title}</td><td>{enrollment.status.replaceAll("_", " ")}</td><td>{formatIst(enrollment.enrolledAt)}</td><td>{formatIst(enrollment.startedAt)}</td><td>{formatIst(enrollment.completedAt)}</td><td>{enrollment.progress.length}</td><td>{enrollment.progress.filter((item) => item.completedAt).length}</td></tr>)}
       {!employee.enrollments.length && <tr><td colSpan={7}>No course enrolments.</td></tr>}
     </tbody></table></div></section>
 
     <section className="card"><h2>Lesson activity</h2><div className="table-wrap"><table><thead><tr><th>Course</th><th>Lesson</th><th>Pages viewed</th><th>Watched seconds</th><th>Completed</th><th>Last activity</th></tr></thead><tbody>
-      {employee.enrollments.flatMap((enrollment) => enrollment.progress.map((progress) => <tr key={progress.id}><td>{enrollment.course.title}</td><td>{progress.lesson.title}</td><td>{Array.isArray(progress.viewedPages) ? progress.viewedPages.length : 0}</td><td>{progress.watchedSeconds}</td><td>{progress.completedAt ? "Yes" : "No"}</td><td>{progress.updatedAt.toLocaleString("en-IN")}</td></tr>))}
+      {employee.enrollments.flatMap((enrollment) => enrollment.progress.map((progress) => <tr key={progress.id}><td>{enrollment.course.title}</td><td>{progress.lesson.title}</td><td>{Array.isArray(progress.viewedPages) ? progress.viewedPages.length : 0}</td><td>{progress.watchedSeconds}</td><td>{progress.completedAt ? "Yes" : "No"}</td><td>{formatIst(progress.updatedAt)}</td></tr>))}
       {!employee.enrollments.some((enrollment) => enrollment.progress.length) && <tr><td colSpan={6}>No lesson activity.</td></tr>}
     </tbody></table></div></section>
 
     <section className="card"><h2>Assessment attempts</h2><div className="table-wrap"><table><thead><tr><th>Course</th><th>Module</th><th>Assessment</th><th>Attempt</th><th>Status</th><th>Score</th><th>Correct</th><th>Answers</th><th>Started</th><th>Submitted</th></tr></thead><tbody>
-      {employee.assessmentAttempts.map((attempt) => <tr key={attempt.id}><td>{attempt.assessment.course.title}</td><td>{attempt.assessment.courseContent?.lessons[0]?.title ?? "Whole course"}</td><td>{attempt.assessment.title} v{attempt.assessment.version}</td><td>{attempt.attemptNumber}</td><td>{attempt.status.replaceAll("_", " ")}{attempt.status === "SUBMITTED" ? attempt.passed ? " · Passed" : " · Not passed" : ""}</td><td>{attempt.status === "SUBMITTED" ? `${attempt.scorePercent}%` : ""}</td><td>{attempt.status === "SUBMITTED" ? `${attempt.correctAnswers}/${attempt.totalQuestions}` : ""}</td><td>{attempt.answers.sort((a, b) => a.question.order - b.question.order).map((answer) => `Q${answer.question.order}: ${answer.selectedOption ?? "blank"} ${answer.isCorrect ? "✓" : "✗"}`).join("; ")}</td><td>{attempt.startedAt.toLocaleString("en-IN")}</td><td>{attempt.submittedAt?.toLocaleString("en-IN") ?? ""}</td></tr>)}
+      {employee.assessmentAttempts.map((attempt) => <tr key={attempt.id}><td>{attempt.assessment.course.title}</td><td>{attempt.assessment.courseContent?.lessons[0]?.title ?? "Whole course"}</td><td>{attempt.assessment.title} v{attempt.assessment.version}</td><td>{attempt.attemptNumber}</td><td>{attempt.status.replaceAll("_", " ")}{attempt.status === "SUBMITTED" ? attempt.passed ? " · Passed" : " · Not passed" : ""}</td><td>{attempt.status === "SUBMITTED" ? `${attempt.scorePercent}%` : ""}</td><td>{attempt.status === "SUBMITTED" ? `${attempt.correctAnswers}/${attempt.totalQuestions}` : ""}</td><td>{attempt.answers.sort((a, b) => a.question.order - b.question.order).map((answer) => `Q${answer.question.order}: ${answer.selectedOption ?? "blank"} ${answer.isCorrect ? "✓" : "✗"}`).join("; ")}</td><td>{formatIst(attempt.startedAt)}</td><td>{formatIst(attempt.submittedAt)}</td></tr>)}
       {!employee.assessmentAttempts.length && <tr><td colSpan={10}>No assessment attempts.</td></tr>}
     </tbody></table></div></section>
 
-    <section className="card"><h2>Feedback responses</h2>{employee.feedbackResponses.map((response) => <div className="activity-group" key={response.id}><h3>{response.form.course.title} · {response.courseContent?.lessons[0]?.title ?? "Whole course"} <span className="muted">({response.form.title} v{response.form.version})</span></h3><p className="muted">Submitted {response.submittedAt.toLocaleString("en-IN")}</p><ol>{response.answers.sort((a, b) => a.question.order - b.question.order).map((answer) => <li key={answer.id}><strong>{answer.question.questionText}</strong><br />{answerText(answer.value)}</li>)}</ol></div>)}{!employee.feedbackResponses.length && <p>No feedback submitted.</p>}</section>
+    <section className="card"><h2>Feedback responses</h2>{employee.feedbackResponses.map((response) => <div className="activity-group" key={response.id}><h3>{response.form.course.title} · {response.courseContent?.lessons[0]?.title ?? "Whole course"} <span className="muted">({response.form.title} v{response.form.version})</span></h3><p className="muted">Submitted {formatIst(response.submittedAt)}</p><ol>{response.answers.sort((a, b) => a.question.order - b.question.order).map((answer) => <li key={answer.id}><strong>{answer.question.questionText}</strong><br />{answerText(answer.value)}</li>)}</ol></div>)}{!employee.feedbackResponses.length && <p>No feedback submitted.</p>}</section>
 
     <section className="card"><h2>AI question and answer history</h2><div className="table-wrap"><table><thead><tr><th>Course</th><th>Mode</th><th>Language</th><th>Question</th><th>Answer / Status</th><th>Date</th></tr></thead><tbody>
-      {employee.aiInteractions.map((item) => <tr key={item.id}><td>{item.course.title}</td><td>{item.channel}</td><td>{item.language?.toUpperCase() ?? ""}</td><td>{item.question}</td><td>{item.answer ?? item.error ?? item.status}</td><td>{item.createdAt.toLocaleString("en-IN")}</td></tr>)}
+      {employee.aiInteractions.map((item) => <tr key={item.id}><td>{item.course.title}</td><td>{item.channel}</td><td>{item.language?.toUpperCase() ?? ""}</td><td>{item.question}</td><td>{item.answer ?? item.error ?? item.status}</td><td>{formatIst(item.createdAt)}</td></tr>)}
       {!employee.aiInteractions.length && <tr><td colSpan={6}>No AI history.</td></tr>}
     </tbody></table></div></section>
   </main>;

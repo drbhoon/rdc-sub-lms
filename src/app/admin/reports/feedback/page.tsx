@@ -3,6 +3,7 @@ import Link from "next/link";
 import { withBase } from "@/lib/base-path";
 import { db } from "@/lib/db";
 import { requireRole } from "@/lib/session";
+import { formatIst } from "@/lib/ist";
 
 function value(params: Record<string, string | string[] | undefined>, key: string) {
   const item = params[key];
@@ -77,7 +78,7 @@ export default async function FeedbackReportsPage({ searchParams }: { searchPara
         })}
       </tbody></table></div></section>
       <section className="card"><h2>Individual responses</h2><div className="table-wrap"><table><thead><tr><th>Learner</th><th>Company</th><th>Module</th><th>Submitted</th>{form.questions.map((question) => <th key={question.id}>Q{question.order}</th>)}</tr></thead><tbody>
-        {form.responses.map((response) => { const answers = new Map(response.answers.map((answer) => [answer.questionId, answer.value])); return <tr key={response.id}><td>{response.employee.name}<br /><span className="muted">{response.employee.employeeCode}</span></td><td>{response.employee.company.name}</td><td>{response.courseContent?.lessons[0]?.title ?? "Whole course"}</td><td>{response.submittedAt.toLocaleString("en-IN")}</td>{form.questions.map((question) => <td key={question.id}>{text(answers.get(question.id))}</td>)}</tr>; })}
+        {form.responses.map((response) => { const answers = new Map(response.answers.map((answer) => [answer.questionId, answer.value])); return <tr key={response.id}><td>{response.employee.name}<br /><span className="muted">{response.employee.employeeCode}</span></td><td>{response.employee.company.name}</td><td>{response.courseContent?.lessons[0]?.title ?? "Whole course"}</td><td>{formatIst(response.submittedAt)}</td>{form.questions.map((question) => <td key={question.id}>{text(answers.get(question.id))}</td>)}</tr>; })}
         {!form.responses.length && <tr><td colSpan={4 + form.questions.length}>No feedback responses yet.</td></tr>}
       </tbody></table></div></section>
     </>}

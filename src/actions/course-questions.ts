@@ -2,9 +2,11 @@
 
 import { UserRole } from "@prisma/client";
 import { revalidatePath } from "next/cache";
+import { after } from "next/server";
 import { z } from "zod";
 import { audit } from "@/lib/audit";
 import { requireCourseManager } from "@/lib/course-access";
+import { sendTeacherQuestionEmail } from "@/lib/course-notifications";
 import { db } from "@/lib/db";
 import { requireRole } from "@/lib/session";
 
@@ -40,13 +42,35 @@ export async function askTeacher(_: QuestionState, formData: FormData): Promise<
   const parsed = questionSchema.safeParse(formData.get("question"));
   if (!parsed.success) return { message: parsed.error.issues[0].message };
 
-  const { enrolled, teacher } = await findLearnerTeacher(user.employeeId, courseId);
+  const { enrolled, teacher, classroomName } = await findLearnerTeacher(user.employeeId, courseId);
   if (!enrolled) return { message: "You are not enrolled in this course." };
   // Refused rather than queued for nobody: a question with no teacher would sit
   // unanswered with the learner believing it had been sent.
   if (!teacher) return { message: "You are not in a classroom yet, so there is no teacher to ask. Please use the AI assistant, or contact HR." };
 
   await db.courseQuestion.create({ data: { courseId, employeeId: user.employeeId, question: parsed.data } });
+
+  // E-mail the teacher once the learner has their answer back — SMTP can take
+  // seconds, and the question is already saved and waiting on the teacher's
+  // course page whether or not the mail goes.
+  const employeeId = user.employeeId;
+  after(async () => {
+    const [learner, course] = await Promise.all([
+      db.employee.findUnique({ where: { id: employeeId }, select: { name: true, employeeCode: true } }),
+      db.course.findUnique({ where: { id: courseId }, select: { title: true } }),
+    ]);
+    if (!learner || !course) return;
+    await sendTeacherQuestionEmail({
+      teacherEmail: teacher.employee?.email ?? teacher.email,
+      teacherName: teacher.employee?.name ?? teacher.email,
+      learnerName: learner.name,
+      learnerCode: learner.employeeCode,
+      classroomName,
+      courseId,
+      courseTitle: course.title,
+      question: parsed.data,
+    });
+  });
   revalidatePath(`/learn/courses/${courseId}`);
   revalidatePath(`/teacher/courses/${courseId}`);
   return { message: `Sent to ${teacher.employee?.name ?? teacher.email}. You will see the reply here.`, ok: true };

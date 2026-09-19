@@ -6,6 +6,7 @@ import { db } from "@/lib/db";
 import { buildLeaderboardRows, formatDuration } from "@/lib/leaderboard";
 import { dateRangeWhere, getReportPeriod } from "@/lib/report-period";
 import { requireRole } from "@/lib/session";
+import { formatIst, formatIstDate } from "@/lib/ist";
 
 function getValue(params: Record<string, string | string[] | undefined>, key: string) {
   const value = params[key];
@@ -162,7 +163,7 @@ export default async function ReportsPage({ searchParams }: { searchParams: Prom
               <td>{enrollment.course.title}</td>
               <td><span className="badge">{enrollment.status.replaceAll("_", " ")}</span></td>
               <td>{completedLessons}/{totalLessons} lessons ({percent}%)</td>
-              <td>{enrollment.completedAt ? enrollment.completedAt.toLocaleDateString("en-IN") : "-"}</td>
+              <td>{enrollment.completedAt ? formatIstDate(enrollment.completedAt) : "-"}</td>
               <td>{attempt?.assessment.version ?? ""}</td>
               <td>{attempt ? attempt.assessment.courseContent?.lessons[0]?.title ?? "Whole course" : ""}</td>
               <td>{attempt?.attemptNumber ?? ""}</td>
@@ -170,7 +171,7 @@ export default async function ReportsPage({ searchParams }: { searchParams: Prom
               <td>{attempt ? `${attempt.correctAnswers}/${attempt.totalQuestions}` : ""}</td>
               <td>{attempt ? attempt.passed ? "YES" : "NO" : ""}</td>
               <td>{attempt ? formatDuration(attempt.timeTakenSeconds) : ""}</td>
-              <td>{attempt?.submittedAt ? attempt.submittedAt.toLocaleString("en-IN") : ""}</td>
+              <td>{attempt?.submittedAt ? formatIst(attempt.submittedAt) : ""}</td>
             </tr>;
           })}
           {!progressRows.length && <tr><td colSpan={14}>No learner-course records match this filter.</td></tr>}

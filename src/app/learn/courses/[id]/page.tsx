@@ -10,6 +10,7 @@ import { certificateEligibility } from "@/lib/certificate-eligibility";
 import { withBase } from "@/lib/base-path";
 import { db } from "@/lib/db";
 import { requireUser } from "@/lib/session";
+import { formatIst } from "@/lib/ist";
 
 export default async function LearnCourse({ params }: { params: Promise<{ id: string }> }) {
   const user = await requireUser();
@@ -140,8 +141,8 @@ export default async function LearnCourse({ params }: { params: Promise<{ id: st
     id: row.id,
     question: row.question,
     answer: row.answer,
-    createdAt: `Asked ${row.createdAt.toLocaleString("en-IN")}`,
-    answeredAt: row.answeredAt ? `Answered ${row.answeredAt.toLocaleString("en-IN")}` : null,
+    createdAt: `Asked ${formatIst(row.createdAt)}`,
+    answeredAt: row.answeredAt ? `Answered ${formatIst(row.answeredAt)}` : null,
   }));
 
   const certificate = certificateEligibility({
@@ -155,6 +156,32 @@ export default async function LearnCourse({ params }: { params: Promise<{ id: st
     hasSubmittedFeedback,
   });
 
+  // One card per module holding that module's quiz AND its feedback, in
+  // module order, instead of every quiz first and every feedback form at the
+  // bottom of the page. A quiz uploaded before quizzes were per-module has no
+  // module and gets its own "Whole course" card.
+  const feedbackFormFor = (contentId: string) => enrollment.course.feedbackForms.some((form) => !form.courseContentId || form.courseContentId === contentId);
+  const moduleCards = enrollment.course.contents.map((content, index) => ({
+    id: content.id,
+    heading: `Module ${index + 1}: ${content.lessons[0]?.title ?? content.originalName}`,
+    complete: completedContentIds.has(content.id),
+    quizzes: assessmentModules.filter(({ assessment }) => assessment.courseContentId === content.id),
+    feedback: feedbackCards.filter((card) => card.courseContentId === content.id),
+    hasFeedback: feedbackFormFor(content.id),
+  })).filter((card) => card.quizzes.length || card.hasFeedback);
+  const wholeCourseQuizzes = assessmentModules.filter(({ assessment }) => !assessment.courseContentId);
+
+  const quizBlock = ({ assessment, bestAttempt }: (typeof assessmentModules)[number]) => <section key={assessment.id}>
+    <h3>MCQ assessment</h3>
+    <p>{assessment.title}</p>
+    <p className="muted">{assessment.questionsPerAttempt ?? assessment.questions.length} random questions from a bank of {assessment.questions.length} - pass mark {assessment.passPercentage}%</p>
+    {bestAttempt ? <p><span className="badge">{bestAttempt.passed ? "Passed" : "Submitted"}</span> Best score: {bestAttempt.scorePercent}%</p> : <p className="muted">No submitted attempts yet.</p>}
+    <form action={startAssessment}>
+      <input type="hidden" name="assessmentId" value={assessment.id} />
+      <button>{bestAttempt ? "Retake assessment" : "Start assessment"}</button>
+    </form>
+  </section>;
+
   return <main className="container learn-container">
     <div className="badge-row"><span className="badge">{enrollment.status.replaceAll("_", " ")}</span>{!enrollment.course.isActive && <span className="badge badge-muted">Inactive</span>}</div>
     <h1>{enrollment.course.title}</h1>
@@ -167,18 +194,32 @@ export default async function LearnCourse({ params }: { params: Promise<{ id: st
         <LessonPlayer lessons={lessons} />
       </section>
       <aside className="learning-sidebar">
-        {/* One card per module quiz — a course with several modules has
-            several independent MCQ tests now, not one for the whole course. */}
-        {assessmentModules.map(({ assessment, bestAttempt, title }) => <div className="card" key={assessment.id}>
-          <h2>MCQ assessment — {title}</h2>
-          <p>{assessment.title}</p>
-          <p className="muted">{assessment.questionsPerAttempt ?? assessment.questions.length} random questions from a bank of {assessment.questions.length} - pass mark {assessment.passPercentage}%</p>
-          {bestAttempt ? <p><span className="badge">{bestAttempt.passed ? "Passed" : "Submitted"}</span> Best score: {bestAttempt.scorePercent}%</p> : <p className="muted">No submitted attempts yet.</p>}
-          <form action={startAssessment}>
-            <input type="hidden" name="assessmentId" value={assessment.id} />
-            <button>{bestAttempt ? "Retake assessment" : "Start assessment"}</button>
-          </form>
+        {moduleCards.map((card) => <div className="card" key={card.id}>
+          <h2>{card.heading}</h2>
+          {card.quizzes.map(quizBlock)}
+          {card.feedback.map((feedback) => {
+            const form = enrollment.course.feedbackForms.find((f) => f.id === feedback.formId)!;
+            const questions = form.questions.map((question) => ({
+              id: question.id,
+              questionText: question.questionText,
+              type: question.type,
+              required: question.required,
+              options: Array.isArray(question.options) ? question.options.map(String) : [],
+            }));
+            const responseForm = <FeedbackResponseForm embedded key={feedback.key} courseId={id} formId={feedback.formId}
+              courseContentId={feedback.courseContentId} moduleTitle={feedback.title}
+              alreadySubmitted={feedback.alreadySubmitted} questions={questions} />;
+            // Already answered: keep it to one line, with the option to revise.
+            return feedback.alreadySubmitted
+              ? <details key={feedback.key}><summary><span className="badge">Feedback submitted</span> Change my answers</summary>{responseForm}</details>
+              : responseForm;
+          })}
+          {card.hasFeedback && !card.complete && <p className="muted">Feedback for this module opens once you have completed all its lessons.</p>}
         </div>)}
+        {wholeCourseQuizzes.length > 0 && <div className="card">
+          <h2>Whole course</h2>
+          {wholeCourseQuizzes.map(quizBlock)}
+        </div>}
 
         {teacherName && <AskTeacherPanel courseId={id} teacherName={teacherName} threads={teacherThreads} />}
         <CourseAiAssistant courseId={id} />
@@ -199,27 +240,6 @@ export default async function LearnCourse({ params }: { params: Promise<{ id: st
           </>}
         </div>
 
-        {/* One card per module completed so far — a course finished over
-            several sessions gets feedback recorded as each part is done,
-            rather than one form waiting for every module together. */}
-        {feedbackCards.map((card) => {
-          const form = enrollment.course.feedbackForms.find((f) => f.id === card.formId)!;
-          return <FeedbackResponseForm
-            key={card.key}
-            courseId={id}
-            formId={card.formId}
-            courseContentId={card.courseContentId}
-            moduleTitle={card.title}
-            alreadySubmitted={card.alreadySubmitted}
-            questions={form.questions.map((question) => ({
-              id: question.id,
-              questionText: question.questionText,
-              type: question.type,
-              required: question.required,
-              options: Array.isArray(question.options) ? question.options.map(String) : [],
-            }))}
-          />;
-        })}
       </aside>
     </div>
   </main>;

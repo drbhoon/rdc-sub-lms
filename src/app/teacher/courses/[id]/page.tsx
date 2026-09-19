@@ -1,15 +1,15 @@
 import { withBase } from "@/lib/base-path";
 import { notFound } from "next/navigation";
-import { setAssessmentStatus, uploadAssessment } from "@/actions/assessments";
 import { approveContent, editLesson, rejectContent, setCourseStatus } from "@/actions/courses";
-import { setFeedbackFormActive, uploadFeedbackTemplate } from "@/actions/feedback";
 import { ActionForm } from "@/components/action-form";
+import { ModuleActivities } from "@/components/module-activities";
 import { parseQuizQuestions } from "@/lib/ai-study-pack";
 import { requireCourseManager } from "@/lib/course-access";
 import { db } from "@/lib/db";
 import { buildLeaderboardRows, formatDuration } from "@/lib/leaderboard";
 import { classroomScope, enrollmentScopeWhere } from "@/lib/classroom-scope";
 import { answerLearnerQuestion } from "@/actions/course-questions";
+import { formatIst } from "@/lib/ist";
 
 export default async function TeacherCourse({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
@@ -53,9 +53,6 @@ export default async function TeacherCourse({ params }: { params: Promise<{ id: 
     .filter((content) => content.isPublished)
     .flatMap((content) => content.lessons.filter((lesson) => lesson.approvedAt))
     .length;
-  const publishedModules = course.contents.filter((content) => content.isPublished && content.lessons.length);
-  const activeFeedbackForms = course.feedbackForms.filter((form) => form.isActive);
-  const archivedFeedbackForms = course.feedbackForms.filter((form) => !form.isActive);
 
   // A quiz belongs to a module now, so a course can have several ACTIVE at
   // once — combine each employee's best score across whichever of those they
@@ -161,7 +158,7 @@ export default async function TeacherCourse({ params }: { params: Promise<{ id: 
             <p><b>{item.employee.name}</b> <small className="muted">{item.employee.employeeCode}{item.employee.enrollments[0]?.classroom ? ` · ${item.employee.enrollments[0].classroom.name}` : ""}</small></p>
             <p>{item.question}</p>
             {item.answer
-              ? <><p><b>Your answer:</b> {item.answer}</p><small className="muted">Answered {item.answeredAt?.toLocaleString("en-IN")}</small></>
+              ? <><p><b>Your answer:</b> {item.answer}</p><small className="muted">Answered {formatIst(item.answeredAt)}</small></>
               : <ActionForm action={answerLearnerQuestion} submitLabel="Send answer">
                   <input type="hidden" name="questionId" value={item.id} />
                   <label>Your answer<textarea name="answer" required /></label>
@@ -169,9 +166,14 @@ export default async function TeacherCourse({ params }: { params: Promise<{ id: 
           </div>)}
           {!learnerQuestions.length && <p className="muted">No learner has asked you anything yet.</p>}
         </div>
-        <div className="card"><h2>Learner AI history</h2><p className="muted">Latest learner questions asked in this course.</p><p><a className="button secondary" href={withBase(`/api/courses/${course.id}/ai-history`)}>Download complete AI history Excel</a></p><div className="table-wrap"><table><thead><tr><th>Learner</th><th>Mode</th><th>Question</th><th>Answer / Status</th></tr></thead><tbody>{course.aiInteractions.map((item) => <tr key={item.id}><td>{item.employee.name}<br/><small>{item.employee.employeeCode} - {item.employee.company.name}</small></td><td>{item.channel}{item.language ? ` · ${item.language.toUpperCase()}` : ""}</td><td>{item.question}</td><td>{item.answer ?? item.error ?? item.status}<br/><small>{item.createdAt.toLocaleString("en-IN")}</small></td></tr>)}{!course.aiInteractions.length && <tr><td colSpan={4}>No learner AI history is available yet.</td></tr>}</tbody></table></div></div>
-        <div className="card"><h2>Assessment</h2><p><a className="button secondary" href={withBase("/api/templates/assessment")}>Download MCQ template</a></p>{publishedModules.length ? <ActionForm action={uploadAssessment} submitLabel="Upload and activate assessment"><input type="hidden" name="courseId" value={course.id}/><label>Module<select name="courseContentId" required>{publishedModules.map((content) => <option key={content.id} value={content.id}>{content.lessons[0]?.title ?? content.originalName}</option>)}</select></label><label>Assessment title<input name="title" defaultValue="Course Assessment" required/></label><label>Pass percentage<input name="passPercentage" type="number" min="1" max="100" defaultValue={course.passPercentage}/></label><label>Overall time limit (minutes)<input name="timeLimitMinutes" type="number" min="1" max="480" defaultValue={30}/></label><label>Questions offered per attempt<input name="questionsPerAttempt" type="number" min="1" max="200" defaultValue={20} required/></label><label>Question bank (up to 200 questions)<input type="file" name="file" accept=".csv,.xlsx,.xls" required/></label><label className="checkbox"><input type="checkbox" name="shuffleQuestions"/>Shuffle offered questions</label><label className="checkbox"><input type="checkbox" name="showLeaderboard" defaultChecked/>Show leaderboard</label></ActionForm> : <p className="muted">Publish a module with at least one lesson before uploading a quiz for it.</p>}<div className="table-wrap"><table><thead><tr><th>Version</th><th>Module</th><th>Status</th><th>Bank</th><th>Offered</th><th>Time</th><th>Shuffle</th><th>Action</th></tr></thead><tbody>{course.assessments.map((assessment) => <tr key={assessment.id}><td>v{assessment.version}</td><td>{assessment.courseContent?.lessons[0]?.title ?? "Whole course"}</td><td><span className="badge">{assessment.status}</span></td><td>{assessment.questions.length}</td><td>{assessment.questionsPerAttempt ?? assessment.questions.length}</td><td>{Math.ceil(assessment.timeLimitSeconds / 60)} min</td><td>{assessment.shuffleQuestions ? "YES" : "NO"}</td><td><form action={setAssessmentStatus}><input type="hidden" name="assessmentId" value={assessment.id}/><input type="hidden" name="status" value={assessment.status === "ACTIVE" ? "INACTIVE" : "ACTIVE"}/><button className="secondary">{assessment.status === "ACTIVE" ? "Inactivate" : "Activate"}</button></form></td></tr>)}{!course.assessments.length && <tr><td colSpan={8}>No assessment uploaded.</td></tr>}</tbody></table></div><p><a className="button secondary" href={withBase(`/api/courses/${course.id}/assessment-results`)}>Download assessment results Excel</a></p></div>
-        <div className="card"><h2>Feedback</h2><p><a className="button secondary" href={withBase("/api/templates/feedback")}>Download feedback template</a></p>{publishedModules.length ? <ActionForm action={uploadFeedbackTemplate} submitLabel="Upload and activate feedback"><input type="hidden" name="courseId" value={course.id}/><label>Module<select name="courseContentId" required>{publishedModules.map((content) => <option key={content.id} value={content.id}>{content.lessons[0]?.title ?? content.originalName}</option>)}</select></label><label>Feedback title<input name="title" defaultValue="Course Feedback" required/></label><label>Feedback template<input type="file" name="file" accept=".csv,.xlsx,.xls" required/></label></ActionForm> : <p className="muted">Publish a module with at least one lesson before uploading feedback for it.</p>}<div className="table-wrap"><table><thead><tr><th>Version</th><th>Module</th><th>Status</th><th>Responses</th><th>Action</th></tr></thead><tbody>{activeFeedbackForms.map((form) => <tr key={form.id}><td>v{form.version}</td><td>{form.courseContent?.lessons[0]?.title ?? "Whole course"}</td><td><span className="badge">ACTIVE</span></td><td>{form.responses.length}</td><td><form action={setFeedbackFormActive}><input type="hidden" name="formId" value={form.id}/><input type="hidden" name="isActive" value="false"/><button className="secondary">Archive</button></form></td></tr>)}{!activeFeedbackForms.length && <tr><td colSpan={5}>No active feedback form.</td></tr>}</tbody></table></div>{archivedFeedbackForms.length > 0 && <details className="archived-forms"><summary>Archived feedback forms ({archivedFeedbackForms.length})</summary><div className="table-wrap"><table><thead><tr><th>Version</th><th>Module</th><th>Responses</th><th>Action</th></tr></thead><tbody>{archivedFeedbackForms.map((form) => <tr key={form.id}><td>v{form.version}</td><td>{form.courseContent?.lessons[0]?.title ?? "Whole course"}</td><td>{form.responses.length}</td><td><form action={setFeedbackFormActive}><input type="hidden" name="formId" value={form.id}/><input type="hidden" name="isActive" value="true"/><button className="secondary">Restore</button></form></td></tr>)}</tbody></table></div><p className="muted">Restoring archives whichever form is active for the same module. Responses are never deleted.</p></details>}<p><a className="button secondary" href={withBase(`/api/courses/${course.id}/feedback-export`)}>Download feedback Excel</a></p></div>
+        <div className="card"><h2>Learner AI history</h2><p className="muted">Latest learner questions asked in this course.</p><p><a className="button secondary" href={withBase(`/api/courses/${course.id}/ai-history`)}>Download complete AI history Excel</a></p><div className="table-wrap"><table><thead><tr><th>Learner</th><th>Mode</th><th>Question</th><th>Answer / Status</th></tr></thead><tbody>{course.aiInteractions.map((item) => <tr key={item.id}><td>{item.employee.name}<br/><small>{item.employee.employeeCode} - {item.employee.company.name}</small></td><td>{item.channel}{item.language ? ` · ${item.language.toUpperCase()}` : ""}</td><td>{item.question}</td><td>{item.answer ?? item.error ?? item.status}<br/><small>{formatIst(item.createdAt)}</small></td></tr>)}{!course.aiInteractions.length && <tr><td colSpan={4}>No learner AI history is available yet.</td></tr>}</tbody></table></div></div>
+        <ModuleActivities
+          courseId={course.id}
+          passPercentage={course.passPercentage}
+          modules={course.contents}
+          assessments={course.assessments}
+          feedbackForms={course.feedbackForms}
+        />
       </aside>
     </div>
   </main>;

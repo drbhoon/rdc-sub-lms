@@ -3,6 +3,7 @@ import { readFile } from "node:fs/promises";
 import path from "node:path";
 import { PDFDocument, StandardFonts, rgb, type PDFFont, type PDFPage } from "pdf-lib";
 import type { CertificateRecord } from "@/lib/certificate-record";
+import { formatIstDate } from "./ist";
 
 const A4_LANDSCAPE: [number, number] = [841.89, 595.28];
 const navy = rgb(18 / 255, 35 / 255, 63 / 255);
@@ -93,7 +94,7 @@ export async function createCertificatePdf(record: CertificateRecord) {
   centeredWrappedText(page, clean(record.courseTitle), 183, 23, font, width - 160, navy);
   centeredText(
     page,
-    clean(`Completed on ${record.completedAt.toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric" })}`),
+    clean(`Completed on ${formatIstDate(record.completedAt)}`),
     116,
     12,
     font,

@@ -19,12 +19,15 @@ function questionOptions(type: string, configured: unknown, values: string[]) {
 export async function GET(request: Request, context: { params: Promise<{ id: string }> }) {
   const { id } = await context.params;
   if (!await routeCourseManager(id)) return new Response("Forbidden", { status: 403 });
-  const formId = new URL(request.url).searchParams.get("formId") ?? "";
+  const params = new URL(request.url).searchParams;
+  const formId = params.get("formId") ?? "";
+  // ?module= narrows the workbook to one module's forms, every version.
+  const moduleId = params.get("module") ?? "";
   const course = await db.course.findUnique({
     where: { id },
     include: {
       feedbackForms: {
-        where: formId ? { id: formId } : undefined,
+        where: formId ? { id: formId } : moduleId ? { courseContentId: moduleId } : undefined,
         include: {
           questions: { orderBy: { order: "asc" } },
           // courseContent + its lesson, to label which module each response

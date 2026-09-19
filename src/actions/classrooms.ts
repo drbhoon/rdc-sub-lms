@@ -1,10 +1,15 @@
 "use server";
 
+import { CourseStatus, EmployeeStatus, UserRole } from "@prisma/client";
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
 import { audit } from "@/lib/audit";
+import { classroomKey, hasClassroomColumns, planClassrooms } from "@/lib/classroom-import";
 import { requireCourseManager } from "@/lib/course-access";
 import { db } from "@/lib/db";
+import { enrolRoster, queueEnrollmentEmails } from "@/lib/roster-enrolment";
+import { requireRole } from "@/lib/session";
+import { readTabularFile } from "@/lib/tabular-import";
 import { eligibleTeacherWhere } from "@/lib/teacher-eligibility";
 
 type ActionState = { message?: string };
@@ -142,5 +147,162 @@ export async function assignLearnersToClassroom(_: ActionState, formData: FormDa
     message: classroomId
       ? `${result.count} learner(s) moved.`
       : `${result.count} learner(s) removed from their classroom.`,
+  };
+}
+
+export type ClassroomImportState = { message?: string; details?: string[]; ok?: boolean };
+
+const MAX_LISTED = 12;
+
+function refused(summary: string, problems: string[]): ClassroomImportState {
+  return {
+    message: `${summary} Nothing was changed.`,
+    details: problems.length > MAX_LISTED ? [...problems.slice(0, MAX_LISTED), `…and ${problems.length - MAX_LISTED} more.`] : problems,
+  };
+}
+
+/**
+ * Set up a course's classrooms from one file: create the rooms, give each its
+ * teacher, enrol any learner not yet on the course (admitting new people the
+ * same way the roster upload does), and place every learner in their room.
+ *
+ * The file is checked in full before anything is written — see
+ * planClassrooms — and so are the teachers, so a file either applies or comes
+ * back with the complete list of what to fix.
+ *
+ * What the file does NOT touch: rooms it does not mention, learners it does
+ * not list, and the teacher of a room it lists without one. A listed learner
+ * who already sits in another room is moved, because the file says where they
+ * belong.
+ *
+ * Naming someone in the teacher column gives them the Teacher role if they
+ * lack it — the admin has just said they teach. They must already be an
+ * active employee in LMS: this upload never invents a teacher from a bare
+ * e-mail address.
+ */
+export async function importClassrooms(_: ClassroomImportState, formData: FormData): Promise<ClassroomImportState> {
+  const courseId = String(formData.get("courseId") ?? "");
+  const actor = await requireRole(UserRole.SUPER_ADMIN);
+  const course = await db.course.findUnique({ where: { id: courseId } });
+  if (!course) return { message: "Course not found." };
+
+  const file = formData.get("file");
+  if (!(file instanceof File)) return { message: "Select the classroom CSV or Excel file." };
+  let rawRows: Awaited<ReturnType<typeof readTabularFile>>;
+  try {
+    rawRows = await readTabularFile(file);
+  } catch (error) {
+    return { message: error instanceof Error ? error.message : "The classroom file could not be read." };
+  }
+  if (!rawRows.length) return { message: "The classroom file is empty." };
+  if (!hasClassroomColumns(rawRows[0])) return { message: "The file needs CLASSROOM and LEARNER_EMAIL columns. Download the template for the layout." };
+
+  const plan = planClassrooms(rawRows);
+
+  // ── Teachers: each must be an active person already in LMS ──────────────
+  const teacherEmails = [...new Set(plan.classrooms.map((room) => room.teacherEmail).filter((email): email is string => Boolean(email)))];
+  const teacherUsers = teacherEmails.length ? await db.user.findMany({
+    where: { OR: [{ email: { in: teacherEmails } }, { employee: { email: { in: teacherEmails } } }] },
+    include: { employee: true, roles: true },
+  }) : [];
+  const teacherByEmail = new Map<string, (typeof teacherUsers)[number]>();
+  for (const user of teacherUsers) {
+    teacherByEmail.set(user.email.toLowerCase(), user);
+    if (user.employee) teacherByEmail.set(user.employee.email.toLowerCase(), user);
+  }
+  const teacherProblems: string[] = [];
+  const needsTeacherRole = new Set<string>();
+  for (const email of teacherEmails) {
+    const user = teacherByEmail.get(email);
+    const roles = new Set(user?.roles.map((grant) => grant.role) ?? []);
+    if (!user) teacherProblems.push(`Teacher ${email} is not in LMS. Add them as an employee first.`);
+    else if (user.employee && user.employee.status !== EmployeeStatus.ACTIVE) teacherProblems.push(`Teacher ${email} is not an active employee.`);
+    else if (!user.employee && !roles.has(UserRole.SUPER_ADMIN)) teacherProblems.push(`Teacher ${email} has a login but no employee record.`);
+    else if (!roles.has(UserRole.TEACHER) && !roles.has(UserRole.SUPER_ADMIN)) needsTeacherRole.add(user.id);
+  }
+  // File problems and teacher problems come back together, so one round of
+  // corrections fixes everything rather than revealing the next layer.
+  const problems = [...plan.errors, ...teacherProblems];
+  if (problems.length) return refused(`The file has ${problems.length} problem(s).`, problems);
+
+  // ── Learners: new enrolments need a course that accepts them ─────────────
+  const learnerEmails = plan.learners.map((learner) => learner.email);
+  const alreadyEnrolled = learnerEmails.length
+    ? await db.enrollment.count({ where: { courseId, employee: { email: { in: learnerEmails } } } })
+    : 0;
+  const toEnrol = learnerEmails.length - alreadyEnrolled;
+  if (toEnrol > 0 && course.status !== CourseStatus.PUBLISHED) {
+    return refused(`${toEnrol} learner(s) in the file are not on this course yet, and learners can only be enrolled once it is published.`, []);
+  }
+  if (toEnrol > 0 && !course.isActive) {
+    return refused(`${toEnrol} learner(s) in the file are not on this course yet, and it is inactive. Reactivate it first.`, []);
+  }
+
+  const enrolment = await enrolRoster(course, plan.learners);
+  queueEnrollmentEmails(enrolment.newlyEnrolled, course);
+
+  // ── Rooms, teachers and placements, in one transaction ───────────────────
+  const existingRooms = await db.classroom.findMany({ where: { courseId } });
+  const roomByKey = new Map(existingRooms.map((room) => [classroomKey(room.name), room]));
+  const placedEmployeeIds = [...enrolment.employeeIdByEmail.values()];
+  const before = placedEmployeeIds.length ? await db.enrollment.findMany({
+    where: { courseId, employeeId: { in: placedEmployeeIds } },
+    select: { employeeId: true, classroomId: true },
+  }) : [];
+  const roomBefore = new Map(before.map((enrollment) => [enrollment.employeeId, enrollment.classroomId]));
+
+  let roomsCreated = 0;
+  let roomsRetaught = 0;
+  let placed = 0;
+  let moved = 0;
+  // 50 rooms is a few hundred statements; the 5 s default is too tight for that.
+  await db.$transaction(async (tx) => {
+    for (const userId of needsTeacherRole) {
+      await tx.userRoleGrant.upsert({ where: { userId_role: { userId, role: UserRole.TEACHER } }, update: {}, create: { userId, role: UserRole.TEACHER } });
+    }
+    for (const planned of plan.classrooms) {
+      const teacherUserId = planned.teacherEmail ? teacherByEmail.get(planned.teacherEmail)!.id : undefined;
+      let room = roomByKey.get(classroomKey(planned.name));
+      if (!room) {
+        room = await tx.classroom.create({ data: { courseId, name: planned.name, teacherUserId: teacherUserId ?? null } });
+        roomByKey.set(classroomKey(planned.name), room);
+        roomsCreated += 1;
+      } else if (teacherUserId && room.teacherUserId !== teacherUserId) {
+        room = await tx.classroom.update({ where: { id: room.id }, data: { teacherUserId } });
+        roomsRetaught += 1;
+      }
+      if (teacherUserId) await grantCourseAccess(tx, courseId, teacherUserId);
+
+      const employeeIds = planned.learnerEmails
+        .map((email) => enrolment.employeeIdByEmail.get(email))
+        .filter((id): id is string => Boolean(id));
+      if (!employeeIds.length) continue;
+      const roomId = room.id;
+      const result = await tx.enrollment.updateMany({ where: { courseId, employeeId: { in: employeeIds } }, data: { classroomId: roomId } });
+      placed += result.count;
+      moved += employeeIds.filter((id) => roomBefore.get(id) && roomBefore.get(id) !== roomId).length;
+    }
+  }, { timeout: 120_000 });
+
+  await audit(actor.id, "CLASSROOMS_IMPORTED", "Course", courseId, {
+    fileName: file.name, rooms: plan.classrooms.length, roomsCreated, roomsRetaught, placed, moved,
+    learnersCreated: enrolment.created, learnersEnrolled: enrolment.enrolled, teacherRolesGranted: needsTeacherRole.size,
+    errors: enrolment.rowErrors.length,
+  });
+  revalidateCourse(courseId);
+  revalidatePath("/admin/employees");
+
+  const notes = [
+    `${plan.classrooms.length} classroom(s) in the file: ${roomsCreated} created, ${plan.classrooms.length - roomsCreated} already existed${roomsRetaught ? ` (${roomsRetaught} given a new teacher)` : ""}`,
+    `${placed} learner(s) placed${moved ? `, ${moved} of them moved from another classroom` : ""}`,
+  ];
+  if (enrolment.enrolled) notes.push(`${enrolment.enrolled} newly enrolled on the course${enrolment.created ? `, ${enrolment.created} of them new to LMS` : ""}; their enrolment e-mails are being sent`);
+  if (needsTeacherRole.size) notes.push(`${needsTeacherRole.size} person(s) given the Teacher role`);
+  return {
+    ok: enrolment.rowErrors.length === 0,
+    message: `Classrooms updated. ${notes.join("; ")}.`,
+    details: enrolment.rowErrors.length
+      ? [`${enrolment.rowErrors.length} learner(s) could not be enrolled, so were not placed:`, ...enrolment.rowErrors.slice(0, MAX_LISTED)]
+      : undefined,
   };
 }
