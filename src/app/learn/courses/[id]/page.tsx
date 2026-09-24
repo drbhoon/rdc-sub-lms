@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { startAssessment } from "@/actions/assessments";
+import { loadCourseGrades } from "@/lib/course-grades";
 import { findLearnerTeacher } from "@/actions/course-questions";
 import { AskTeacherPanel } from "@/components/ask-teacher-panel";
 import { CourseAiAssistant } from "@/components/course-ai-assistant";
@@ -209,7 +210,8 @@ export default async function LearnCourse({ params }: { params: Promise<{ id: st
       </div>,
     };
   }).filter((tab) => tab.show);
-  const wholeCourseQuizzes = assessmentModules.filter(({ assessment }) => !assessment.courseContentId);
+  const wholeCourseQuizzes = assessmentModules.filter(({ assessment }) => !assessment.courseContentId && assessment.kind !== "FINAL");
+  const finalQuizzes = assessmentModules.filter(({ assessment }) => assessment.kind === "FINAL");
   if (wholeCourseQuizzes.length) {
     moduleTabs.push({
       id: "whole-course",
@@ -218,8 +220,23 @@ export default async function LearnCourse({ params }: { params: Promise<{ id: st
       panel: <div className="module-panel">{wholeCourseQuizzes.map(quizPart)}</div>,
     });
   }
+  // The final assessment draws on every module, so it comes last.
+  if (finalQuizzes.length) {
+    moduleTabs.push({
+      id: "final",
+      label: "Final assessment",
+      status: finalQuizzes.every((quiz) => quiz.bestAttempt?.passed) ? "done" : "todo",
+      panel: <div className="module-panel">
+        <p className="muted">Questions are drawn at random from every module of this course.</p>
+        {finalQuizzes.map(quizPart)}
+      </div>,
+    });
+  }
   // Open on the first module with something still to do.
   const firstOpenTab = moduleTabs.find((tab) => tab.status === "todo")?.id;
+
+  // The weighted course result, when an admin has set the weights.
+  const courseGrade = (await loadCourseGrades(id, [user.employeeId]))?.byEmployee.get(user.employeeId)?.grade ?? null;
 
   return <main className="container learn-container">
     <div className="badge-row"><span className="badge">{enrollment.status.replaceAll("_", " ")}</span>{!enrollment.course.isActive && <span className="badge badge-muted">Inactive</span>}</div>
@@ -235,6 +252,19 @@ export default async function LearnCourse({ params }: { params: Promise<{ id: st
       <aside className="learning-sidebar">
         {teacherName && <AskTeacherPanel courseId={id} teacherName={teacherName} threads={teacherThreads} />}
         <CourseAiAssistant courseId={id} />
+
+        {courseGrade && <div className="card course-result">
+          <h2>Course result</h2>
+          <p className="course-result-total"><strong>{courseGrade.total}</strong> / 100</p>
+          <table className="course-result-table"><tbody>
+            {courseGrade.components.map((component) => <tr key={component.key}>
+              <td>{component.label}<br /><small className="muted">weight {component.weight}</small></td>
+              <td>{component.score === null ? <span className="muted">not yet</span> : `${component.score}%`}</td>
+              <td><strong>{component.contribution}</strong></td>
+            </tr>)}
+          </tbody></table>
+          {!courseGrade.complete && <p className="muted">Still to come: {courseGrade.pending.join(", ")}. They add to this total as you complete them.</p>}
+        </div>}
 
         <div className="card">
           <h2>Certificate</h2>

@@ -105,8 +105,10 @@ export async function setAssessmentStatus(formData: FormData) {
   await db.$transaction(async (tx) => {
     if (status === AssessmentStatus.ACTIVE) {
       // Same module only — a different module's quiz is a different quiz and
-      // is untouched by this one activating.
-      await tx.assessment.updateMany({ where: { courseId: assessment.courseId, courseContentId: assessment.courseContentId, status: AssessmentStatus.ACTIVE }, data: { status: AssessmentStatus.INACTIVE } });
+      // is untouched by this one activating. Same KIND too: the final and a
+      // legacy whole-course quiz both have no module, and switching one on
+      // must not switch the other off.
+      await tx.assessment.updateMany({ where: { courseId: assessment.courseId, courseContentId: assessment.courseContentId, kind: assessment.kind, status: AssessmentStatus.ACTIVE }, data: { status: AssessmentStatus.INACTIVE } });
     }
     await tx.assessment.update({ where: { id: assessmentId }, data: { status } });
   });

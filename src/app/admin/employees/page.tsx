@@ -1,5 +1,5 @@
 import { withBase } from "@/lib/base-path";
-import { UserRole } from "@prisma/client";
+import { Prisma, UserRole } from "@prisma/client";
 import { createEmployee, deleteEmployee, updateUserRoles, importEmployeesFromMaster } from "@/actions/employees";
 import { ActionForm } from "@/components/action-form";
 import { EmployeeCourseEnrollmentForm } from "@/components/employee-course-enrollment-form";
@@ -7,13 +7,58 @@ import { EmployeeImportForm } from "@/components/employee-import-form";
 import { db } from "@/lib/db";
 import { requireRole } from "@/lib/session";
 
-export default async function EmployeesPage() {
+/** How many rows the master table draws at once. The employee master holds
+ *  well over this, so the page says when it is showing only part of it. */
+const PAGE_LIMIT = 1000;
+
+/**
+ * Search runs in the database, not the browser: the table only ever holds the
+ * first PAGE_LIMIT rows, so filtering what was already loaded could never find
+ * the employees beyond them — which, with ~1,370 people on the master, is a
+ * quarter of the company.
+ */
+function employeeSearch(query: string): Prisma.EmployeeWhereInput {
+  if (!query) return {};
+  const like = { contains: query, mode: Prisma.QueryMode.insensitive };
+  return {
+    OR: [
+      { name: like },
+      { employeeCode: like },
+      { email: like },
+      { department: like },
+      { designation: like },
+      { locationPlant: like },
+      { company: { name: like } },
+    ],
+  };
+}
+
+export default async function EmployeesPage({ searchParams }: { searchParams: Promise<{ q?: string }> }) {
   const actor = await requireRole(UserRole.SUPER_ADMIN);
-  const [employees, activeCourses, companies] = await Promise.all([
+  const { q } = await searchParams;
+  const query = (q ?? "").trim().slice(0, 100);
+  const where = employeeSearch(query);
+  const [employees, matching, total, allocatable, activeCourses, companies] = await Promise.all([
     db.employee.findMany({
+      where,
       include: { company: true, enrollments: { select: { courseId: true } }, user: { include: { roles: true, coursesTaught: { include: { course: true } } } } },
       orderBy: { name: "asc" },
-      take: 1000,
+      take: PAGE_LIMIT,
+    }),
+    db.employee.count({ where }),
+    db.employee.count(),
+    // The course-allocation picker has its own search box and must be able to
+    // reach every active employee, whatever the master table is filtered to.
+    // It used to reuse the table's rows, so it silently stopped at 1,000 too.
+    db.employee.findMany({
+      where: { status: "ACTIVE" },
+      select: {
+        id: true, name: true, employeeCode: true, email: true, companyId: true,
+        company: { select: { name: true } },
+        enrollments: { select: { courseId: true } },
+        user: { select: { roles: { select: { role: true } } } },
+      },
+      orderBy: { name: "asc" },
     }),
     db.course.findMany({
       where: { isActive: true, status: "PUBLISHED" },
@@ -30,6 +75,23 @@ export default async function EmployeesPage() {
     <div className="two-col">
       <section className="card">
         <h2>Employee master</h2>
+        <form className="employee-search" method="get" role="search">
+          <input
+            type="search"
+            name="q"
+            defaultValue={query}
+            placeholder="Search by name, employee code, e-mail, company, plant, department or designation"
+            aria-label="Search employees"
+            maxLength={100}
+          />
+          <button type="submit">Search</button>
+          {query && <a className="button secondary" href={withBase("/admin/employees")}>Clear</a>}
+        </form>
+        <p className="muted">
+          {query
+            ? `${matching} of ${total} employees match "${query}"${matching > employees.length ? ` - showing the first ${employees.length}; narrow the search to see the rest` : ""}.`
+            : `${total} employees${total > employees.length ? ` - showing the first ${employees.length} alphabetically. Search to find anyone else` : ""}.`}
+        </p>
         <div className="table-wrap">
           <table>
             <thead><tr><th>Employee</th><th>Company</th><th>Department</th><th>Status</th><th>Learner view</th><th>Roles</th><th>Delete</th></tr></thead>
@@ -61,7 +123,7 @@ export default async function EmployeesPage() {
                   </td>
                 </tr>;
               })}
-              {!employees.length && <tr><td colSpan={7}>No employees have been imported.</td></tr>}
+              {!employees.length && <tr><td colSpan={7}>{query ? `No employee matches "${query}".` : "No employees have been imported."}</td></tr>}
             </tbody>
           </table>
         </div>
@@ -124,7 +186,7 @@ export default async function EmployeesPage() {
         <h2>Allocate courses to employee</h2>
         <p className="muted">Search an employee, then select one or more eligible courses.</p>
         <EmployeeCourseEnrollmentForm
-          employees={employees.filter((employee) => employee.status === "ACTIVE").map((employee) => {
+          employees={allocatable.map((employee) => {
             const roles = employee.user?.roles.map((role) => role.role) ?? [];
             return {
               id: employee.id,

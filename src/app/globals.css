@@ -18,6 +18,14 @@ label { display:grid; gap:.4rem; color:#334155; font-weight:600; }
 .nav { display:flex; gap:.5rem; align-items:center; flex-wrap:wrap; }
 .nav a { padding:.5rem .65rem; border-radius:6px; }
 .nav a:hover { background:#ffffff18; }
+/* The section you are in. The bar is already navy, so a DARKER shade of it
+   cannot be seen — which is why an earlier attempt looked like nothing
+   happened. The chosen link is inverted instead: a solid white tab with navy
+   bold text and a green rule under it, unmistakable at a glance. */
+.employee-search { display:flex; gap:.5rem; align-items:center; margin:.25rem 0 .5rem; }
+.employee-search input { flex:1 1 auto; }
+.employee-search button,.employee-search .button { flex:0 0 auto; white-space:nowrap; }
+.nav a.nav-active,.nav a.nav-active:hover { background:white; color:var(--navy); font-weight:800; box-shadow:inset 0 -3px 0 var(--green); }
 .nav button { background:transparent; padding:.5rem .65rem; }
 .container { width:min(1180px,calc(100% - 2rem)); margin:0 auto; padding:2rem 0 4rem; }
 .narrow { width:min(480px,calc(100% - 2rem)); margin:5vh auto; }
@@ -181,3 +189,16 @@ h1 { color:var(--navy); margin-top:0; }
 .module-tab-todo, .module-tab-active .module-tab-todo { color:#f0a500; }
 .module-tab-heading { margin:0 0 .8rem; color:var(--navy); }
 .module-tabs-below { margin-top:1rem; }
+/* Course assessment engine */
+.grading-form fieldset { display:grid; gap:.5rem; }
+.weight-row { display:grid; grid-template-columns:minmax(0,1fr) 7rem; align-items:center; gap:.75rem; font-weight:600; }
+.weight-row input { text-align:right; }
+.weight-total { font-size:1.1rem; margin:.25rem 0; padding:.6rem .8rem; border-radius:8px; }
+.weight-total-ok { background:#e6f6ec; color:var(--success); border:1px solid #b9e3c8; }
+.weight-total-off { background:#fdecec; color:var(--danger); border:1px solid #f3c1c1; }
+.teacher-eval { border:1px solid var(--line); border-radius:8px; padding:.5rem .75rem; margin:.5rem 0; background:white; }
+.teacher-eval summary { cursor:pointer; }
+.course-result-total { font-size:2rem; color:var(--navy); margin:.25rem 0 .5rem; }
+.course-result-table { width:100%; font-size:.92rem; }
+.course-result-table td { padding:.35rem .25rem; border-bottom:1px solid var(--line); }
+.course-result-table td:last-child { text-align:right; }

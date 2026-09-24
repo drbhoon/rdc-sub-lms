@@ -4,6 +4,7 @@ import { CourseStatus, EmployeeStatus, UserRole } from "@prisma/client";
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
 import { audit } from "@/lib/audit";
+import { queueTeacherRoleEmails } from "@/lib/course-notifications";
 import { classroomKey, hasClassroomColumns, planClassrooms } from "@/lib/classroom-import";
 import { requireCourseManager } from "@/lib/course-access";
 import { db } from "@/lib/db";
@@ -283,6 +284,9 @@ export async function importClassrooms(_: ClassroomImportState, formData: FormDa
       moved += employeeIds.filter((id) => roomBefore.get(id) && roomBefore.get(id) !== roomId).length;
     }
   }, { timeout: 120_000 });
+  // Only now that the grants are committed: a rolled-back upload must not
+  // have told anybody they are a teacher.
+  queueTeacherRoleEmails(needsTeacherRole);
 
   await audit(actor.id, "CLASSROOMS_IMPORTED", "Course", courseId, {
     fileName: file.name, rooms: plan.classrooms.length, roomsCreated, roomsRetaught, placed, moved,
@@ -297,7 +301,7 @@ export async function importClassrooms(_: ClassroomImportState, formData: FormDa
     `${placed} learner(s) placed${moved ? `, ${moved} of them moved from another classroom` : ""}`,
   ];
   if (enrolment.enrolled) notes.push(`${enrolment.enrolled} newly enrolled on the course${enrolment.created ? `, ${enrolment.created} of them new to LMS` : ""}; their enrolment e-mails are being sent`);
-  if (needsTeacherRole.size) notes.push(`${needsTeacherRole.size} person(s) given the Teacher role`);
+  if (needsTeacherRole.size) notes.push(`${needsTeacherRole.size} person(s) given the Teacher role and e-mailed a sign-in link`);
   return {
     ok: enrolment.rowErrors.length === 0,
     message: `Classrooms updated. ${notes.join("; ")}.`,

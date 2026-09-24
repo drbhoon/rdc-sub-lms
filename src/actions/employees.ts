@@ -8,6 +8,7 @@ import { revalidatePath } from "next/cache";
 import { z } from "zod";
 import { db } from "@/lib/db";
 import { audit } from "@/lib/audit";
+import { queueTeacherRoleEmails } from "@/lib/course-notifications";
 import { missingEmployeeColumns, normalizeEmployeeImportRow } from "@/lib/employee-import";
 import { resolvePersonId } from "@/lib/identity";
 import { fetchMasterEmployees, masterConfigured, type MasterSource } from "@/lib/master";
@@ -45,6 +46,7 @@ export async function createEmployee(_: { message?: string }, formData: FormData
   // slow neighbour turns into lock contention here. A null result is fine.
   const personId = await resolvePersonId(email, input.name, input.employeeCode);
 
+  const newTeachers: string[] = [];
   try {
     const employee = await db.$transaction(async (tx) => {
       const created = await tx.employee.create({
@@ -62,15 +64,18 @@ export async function createEmployee(_: { message?: string }, formData: FormData
           status: EmployeeStatus.ACTIVE,
         },
       });
-      const existingUser = await tx.user.findUnique({ where: { email } });
+      const existingUser = await tx.user.findUnique({ where: { email }, include: { roles: true } });
       if (existingUser?.employeeId) throw new Error("This email is already linked to another employee.");
+      const hadTeacher = existingUser?.roles.some((grant) => grant.role === UserRole.TEACHER) ?? false;
       const user = existingUser
         ? await tx.user.update({ where: { id: existingUser.id }, data: { employeeId: created.id } })
         : await tx.user.create({ data: { email, employeeId: created.id } });
       const roles = [UserRole.LEARNER, ...(makeTeacher ? [UserRole.TEACHER] : []), ...(makeSuperAdmin ? [UserRole.SUPER_ADMIN] : [])];
       await tx.userRoleGrant.createMany({ data: roles.map((role) => ({ userId: user.id, role })), skipDuplicates: true });
+      if (makeTeacher && !hadTeacher) newTeachers.push(user.id);
       return created;
     });
+    queueTeacherRoleEmails(newTeachers);
     await audit(actor.id, "EMPLOYEE_CREATED", "Employee", employee.id, { employeeCode: employee.employeeCode, email });
     revalidatePath("/admin/employees");
     revalidatePath("/admin/courses");
@@ -174,6 +179,7 @@ export async function importEmployees(_: EmployeeImportState, formData: FormData
     chunk.forEach((row, index) => personIds.set(row.employeeCode, resolved[index]));
   }
 
+  const newTeachers: string[] = [];
   await db.$transaction(async (tx) => {
     for (const row of normalized) {
       const company = await tx.company.upsert({ where: { name: row.company }, update: {}, create: { name: row.company } });
@@ -205,11 +211,16 @@ export async function importEmployees(_: EmployeeImportState, formData: FormData
         ? await tx.user.update({ where: { id: existingUser.id }, data: { email: row.email } })
         : await tx.user.upsert({ where: { email: row.email }, update: { employeeId: employee.id }, create: { email: row.email, employeeId: employee.id } });
       for (const role of row.roles) {
+        if (role === UserRole.TEACHER) {
+          const held = await tx.userRoleGrant.findUnique({ where: { userId_role: { userId: user.id, role } } });
+          if (!held) newTeachers.push(user.id);
+        }
         await tx.userRoleGrant.upsert({ where: { userId_role: { userId: user.id, role } }, update: {}, create: { userId: user.id, role } });
       }
       if (row.status === EmployeeStatus.INACTIVE) await tx.session.deleteMany({ where: { userId: user.id } });
     }
   });
+  queueTeacherRoleEmails(newTeachers);
   await audit(actor.id, "EMPLOYEES_IMPORTED", "Employee", undefined, { count: normalized.length, fileName: file.name });
   revalidatePath("/admin/employees");
   return { message: `${normalized.length} employee records imported successfully.`, preview: false };
@@ -218,7 +229,9 @@ export async function importEmployees(_: EmployeeImportState, formData: FormData
 export async function grantTeacher(formData: FormData) {
   const actor = await requireRole(UserRole.SUPER_ADMIN);
   const userId = String(formData.get("userId"));
+  const held = await db.userRoleGrant.findUnique({ where: { userId_role: { userId, role: UserRole.TEACHER } } });
   await db.userRoleGrant.upsert({ where: { userId_role: { userId, role: UserRole.TEACHER } }, update: {}, create: { userId, role: UserRole.TEACHER } });
+  if (!held) queueTeacherRoleEmails([userId]);
   await audit(actor.id, "TEACHER_ROLE_GRANTED", "User", userId);
   revalidatePath("/admin/employees");
 }
@@ -252,6 +265,10 @@ export async function updateUserRoles(_: { message?: string }, formData: FormDat
     if (makeSuperAdmin) await tx.userRoleGrant.upsert({ where: { userId_role: { userId, role: UserRole.SUPER_ADMIN } }, update: {}, create: { userId, role: UserRole.SUPER_ADMIN } });
     else await tx.userRoleGrant.deleteMany({ where: { userId, role: UserRole.SUPER_ADMIN } });
   });
+
+  // The roles were loaded before the change, so this is exactly "was not a
+  // teacher, is one now" — ticking Save again on a teacher sends nothing.
+  if (makeTeacher && !user.roles.some((grant) => grant.role === UserRole.TEACHER)) queueTeacherRoleEmails([userId]);
 
   await audit(actor.id, "USER_ROLES_UPDATED", "User", userId, { teacher: makeTeacher, superAdmin: makeSuperAdmin });
   revalidatePath("/admin/employees");

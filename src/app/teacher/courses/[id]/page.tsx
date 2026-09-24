@@ -3,6 +3,7 @@ import { notFound } from "next/navigation";
 import { approveContent, editLesson, rejectContent, setCourseStatus } from "@/actions/courses";
 import { ActionForm } from "@/components/action-form";
 import { ModuleActivities } from "@/components/module-activities";
+import { TeacherEvaluationPanel } from "@/components/teacher-evaluation-panel";
 import { parseQuizQuestions } from "@/lib/ai-study-pack";
 import { requireCourseManager } from "@/lib/course-access";
 import { db } from "@/lib/db";
@@ -153,6 +154,12 @@ export default async function TeacherCourse({ params }: { params: Promise<{ id: 
         {course.enrollments.map((enrollment) => <tr key={enrollment.id}><td>{enrollment.employee.name}<br/><small>{enrollment.employee.employeeCode}</small></td><td>{enrollment.classroom?.name ?? <span className="muted">Unassigned</span>}</td><td><span className="badge">{enrollment.status.replaceAll("_", " ")}</span></td></tr>)}
         {!course.enrollments.length && <tr><td colSpan={2}>No learners enrolled.</td></tr>}
       </tbody></table></div>{course.leaderboardEnabled && <section className="topper-panel"><h2>Toppers</h2><p className="muted">{assessmentLeaderboard.length ? "Formula: assessment score 70% + speed 30%. Assessment score is averaged across every quiz-eligible module attempted." : "Formula: progress score 70% + speed score 30%."}</p><ol className="leaderboard-list">{(assessmentLeaderboard.length ? assessmentLeaderboard : progressLeaderboard).map((row) => <li key={row.enrollmentId}><strong>{row.employeeName}</strong><span>{row.rankScore}% - {formatDuration(row.completionSeconds)}</span></li>)}</ol>{!(assessmentLeaderboard.length ? assessmentLeaderboard : progressLeaderboard).length && <p>No learner progress yet.</p>}</section>}</div>
+        <TeacherEvaluationPanel courseId={course.id} learners={course.enrollments.map((enrollment) => ({
+          employeeId: enrollment.employeeId,
+          name: enrollment.employee.name,
+          employeeCode: enrollment.employee.employeeCode,
+          classroomName: enrollment.classroom?.name ?? null,
+        }))} />
         <div className="card"><h2>Learner questions for you</h2><p className="muted">Questions your learners chose to send to you rather than the AI. Unanswered ones are listed first.</p>
           {learnerQuestions.map((item) => <div className="teacher-thread" key={item.id}>
             <p><b>{item.employee.name}</b> <small className="muted">{item.employee.employeeCode}{item.employee.enrollments[0]?.classroom ? ` · ${item.employee.enrollments[0].classroom.name}` : ""}</small></p>
@@ -171,7 +178,7 @@ export default async function TeacherCourse({ params }: { params: Promise<{ id: 
           courseId={course.id}
           passPercentage={course.passPercentage}
           modules={course.contents}
-          assessments={course.assessments}
+          assessments={course.assessments.filter((assessment) => assessment.kind !== "FINAL")}
           feedbackForms={course.feedbackForms}
         />
       </aside>

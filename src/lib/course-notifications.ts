@@ -1,8 +1,10 @@
 import nodemailer from "nodemailer";
+import { after } from "next/server";
 import { CourseEmailStatus, CourseEmailType, type Course, type Employee } from "@prisma/client";
 import { db } from "@/lib/db";
 import { env } from "@/lib/env";
 import { type TeacherQuestionEmail, teacherQuestionMessage } from "./teacher-question-email";
+import { type TeacherRoleEmail, teacherRoleMessage } from "./teacher-role-email";
 
 type CourseEmailInput = {
   type: CourseEmailType;
@@ -127,4 +129,57 @@ export async function sendTeacherQuestionEmail(input: TeacherQuestionEmail) {
     console.error(`[course-question] could not e-mail ${input.teacherEmail}:`, caught instanceof Error ? caught.message : caught);
     return "FAILED" as const;
   }
+}
+
+/**
+ * Tell somebody they have been made a Teacher, with the link to sign in.
+ * Best effort, like every other notice here: the role is already granted, so
+ * a mail failure is logged and never undoes it.
+ */
+export async function sendTeacherRoleEmail(input: TeacherRoleEmail) {
+  if (!isSmtpConfigured()) {
+    console.warn(`[teacher-role] SMTP is not configured; ${input.email} was not told they are a teacher.`);
+    return "SKIPPED" as const;
+  }
+  const message = teacherRoleMessage(input, env.APP_URL);
+  try {
+    await transport().sendMail({ from: env.SMTP_FROM, to: input.email, ...message });
+    return "SENT" as const;
+  } catch (caught) {
+    console.error(`[teacher-role] could not e-mail ${input.email}:`, caught instanceof Error ? caught.message : caught);
+    return "FAILED" as const;
+  }
+}
+
+const TEACHER_EMAIL_CONCURRENCY = 5;
+
+/**
+ * E-mail everybody who has just been given the Teacher role.
+ *
+ * Callers pass only the people who did NOT already hold it, so re-saving a
+ * form or re-uploading a classroom file never mails the same teacher twice.
+ *
+ * Sent after the response, in small batches: a classroom upload can name 50
+ * teachers at once, and sending inside the request is exactly what made the
+ * enrolment upload outlast the proxy and fail with "This page couldn't load".
+ */
+export function queueTeacherRoleEmails(userIds: Iterable<string>) {
+  const ids = [...new Set(userIds)];
+  if (!ids.length) return;
+  after(async () => {
+    const users = await db.user.findMany({
+      where: { id: { in: ids } },
+      select: { email: true, employee: { select: { name: true, email: true } } },
+    });
+    const recipients: TeacherRoleEmail[] = users.map((user) => ({
+      name: user.employee?.name || user.email,
+      email: user.employee?.email || user.email,
+    }));
+    for (let i = 0; i < recipients.length; i += TEACHER_EMAIL_CONCURRENCY) {
+      await Promise.all(recipients.slice(i, i + TEACHER_EMAIL_CONCURRENCY).map((recipient) =>
+        sendTeacherRoleEmail(recipient).catch((error) => {
+          console.error(`[teacher-role] ${recipient.email}:`, error instanceof Error ? error.message : error);
+        })));
+    }
+  });
 }

@@ -10,6 +10,7 @@ import { ClassroomUploadForm } from "@/components/classroom-upload-form";
 import { ContentUploadForm } from "@/components/content-upload-form";
 import { CourseEnrollmentPicker } from "@/components/course-enrollment-picker";
 import { ModuleActivities } from "@/components/module-activities";
+import { CourseGradingPanel } from "@/components/course-grading-panel";
 import { buildLeaderboardRows, formatDuration } from "@/lib/leaderboard";
 import { db } from "@/lib/db";
 import { eligibleLearnerForCourseWhere } from "@/lib/enrollment-eligibility";
@@ -173,9 +174,13 @@ export default async function CourseAdminPage({ params }: { params: Promise<{ id
           courseId={course.id}
           passPercentage={course.passPercentage}
           modules={course.contents}
-          assessments={course.assessments}
+          // The final assessment has no module and is managed in its own card
+          // below; left in, it would be listed as an "older upload".
+          assessments={course.assessments.filter((assessment) => assessment.kind !== "FINAL")}
           feedbackForms={course.feedbackForms}
         />
+
+        <CourseGradingPanel courseId={course.id} />
 
         <div className="card">
           <h2>Edit course</h2>
