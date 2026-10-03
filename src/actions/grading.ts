@@ -49,7 +49,7 @@ export async function saveGradingScheme(_: ActionState, formData: FormData): Pro
   const { modules, quizzes } = await activeModuleQuizzes(courseId);
   const withQuiz = new Set(quizzes.map((quiz) => quiz.courseContentId));
   const moduleWeights: Record<string, number> = {};
-  for (const module of modules) moduleWeights[module.id] = weight(formData.get(`module:${module.id}`));
+  for (const courseModule of modules) moduleWeights[courseModule.id] = weight(formData.get(`module:${courseModule.id}`));
   const input: GradingScheme = {
     teacherAssessmentEnabled: formData.get("teacherAssessmentEnabled") === "on",
     teacherWeight: weight(formData.get("teacherWeight")),

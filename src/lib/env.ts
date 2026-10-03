@@ -21,7 +21,7 @@ const schema = z.object({
   SESSION_DAYS: z.coerce.number().int().positive().default(30),
   STORAGE_PROVIDER: z.enum(["local"]).default("local"),
   STORAGE_ROOT: z.string().default("./storage"),
-  MAX_UPLOAD_MB: z.coerce.number().positive().default(100),
+  MAX_UPLOAD_MB: z.coerce.number().positive().default(150),
   SMTP_HOST: z.string().optional(),
   SMTP_PORT: z.coerce.number().int().default(587),
   SMTP_SECURE: z.string().transform((v) => v === "true").default(false),
@@ -38,6 +38,13 @@ const schema = z.object({
   OPENAI_REALTIME_MODEL: z.string().default("gpt-realtime-2.1-mini"),
   OPENAI_REALTIME_TRANSCRIPTION_MODEL: z.string().default("gpt-realtime-whisper"),
   CRON_SECRET: z.string().optional(),
+  // When the worker's daily jobs start, as HH:MM in India, or "off". Left unset
+  // they run (reminders 09:00, master sync 04:00) everywhere except a Railway
+  // test bed, where nothing is scheduled unless it is set on purpose — see
+  // scheduledTime in lib/daily-schedule.ts.
+  REMINDER_TIME_IST: z.string().optional(),
+  MASTER_SYNC_TIME_IST: z.string().optional(),
+  RAILWAY_ENVIRONMENT: z.string().optional(),
 });
 
 /**

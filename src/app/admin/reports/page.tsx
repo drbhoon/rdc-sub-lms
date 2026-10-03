@@ -150,7 +150,7 @@ export default async function ReportsPage({ searchParams }: { searchParams: Prom
     <section className="card">
       <h2>Progress and assessment tracker</h2>
       <div className="table-wrap"><table>
-        <thead><tr><th>Learner</th><th>Company</th><th>Course</th><th>Status</th><th>Progress</th><th>Completed</th><th>Assessment v</th><th>Module</th><th>Attempt</th><th>Score %</th><th>Correct</th><th>Passed</th><th>Assessment time</th><th>Submitted</th></tr></thead>
+        <thead><tr><th>Learner</th><th>E-mail</th><th>Company</th><th>Course</th><th>Enrolled on</th><th>Status</th><th>Progress</th><th>Completed</th><th>Assessment v</th><th>Module</th><th>Attempt</th><th>Score %</th><th>Correct</th><th>Passed</th><th>Assessment time</th><th>Submitted</th></tr></thead>
         <tbody>
           {progressRows.map((enrollment) => {
             const totalLessons = enrollment.course.contents.flatMap((content) => content.lessons).length;
@@ -159,8 +159,10 @@ export default async function ReportsPage({ searchParams }: { searchParams: Prom
             const attempt = latestAttempts.get(`${enrollment.employeeId}:${enrollment.courseId}`);
             return <tr key={enrollment.id}>
               <td><strong>{enrollment.employee.name}</strong><br /><span className="muted">{enrollment.employee.employeeCode}</span></td>
+              <td>{enrollment.employee.email}</td>
               <td>{enrollment.employee.company.name}</td>
               <td>{enrollment.course.title}</td>
+              <td>{formatIstDate(enrollment.enrolledAt)}</td>
               <td><span className="badge">{enrollment.status.replaceAll("_", " ")}</span></td>
               <td>{completedLessons}/{totalLessons} lessons ({percent}%)</td>
               <td>{enrollment.completedAt ? formatIstDate(enrollment.completedAt) : "-"}</td>
@@ -174,7 +176,7 @@ export default async function ReportsPage({ searchParams }: { searchParams: Prom
               <td>{attempt?.submittedAt ? formatIst(attempt.submittedAt) : ""}</td>
             </tr>;
           })}
-          {!progressRows.length && <tr><td colSpan={14}>No learner-course records match this filter.</td></tr>}
+          {!progressRows.length && <tr><td colSpan={16}>No learner-course records match this filter.</td></tr>}
         </tbody>
       </table></div>
     </section>

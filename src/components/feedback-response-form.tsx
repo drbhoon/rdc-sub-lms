@@ -12,14 +12,13 @@ type Question = {
   options: string[];
 };
 
-export function FeedbackResponseForm({ courseId, formId, courseContentId, moduleTitle, questions, alreadySubmitted, embedded = false }: {
+export function FeedbackResponseForm({ courseId, formId, courseContentId, moduleTitle, questions, embedded = false }: {
   courseId: string;
   formId: string;
   /** Which module (course content) this feedback is scoped to — a course is answered once per module, not once overall. */
   courseContentId: string;
   moduleTitle: string;
   questions: Question[];
-  alreadySubmitted: boolean;
   /** Inside a module's own card, which already names the module: no card of its own, and a smaller heading. */
   embedded?: boolean;
 }) {
@@ -34,7 +33,7 @@ export function FeedbackResponseForm({ courseId, formId, courseContentId, module
     <input type="hidden" name="courseId" value={courseId} />
     <input type="hidden" name="formId" value={formId} />
     <input type="hidden" name="courseContentId" value={courseContentId} />
-    <Heading>{alreadySubmitted ? "Update feedback" : "Feedback"}{label}</Heading>
+    <Heading>Feedback{label}</Heading>
     <p className="muted">Please answer the feedback questions below. Required questions are marked.</p>
     {questions.map((question) => <fieldset key={question.id} className="feedback-question">
       <legend>{question.questionText}{question.required ? " *" : ""}</legend>
@@ -46,6 +45,6 @@ export function FeedbackResponseForm({ courseId, formId, courseContentId, module
       {question.type === FeedbackQuestionType.MULTI_CHOICE && question.options.map((option) => <label className="checkbox" key={option}><input type="checkbox" name={`question_${question.id}`} value={option} />{option}</label>)}
     </fieldset>)}
     {state.message && <p className={`message ${state.ok ? "" : "error"}`}>{state.message}</p>}
-    <button disabled={pending}>{pending ? "Submitting..." : alreadySubmitted ? "Update feedback" : "Submit feedback"}</button>
+    <button disabled={pending}>{pending ? "Submitting..." : "Submit feedback"}</button>
   </form>;
 }

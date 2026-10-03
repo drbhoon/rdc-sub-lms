@@ -197,13 +197,12 @@ export default async function LearnCourse({ params }: { params: Promise<{ id: st
               required: question.required,
               options: Array.isArray(question.options) ? question.options.map(String) : [],
             }));
-            const responseForm = <FeedbackResponseForm embedded key={card.key} courseId={id} formId={card.formId}
-              courseContentId={card.courseContentId} moduleTitle={card.title}
-              alreadySubmitted={card.alreadySubmitted} questions={questions} />;
-            // Already answered: one line, with the option to revise.
+            // Answered once. There is deliberately no way back into it: a
+            // submitted response is final, so the form is not rendered again.
             return card.alreadySubmitted
-              ? <details key={card.key}><summary><span className="badge">Feedback submitted</span> Change my answers</summary>{responseForm}</details>
-              : responseForm;
+              ? <p key={card.key}><span className="badge">Feedback submitted</span> Thank you.</p>
+              : <FeedbackResponseForm embedded key={card.key} courseId={id} formId={card.formId}
+                courseContentId={card.courseContentId} moduleTitle={card.title} questions={questions} />;
           })}
           {!complete && <><h3>Feedback</h3><p className="muted">Feedback for this module opens once you have completed all its lessons.</p></>}
         </section>}

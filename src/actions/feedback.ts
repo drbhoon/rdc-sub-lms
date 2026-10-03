@@ -1,6 +1,6 @@
 "use server";
 
-import { FeedbackQuestionType, UserRole } from "@prisma/client";
+import { FeedbackQuestionType, Prisma, UserRole } from "@prisma/client";
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
 import { audit } from "@/lib/audit";
@@ -171,6 +171,14 @@ export async function submitFeedback(_: FeedbackSubmitState, formData: FormData)
   });
   if (!moduleDone) return { message: "Feedback for this module is available once you complete it." };
 
+  // Final once given. The form is no longer offered after submitting, and this
+  // is the check that makes that true for a stale tab or a hand-made request.
+  const alreadyAnswered = await db.feedbackResponse.findUnique({
+    where: { formId_employeeId_courseContentId: { formId: form.id, employeeId: user.employeeId, courseContentId } },
+    select: { id: true },
+  });
+  if (alreadyAnswered) return { message: "You have already submitted feedback for this module.", ok: true };
+
   const answers = form.questions.map((question) => {
     const result = validateFeedbackValue(question.type, formData.getAll(`question_${question.id}`), question.required);
     if (!result.ok) throw new Error(`Answer required or invalid for: ${question.questionText}`);
@@ -178,17 +186,19 @@ export async function submitFeedback(_: FeedbackSubmitState, formData: FormData)
   });
   try {
     await db.$transaction(async (tx) => {
-      const response = await tx.feedbackResponse.upsert({
-        where: { formId_employeeId_courseContentId: { formId: form.id, employeeId: user.employeeId!, courseContentId } },
-        update: { submittedAt: new Date() },
-        create: { formId: form.id, employeeId: user.employeeId!, courseContentId },
+      // create, not upsert: two tabs submitting together must not let the
+      // second overwrite the first — the unique key refuses it instead.
+      const response = await tx.feedbackResponse.create({
+        data: { formId: form.id, employeeId: user.employeeId!, courseContentId },
       });
-      await tx.feedbackAnswer.deleteMany({ where: { responseId: response.id } });
       await tx.feedbackAnswer.createMany({ data: answers.map((answer) => ({ responseId: response.id, questionId: answer.questionId, value: answer.value as never })) });
     });
     revalidatePath(`/learn/courses/${courseId}`);
     return { message: "Feedback submitted. Thank you.", ok: true };
   } catch (error) {
+    if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002") {
+      return { message: "You have already submitted feedback for this module.", ok: true };
+    }
     return { message: error instanceof Error ? error.message : "Feedback could not be submitted." };
   }
 }

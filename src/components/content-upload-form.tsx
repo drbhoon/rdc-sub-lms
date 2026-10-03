@@ -20,7 +20,7 @@ async function post(url: string, body: BodyInit, contentType: string): Promise<{
  * progress. A piece that fails is retried, and after a dropped connection the
  * upload resumes from what the server already holds rather than starting over.
  */
-export function ContentUploadForm({ courseId }: { courseId: string }) {
+export function ContentUploadForm({ courseId, maxMb }: { courseId: string; maxMb: number }) {
   const inputId = useId();
   const inputRef = useRef<HTMLInputElement>(null);
   const router = useRouter();
@@ -41,6 +41,8 @@ export function ContentUploadForm({ courseId }: { courseId: string }) {
     event.preventDefault();
     const file = inputRef.current?.files?.[0];
     if (!file) { setMessage("Select a content file."); return; }
+    // Said before the first piece goes up, not after 150 MB have been sent.
+    if (file.size > maxMb * 1024 * 1024) { setMessage(`That file is ${(file.size / 1048576).toFixed(0)} MB. Files must be under ${maxMb} MB.`); return; }
     const uploadId = crypto.randomUUID();
     const base = withBase(`/api/courses/${courseId}/content-upload?uploadId=${uploadId}`);
     setMessage("");
@@ -96,7 +98,7 @@ export function ContentUploadForm({ courseId }: { courseId: string }) {
       }}
     >
       <span className="dropzone-title">Drag and drop course content here</span>
-      <span className="muted">PDF, PowerPoint, or MP4. Click to browse.</span>
+      <span className="muted">PDF, PowerPoint, or MP4, up to {maxMb} MB. Click to browse.</span>
       <span className="selected-file">{fileName || "No file selected"}</span>
       <input
         ref={inputRef}

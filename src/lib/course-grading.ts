@@ -73,11 +73,11 @@ export function checkGradingScheme(input: GradingScheme, modules: SchemeModule[]
   const errors: string[] = [];
   const warnings: string[] = [];
 
-  for (const module of modules) {
-    const weight = scheme.moduleWeights[module.id] ?? 0;
-    if (!isWeight(weight)) errors.push(`${module.label}: the weight must be a whole number from 0 to 100.`);
-    else if (weight > 0 && !module.hasAssessment) warnings.push(`${module.label} carries ${weight} but has no active quiz yet, so nobody can earn it until one is uploaded.`);
-    else if (weight === 0 && module.hasAssessment) warnings.push(`${module.label} has a quiz but no weight, so its score will not count towards the course result.`);
+  for (const courseModule of modules) {
+    const weight = scheme.moduleWeights[courseModule.id] ?? 0;
+    if (!isWeight(weight)) errors.push(`${courseModule.label}: the weight must be a whole number from 0 to 100.`);
+    else if (weight > 0 && !courseModule.hasAssessment) warnings.push(`${courseModule.label} carries ${weight} but has no active quiz yet, so nobody can earn it until one is uploaded.`);
+    else if (weight === 0 && courseModule.hasAssessment) warnings.push(`${courseModule.label} has a quiz but no weight, so its score will not count towards the course result.`);
   }
   if (!isWeight(scheme.finalWeight)) errors.push("Final assessment: the weight must be a whole number from 0 to 100.");
   else if (scheme.finalWeight === 0) errors.push("The final assessment is required, so it must carry some weight.");
@@ -142,7 +142,7 @@ export function computeCourseGrade(input: GradeInput): CourseGrade {
     components.push({ key, label, weight, score, contribution: score === null ? 0 : round1((weight * score) / 100) });
   };
 
-  for (const module of input.modules) add(`module:${module.id}`, module.label, scheme.moduleWeights[module.id] ?? 0, input.moduleScores[module.id]);
+  for (const courseModule of input.modules) add(`module:${courseModule.id}`, courseModule.label, scheme.moduleWeights[courseModule.id] ?? 0, input.moduleScores[courseModule.id]);
   if (scheme.teacherAssessmentEnabled) add("teacher", "Teacher assessment", scheme.teacherWeight, input.teacherScore);
   add("final", "Final assessment", scheme.finalWeight, input.finalScore);
 

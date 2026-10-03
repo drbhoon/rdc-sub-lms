@@ -3,6 +3,9 @@ import { notFound } from "next/navigation";
 import { approveContent, editLesson, rejectContent, setCourseStatus } from "@/actions/courses";
 import { ActionForm } from "@/components/action-form";
 import { ModuleActivities } from "@/components/module-activities";
+import { LearnerAiHistory } from "@/components/learner-ai-history";
+import { ModulePicker } from "@/components/module-picker";
+import { loadAiHistoryLearners } from "@/lib/ai-history";
 import { TeacherEvaluationPanel } from "@/components/teacher-evaluation-panel";
 import { parseQuizQuestions } from "@/lib/ai-study-pack";
 import { requireCourseManager } from "@/lib/course-access";
@@ -11,6 +14,20 @@ import { buildLeaderboardRows, formatDuration } from "@/lib/leaderboard";
 import { classroomScope, enrollmentScopeWhere } from "@/lib/classroom-scope";
 import { answerLearnerQuestion } from "@/actions/course-questions";
 import { formatIst } from "@/lib/ist";
+
+type ContentState = { processingStatus: string; isPublished: boolean; approvedAt: Date | null; rejectedAt: Date | null };
+
+/** Something this teacher still has to act on. */
+const needsApproval = (content: ContentState) => content.processingStatus === "COMPLETED" && !content.approvedAt && !content.rejectedAt;
+
+/** "Module 2: Safety - awaiting approval": enough to find the one that needs attention without opening each. */
+function moduleOptionLabel(content: ContentState & { originalName: string; lessons: { title: string }[] }, index: number) {
+  const state = content.rejectedAt ? "rejected"
+    : content.processingStatus !== "COMPLETED" ? content.processingStatus.toLowerCase()
+    : !content.approvedAt ? "awaiting approval"
+    : content.isPublished ? "live" : "approved";
+  return `Module ${index + 1}: ${content.lessons[0]?.title ?? content.originalName} - ${state}`;
+}
 
 export default async function TeacherCourse({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
@@ -42,10 +59,10 @@ export default async function TeacherCourse({ params }: { params: Promise<{ id: 
       // courseContent + its lesson, so the versions table can say WHICH
       // MODULE a form belongs to now that a course can have several active.
       feedbackForms: { include: { questions: true, courseContent: { include: { lessons: true } }, responses: true }, orderBy: { version: "desc" } },
-      aiInteractions: { include: { employee: { include: { company: true } } }, orderBy: { createdAt: "desc" }, take: 25 },
     },
   });
   if (!course) notFound();
+  const aiLearners = await loadAiHistoryLearners(id);
   const activeContents = course.contents.filter((content) => !content.rejectedAt);
   const canPublish = course.hasPendingChanges && activeContents.length > 0 && activeContents.every(
     (content) => content.processingStatus === "COMPLETED" && content.approvedAt && content.lessons.every((lesson) => lesson.approvedAt),
@@ -119,8 +136,8 @@ export default async function TeacherCourse({ params }: { params: Promise<{ id: 
     <div className="two-col">
       <section className="form">
         <div className="card"><h2>Content approval</h2>
-          {course.contents.map((content) => { const questions = parseQuizQuestions(content.quizQuestions); return <article className="card" key={content.id}>
-            <h3>Version {content.version}: {content.originalName}</h3>
+          <ModulePicker legend="Module" initialId={(course.contents.find(needsApproval) ?? course.contents[0])?.id} options={course.contents.map((content, index) => { const questions = parseQuizQuestions(content.quizQuestions); return { id: content.id, label: moduleOptionLabel(content, index), panel: <article className="card">
+            <h3>Module {index + 1}: {content.originalName}</h3>
             <p><span className="badge">{content.processingStatus}</span> {content.isPublished && <span className="badge">LIVE</span>} {content.rejectedAt && <span className="badge">REJECTED</span>}</p>
             {content.summary && <><strong>{content.aiGeneratedAt ? "AI-generated summary" : "Extracted summary"}</strong><p>{content.summary}</p></>}
             {questions.length > 0 && <section className="ai-review">
@@ -146,7 +163,7 @@ export default async function TeacherCourse({ params }: { params: Promise<{ id: 
               <form action={rejectContent} className="form"><input type="hidden" name="courseId" value={course.id}/><input type="hidden" name="contentId" value={content.id}/><label>Rejection reason<input name="reason" minLength={5} required/></label><button className="secondary">Reject</button></form>
             </div>}
             {content.approvedAt && <p className="success">Approved</p>}
-          </article>; })}
+          </article> }; })} />
         </div>
         {canPublish && <div className="card"><h2>{course.status === "PUBLISHED" ? "Publish approved changes" : "Publish course"}</h2><p>All current content is processed and approved.</p><form action={setCourseStatus}><input type="hidden" name="courseId" value={course.id}/><input type="hidden" name="status" value="PUBLISHED"/><button>{course.status === "PUBLISHED" ? "Publish changes" : "Publish to enrolled learners"}</button></form></div>}
       </section>
@@ -173,7 +190,7 @@ export default async function TeacherCourse({ params }: { params: Promise<{ id: 
           </div>)}
           {!learnerQuestions.length && <p className="muted">No learner has asked you anything yet.</p>}
         </div>
-        <div className="card"><h2>Learner AI history</h2><p className="muted">Latest learner questions asked in this course.</p><p><a className="button secondary" href={withBase(`/api/courses/${course.id}/ai-history`)}>Download complete AI history Excel</a></p><div className="table-wrap"><table><thead><tr><th>Learner</th><th>Mode</th><th>Question</th><th>Answer / Status</th></tr></thead><tbody>{course.aiInteractions.map((item) => <tr key={item.id}><td>{item.employee.name}<br/><small>{item.employee.employeeCode} - {item.employee.company.name}</small></td><td>{item.channel}{item.language ? ` · ${item.language.toUpperCase()}` : ""}</td><td>{item.question}</td><td>{item.answer ?? item.error ?? item.status}<br/><small>{formatIst(item.createdAt)}</small></td></tr>)}{!course.aiInteractions.length && <tr><td colSpan={4}>No learner AI history is available yet.</td></tr>}</tbody></table></div></div>
+        <div className="card"><h2>Learner AI history</h2><p className="muted">Pick a learner to see what they asked in this course.</p><p><a className="button secondary" href={withBase(`/api/courses/${course.id}/ai-history`)}>Download complete AI history Excel</a></p><LearnerAiHistory courseId={course.id} learners={aiLearners} /></div>
         <ModuleActivities
           courseId={course.id}
           passPercentage={course.passPercentage}

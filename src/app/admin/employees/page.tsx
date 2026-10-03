@@ -5,6 +5,7 @@ import { ActionForm } from "@/components/action-form";
 import { EmployeeCourseEnrollmentForm } from "@/components/employee-course-enrollment-form";
 import { EmployeeImportForm } from "@/components/employee-import-form";
 import { db } from "@/lib/db";
+import { formatIst } from "@/lib/ist";
 import { requireRole } from "@/lib/session";
 
 /** How many rows the master table draws at once. The employee master holds
@@ -68,6 +69,14 @@ export default async function EmployeesPage({ searchParams }: { searchParams: Pr
     }),
     db.company.findMany({ orderBy: { name: "asc" } }),
   ]);
+
+  // The last time LMS was brought in line with the master, by the morning job
+  // or by an admin pressing Import — whichever was later.
+  const lastSync = await db.auditLog.findFirst({
+    where: { action: { in: ["EMPLOYEES_SYNCED_FROM_MASTER", "EMPLOYEES_IMPORTED_FROM_MASTER"] } },
+    orderBy: { createdAt: "desc" },
+  });
+  const lastSyncDetail = (lastSync?.metadata ?? {}) as { created?: number; updated?: number; skippedNoEmail?: number };
 
   return <main className="container">
     <h1>Employees</h1>
@@ -135,7 +144,14 @@ export default async function EmployeesPage({ searchParams }: { searchParams: Pr
           Pulls learners from the shared employee master, refreshed nightly from
           ZingHR (on roll) and Truein (off roll). Existing learners are updated in
           place — roles, enrolments and progress are never touched. Anyone without
-          an e-mail address is skipped, since sign-in here is an emailed code.
+          an e-mail address is skipped, since sign-in here is an emailed code, so
+          LMS can hold fewer people than the master by exactly that many.
+        </p>
+        <p className="message">
+          This also runs by itself every morning.{" "}
+          {lastSync
+            ? `Last run ${formatIst(lastSync.createdAt)}: ${lastSyncDetail.created ?? 0} added, ${lastSyncDetail.updated ?? 0} updated, ${lastSyncDetail.skippedNoEmail ?? 0} skipped with no e-mail address.`
+            : "It has not run yet."}
         </p>
         <ActionForm action={importEmployeesFromMaster} submitLabel="Import from master">
           <fieldset>

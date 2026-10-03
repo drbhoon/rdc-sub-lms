@@ -11,12 +11,14 @@ import { ContentUploadForm } from "@/components/content-upload-form";
 import { CourseEnrollmentPicker } from "@/components/course-enrollment-picker";
 import { ModuleActivities } from "@/components/module-activities";
 import { CourseGradingPanel } from "@/components/course-grading-panel";
+import { LearnerAiHistory } from "@/components/learner-ai-history";
+import { loadAiHistoryLearners } from "@/lib/ai-history";
 import { buildLeaderboardRows, formatDuration } from "@/lib/leaderboard";
 import { db } from "@/lib/db";
+import { env } from "@/lib/env";
 import { eligibleLearnerForCourseWhere } from "@/lib/enrollment-eligibility";
 import { requireRole } from "@/lib/session";
 import { eligibleTeacherWhere } from "@/lib/teacher-eligibility";
-import { formatIst } from "@/lib/ist";
 
 export default async function CourseAdminPage({ params }: { params: Promise<{ id: string }> }) {
   await requireRole(UserRole.SUPER_ADMIN);
@@ -29,7 +31,6 @@ export default async function CourseAdminPage({ params }: { params: Promise<{ id
       contents: { include: { lessons: true }, orderBy: { version: "desc" } },
       enrollments: { include: { employee: { include: { company: true } }, progress: true, classroom: { select: { name: true } } }, orderBy: { employee: { name: "asc" } } },
       classrooms: { include: { teacher: { include: { employee: true } }, _count: { select: { enrollments: true } } }, orderBy: { name: "asc" } },
-      aiInteractions: { include: { employee: { include: { company: true } } }, orderBy: { createdAt: "desc" }, take: 25 },
       // courseContent + its lesson, so the versions table and the leaderboard
       // can both say WHICH MODULE a quiz belongs to now that a course can
       // have several active at once.
@@ -48,6 +49,7 @@ export default async function CourseAdminPage({ params }: { params: Promise<{ id
   });
   if (!course) notFound();
 
+  const aiLearners = await loadAiHistoryLearners(id);
   const [employees, companies, teachers] = await Promise.all([
     course.isActive && course.status === "PUBLISHED"
       ? db.employee.findMany({
@@ -72,6 +74,11 @@ export default async function CourseAdminPage({ params }: { params: Promise<{ id
     }),
   ]);
 
+  // Each upload is a module (it carries its own quiz and feedback). The column
+  // is still called "version" in the database, which is only the order they
+  // were uploaded in; the page lists newest first but numbers oldest first, the
+  // same as the learner and teacher pages do.
+  const moduleNumber = new Map([...course.contents].sort((x, y) => x.version - y.version).map((content, index) => [content.id, index + 1]));
   const selectedCompanyIds = new Set(course.companies.map((company) => company.companyId));
   const selectedTeacherIds = new Set(course.teachers.map((teacher) => teacher.userId));
   const totalLessons = course.contents
@@ -151,7 +158,7 @@ export default async function CourseAdminPage({ params }: { params: Promise<{ id
         <div className="card">
           <h2>Content</h2>
           {course.contents.map((content) => <div className="card" key={content.id}>
-            <strong>Version {content.version}: {content.originalName}</strong>
+            <strong>Module {moduleNumber.get(content.id)}: {content.originalName}</strong>
             <p><span className="badge">{content.processingStatus}</span> {content.isPublished && <span className="badge">LIVE</span>} - {(content.sizeBytes / 1048576).toFixed(1)} MB</p>
             {content.processingError && <p className="error">{content.processingError}</p>}
             <p>{content.lessons.length} lesson(s) {content.approvedAt ? "- Approved" : ""}</p>
@@ -167,7 +174,7 @@ export default async function CourseAdminPage({ params }: { params: Promise<{ id
           {!course.contents.length && <p>No content uploaded.</p>}
           <hr />
           <h3>Upload content</h3>
-          <ContentUploadForm courseId={course.id} />
+          <ContentUploadForm courseId={course.id} maxMb={env.MAX_UPLOAD_MB} />
         </div>
 
         <ModuleActivities
@@ -324,18 +331,9 @@ export default async function CourseAdminPage({ params }: { params: Promise<{ id
 
         <div className="card">
           <h2>Learner AI history</h2>
-          <p className="muted">Latest questions asked by learners in this course.</p>
+          <p className="muted">Pick a learner to see what they asked in this course.</p>
           <p><a className="button secondary" href={withBase(`/api/courses/${course.id}/ai-history`)}>Download complete AI history Excel</a></p>
-          <div className="table-wrap"><table><thead><tr><th>Learner</th><th>Mode</th><th>Question</th><th>Answer / Status</th><th>Asked</th></tr></thead><tbody>
-            {course.aiInteractions.map((item) => <tr key={item.id}>
-              <td>{item.employee.name}<br /><span className="muted">{item.employee.employeeCode} - {item.employee.company.name}</span></td>
-              <td>{item.channel}{item.language ? ` · ${item.language.toUpperCase()}` : ""}</td>
-              <td>{item.question}</td>
-              <td>{item.answer ?? item.error ?? item.status}</td>
-              <td>{formatIst(item.createdAt)}</td>
-            </tr>)}
-            {!course.aiInteractions.length && <tr><td colSpan={5}>No learner AI history is available yet.</td></tr>}
-          </tbody></table></div>
+          <LearnerAiHistory courseId={course.id} learners={aiLearners} />
         </div>
 
         {course.leaderboardEnabled && <div className="card">

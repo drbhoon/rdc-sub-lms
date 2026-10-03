@@ -67,7 +67,7 @@ export async function GET(request: Request) {
   const progress = workbook.addWorksheet("Progress Assessment Tracker");
   progress.addRow(["Period", period.label]);
   progress.addRow([]);
-  progress.addRow(["Employee Code", "Learner", "Company", "Course", "Status", "Lessons Completed", "Total Lessons", "Progress %", "Completed At", "Assessment Version", "Assessment Module", "Attempt", "Score %", "Correct", "Total Questions", "Passed", "Assessment Time Seconds", "Submitted At"]);
+  progress.addRow(["Employee Code", "Learner", "Email", "Company", "Course", "Enrolled On", "Status", "Lessons Completed", "Total Lessons", "Progress %", "Completed At", "Assessment Version", "Assessment Module", "Attempt", "Score %", "Correct", "Total Questions", "Passed", "Assessment Time Seconds", "Submitted At"]);
   styleHeader(progress.getRow(3));
   for (const enrollment of progressRows) {
     const totalLessons = enrollment.course.contents.flatMap((content) => content.lessons).length;
@@ -76,8 +76,10 @@ export async function GET(request: Request) {
     progress.addRow([
       enrollment.employee.employeeCode,
       enrollment.employee.name,
+      enrollment.employee.email,
       enrollment.employee.company.name,
       enrollment.course.title,
+      enrollment.enrolledAt,
       enrollment.status,
       completedLessons,
       totalLessons,
@@ -94,10 +96,11 @@ export async function GET(request: Request) {
       attempt?.submittedAt ?? "",
     ]);
   }
-  progress.getColumn(8).numFmt = "0.0%";
-  progress.getColumn(9).numFmt = "yyyy-mm-dd";
-  progress.getColumn(13).numFmt = "0.0";
-  progress.getColumn(18).numFmt = "yyyy-mm-dd hh:mm";
+  progress.getColumn(6).numFmt = "yyyy-mm-dd";   // Enrolled On
+  progress.getColumn(10).numFmt = "0.0%";        // Progress %
+  progress.getColumn(11).numFmt = "yyyy-mm-dd";  // Completed At
+  progress.getColumn(15).numFmt = "0.0";         // Score %
+  progress.getColumn(20).numFmt = "yyyy-mm-dd hh:mm"; // Submitted At
   autoFit(progress);
 
   const learners = workbook.addWorksheet("Active Learners");

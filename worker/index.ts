@@ -5,7 +5,13 @@ import os from "node:os";
 import path from "node:path";
 import { promisify } from "node:util";
 import { generateStudyPack } from "../src/lib/ai-study-pack";
+import { audit } from "../src/lib/audit";
 import { courseTextWithOcr } from "../src/lib/course-text";
+import { createDailyJob, scheduledTime } from "../src/lib/daily-schedule";
+import { env } from "../src/lib/env";
+import { masterConfigured } from "../src/lib/master";
+import { syncEmployeesFromMaster } from "../src/lib/master-sync";
+import { runCourseReminders } from "../src/lib/reminder-run";
 import { storage } from "../src/lib/storage";
 
 const db = new PrismaClient();
@@ -152,8 +158,67 @@ async function processOne() {
   return true;
 }
 
+/**
+ * The day's two scheduled jobs: bring the employee list in line with the
+ * master, then (hours later) send the course reminders. Both are idempotent,
+ * so a restart that repeats one is harmless.
+ */
+function startDailyJobs() {
+  const onTestBed = Boolean(env.RAILWAY_ENVIRONMENT);
+  const jobs: ReturnType<typeof createDailyJob>[] = [];
+
+  const syncAt = scheduledTime(env.MASTER_SYNC_TIME_IST, "04:00", onTestBed);
+  if (syncAt && masterConfigured()) {
+    jobs.push(createDailyJob({
+      name: "employee master sync",
+      at: syncAt,
+      run: async () => {
+        const result = await syncEmployeesFromMaster([]);
+        console.log(`[schedule] employee master sync: ${result.summary}`);
+        await audit(null, "EMPLOYEES_SYNCED_FROM_MASTER", "Employee", undefined, {
+          created: result.created,
+          updated: result.updated,
+          received: result.received,
+          skippedNoEmail: result.skippedNoEmail,
+          duplicateEmails: result.duplicateEmails,
+          conflicts: result.conflicts,
+          failedChunks: result.failedChunks,
+        });
+      },
+    }));
+  }
+
+  const remindAt = scheduledTime(env.REMINDER_TIME_IST, "09:00", onTestBed);
+  if (remindAt) {
+    jobs.push(createDailyJob({
+      name: "course reminders",
+      at: remindAt,
+      run: async () => {
+        const result = await runCourseReminders();
+        console.log(`[schedule] course reminders: ${result.sent} sent, ${result.skippedAlreadySent} already sent today, ${result.considered} considered (links use ${env.APP_URL})`);
+      },
+    }));
+  }
+
+  const pad = (value: number) => String(value).padStart(2, "0");
+  const describe = (at: typeof syncAt) => at ? `${pad(at.hour)}:${pad(at.minute)} IST` : "off";
+  console.log(`[schedule] employee master sync ${syncAt && !masterConfigured() ? "off (no master configured)" : describe(syncAt)}; course reminders ${describe(remindAt)}`);
+  if (!jobs.length) return () => undefined;
+
+  let ticking = false;
+  const tick = async () => {
+    if (ticking || stopping) return;
+    ticking = true;
+    try { for (const job of jobs) await job.tick(); } finally { ticking = false; }
+  };
+  const first = setTimeout(() => void tick(), 15_000);
+  const timer = setInterval(() => void tick(), 60_000);
+  return () => { clearTimeout(first); clearInterval(timer); };
+}
+
 async function main() {
   console.log("RDC LMS worker started");
+  const stopDailyJobs = startDailyJobs();
   while (!stopping) {
     const worked = await processOne();
     if (!worked) {
@@ -167,6 +232,7 @@ async function main() {
       wakeIdle = undefined;
     }
   }
+  stopDailyJobs();
   console.log("RDC LMS worker stopped");
 }
 

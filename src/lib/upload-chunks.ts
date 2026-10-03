@@ -3,7 +3,7 @@
  *
  * Every proxy between the browser and LMS caps a request body: the platform
  * nginx at 60 MB, IT's front nginx at an unknown size, and Next's own Server
- * Action limit at 100 MB. A training video is routinely bigger than the
+ * Action limit at 100 MB (below the 150 MB a video may now be). A training video is routinely bigger than the
  * smallest of those, and when one is exceeded the request never reaches LMS —
  * the browser just shows "This page couldn't load". Pieces of just under
  * 1 MB stay below nginx's default 1 MB cap, so they pass whatever any hop
