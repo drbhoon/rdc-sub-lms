@@ -4,6 +4,7 @@ import { withBase } from "@/lib/base-path";
 import { db } from "@/lib/db";
 import { requireRole } from "@/lib/session";
 import { formatIst } from "@/lib/ist";
+import { notTeacherAttempt } from "@/lib/teacher-preview";
 
 function value(params: Record<string, string | string[] | undefined>, key: string) {
   const item = params[key];
@@ -33,6 +34,7 @@ export default async function AssessmentReportsPage({ searchParams }: { searchPa
       course: true,
       questions: { orderBy: { order: "asc" } },
       attempts: {
+        where: notTeacherAttempt,
         include: { employee: { include: { company: true } }, answers: { include: { question: true } } },
         orderBy: [{ startedAt: "desc" }],
       },

@@ -207,3 +207,18 @@ h1 { color:var(--navy); margin-top:0; }
 .ai-history-list { list-style:none; margin:0; padding:0; display:grid; gap:.6rem; max-height:28rem; overflow-y:auto; }
 .ai-history-list li { border:1px solid var(--line); border-radius:10px; padding:.7rem .9rem; background:white; }
 .ai-history-list p { margin:.25rem 0; white-space:pre-wrap; }
+.course-card { position:relative; }
+.stretched-link { color:inherit; text-decoration:none; }
+.stretched-link::after { content:""; position:absolute; inset:0; border-radius:12px; }
+.stretched-link:focus-visible::after { outline:3px solid var(--blue); outline-offset:2px; }
+.count-link { position:relative; z-index:1; font-weight:700; text-decoration:underline; }
+.roster-actions { display:grid; gap:.6rem; margin-top:.75rem; }
+.roster-form td input[type="checkbox"], .roster-form th input[type="checkbox"] { width:auto; }
+.collapsible > summary { cursor:pointer; list-style:none; display:flex; align-items:baseline; gap:.75rem; flex-wrap:wrap; padding:.1rem 0; }
+.collapsible > summary::-webkit-details-marker { display:none; }
+.collapsible > summary::before { content:"\25B8"; color:var(--blue); font-size:1.05rem; transition:transform .15s ease; }
+.collapsible[open] > summary::before { transform:rotate(90deg); }
+.collapsible > summary h2 { margin:0; font-size:1.15rem; flex:1 1 11rem; min-width:0; }
+.collapsible > summary:focus-visible { outline:3px solid var(--blue); outline-offset:3px; border-radius:6px; }
+.collapsible-summary { font-size:.85rem; font-weight:600; }
+.collapsible-body { margin-top:.85rem; }

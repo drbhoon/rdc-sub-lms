@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { CollapsibleCard } from "@/components/collapsible-card";
 
 export type ModuleTab = {
   id: string;
@@ -18,13 +19,14 @@ export type ModuleTab = {
  * Every panel stays mounted and is merely hidden, so switching tabs does not
  * lose answers half-typed into a feedback form.
  */
-export function ModuleTabs({ title, intro, actions, tabs, initialId }: {
+export function ModuleTabs({ title, intro, actions, tabs, initialId, collapsible = false }: {
   title: string; intro?: string; actions?: React.ReactNode; tabs: ModuleTab[]; initialId?: string;
+  /** Fold the whole card under its heading, closed to begin with. */
+  collapsible?: boolean;
 }) {
   const [active, setActive] = useState(initialId && tabs.some((tab) => tab.id === initialId) ? initialId : tabs[0]?.id);
   if (!tabs.length) return null;
-  return <section className="card module-tabs">
-    <h2>{title}</h2>
+  const body = <>
     {intro && <p className="muted">{intro}</p>}
     {actions}
     <div className="module-tab-list" role="tablist">
@@ -48,5 +50,10 @@ export function ModuleTabs({ title, intro, actions, tabs, initialId }: {
       <h3 className="module-tab-heading">{tab.label}</h3>
       {tab.panel}
     </div>)}
+  </>;
+  if (collapsible) return <CollapsibleCard title={title} summary={`${tabs.length} tab${tabs.length === 1 ? "" : "s"}`} className="module-tabs">{body}</CollapsibleCard>;
+  return <section className="card module-tabs">
+    <h2>{title}</h2>
+    {body}
   </section>;
 }

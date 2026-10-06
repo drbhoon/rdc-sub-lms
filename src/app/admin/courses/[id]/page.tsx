@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { withBase } from "@/lib/base-path";
 import { notFound } from "next/navigation";
 import { UserRole } from "@prisma/client";
@@ -19,6 +20,7 @@ import { env } from "@/lib/env";
 import { eligibleLearnerForCourseWhere } from "@/lib/enrollment-eligibility";
 import { requireRole } from "@/lib/session";
 import { eligibleTeacherWhere } from "@/lib/teacher-eligibility";
+import { learnersOnly, notTeacherAttempt } from "@/lib/teacher-preview";
 
 export default async function CourseAdminPage({ params }: { params: Promise<{ id: string }> }) {
   await requireRole(UserRole.SUPER_ADMIN);
@@ -29,13 +31,14 @@ export default async function CourseAdminPage({ params }: { params: Promise<{ id
       companies: { include: { company: true } },
       teachers: { include: { user: { include: { employee: true } } } },
       contents: { include: { lessons: true }, orderBy: { version: "desc" } },
-      enrollments: { include: { employee: { include: { company: true } }, progress: true, classroom: { select: { name: true } } }, orderBy: { employee: { name: "asc" } } },
-      classrooms: { include: { teacher: { include: { employee: true } }, _count: { select: { enrollments: true } } }, orderBy: { name: "asc" } },
+      // Real learners only: a teacher's preview of the course is not one.
+      enrollments: { where: learnersOnly, include: { employee: { include: { company: true } }, progress: true, classroom: { select: { name: true } } }, orderBy: { employee: { name: "asc" } } },
+      classrooms: { include: { teacher: { include: { employee: true } }, _count: { select: { enrollments: { where: learnersOnly } } } }, orderBy: { name: "asc" } },
       // courseContent + its lesson, so the versions table and the leaderboard
       // can both say WHICH MODULE a quiz belongs to now that a course can
       // have several active at once.
       assessments: {
-        include: { questions: true, courseContent: { include: { lessons: true } }, attempts: { where: { status: "SUBMITTED" }, include: { employee: { include: { company: true } } }, orderBy: [{ scorePercent: "desc" }, { timeTakenSeconds: "asc" }] } },
+        include: { questions: true, courseContent: { include: { lessons: true } }, attempts: { where: { status: "SUBMITTED", ...notTeacherAttempt }, include: { employee: { include: { company: true } } }, orderBy: [{ scorePercent: "desc" }, { timeTakenSeconds: "asc" }] } },
         orderBy: { version: "desc" },
       },
       // courseContent + its lesson, so the versions table can say WHICH
@@ -152,6 +155,7 @@ export default async function CourseAdminPage({ params }: { params: Promise<{ id
     </div>
     <h1>{course.title}</h1>
     <p>{course.description}</p>
+    <p><Link className="button secondary" href={`/admin/courses/${course.id}/learners`}>{course.enrollments.length} enrolled learner{course.enrollments.length === 1 ? "" : "s"} - view and remove</Link></p>
 
     <div className="two-col">
       <section className="form">
@@ -185,6 +189,7 @@ export default async function CourseAdminPage({ params }: { params: Promise<{ id
           // below; left in, it would be listed as an "older upload".
           assessments={course.assessments.filter((assessment) => assessment.kind !== "FINAL")}
           feedbackForms={course.feedbackForms}
+          hasFinalAssessment={course.assessments.some((assessment) => assessment.kind === "FINAL" && assessment.status === "ACTIVE")}
         />
 
         <CourseGradingPanel courseId={course.id} />

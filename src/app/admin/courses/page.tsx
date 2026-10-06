@@ -5,6 +5,7 @@ import { ActionForm } from "@/components/action-form";
 import { db } from "@/lib/db";
 import { requireRole } from "@/lib/session";
 import { eligibleTeacherWhere } from "@/lib/teacher-eligibility";
+import { learnersOnly } from "@/lib/teacher-preview";
 
 export default async function CoursesPage() {
   await requireRole(UserRole.SUPER_ADMIN);
@@ -13,7 +14,7 @@ export default async function CoursesPage() {
       include: {
         teachers: { include: { user: { include: { employee: true } } } },
         companies: { include: { company: true } },
-        _count: { select: { enrollments: true, contents: true } },
+        _count: { select: { enrollments: { where: learnersOnly }, contents: true } },
       },
       orderBy: { updatedAt: "desc" },
     }),
@@ -31,17 +32,19 @@ export default async function CoursesPage() {
       <section className="card">
         <h2>Course catalogue</h2>
         <div className="grid">
-          {courses.map((course) => <Link className={`card course-card ${course.isActive ? "" : "inactive-card"}`} key={course.id} href={`/admin/courses/${course.id}`}>
+          {courses.map((course) => <div className={`card course-card ${course.isActive ? "" : "inactive-card"}`} key={course.id}>
             <div className="badge-row">
               <span className="badge">{course.status.replaceAll("_", " ")}</span>
               {!course.isActive && <span className="badge badge-muted">Inactive</span>}
             </div>
-            <h3>{course.title}</h3>
+            {/* The title link stretches over the whole card, so the card still opens
+                the course; the learner count is its own link and sits above it. */}
+            <h3><Link className="stretched-link" href={`/admin/courses/${course.id}`}>{course.title}</Link></h3>
             <p className="muted">{course.category} - {course.durationMinutes} minutes</p>
             <p>{course.companies.map((c) => c.company.name).join(", ")}</p>
-            <small>{course._count.contents} uploads - {course._count.enrollments} learners</small>
+            <small>{course._count.contents} uploads - <Link className="count-link" href={`/admin/courses/${course.id}/learners`} title="See who is enrolled">{course._count.enrollments} learners</Link></small>
             {!course.teachers.length && <p className="muted">No teacher assigned yet.</p>}
-          </Link>)}
+          </div>)}
           {!courses.length && <p>No courses created.</p>}
         </div>
       </section>

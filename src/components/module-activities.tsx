@@ -1,6 +1,7 @@
 import { setAssessmentStatus, uploadAssessment } from "@/actions/assessments";
 import { setFeedbackFormActive, uploadFeedbackTemplate } from "@/actions/feedback";
 import { ActionForm } from "@/components/action-form";
+import { CollapsibleCard } from "@/components/collapsible-card";
 import { ModuleTabs, type ModuleTab } from "@/components/module-tabs";
 import { withBase } from "@/lib/base-path";
 
@@ -10,7 +11,7 @@ type Quiz = {
   questionsPerAttempt: number | null; timeLimitSeconds: number; shuffleQuestions: boolean; passPercentage: number;
   questions: unknown[]; attempts: unknown[];
 };
-type Form = { id: string; version: number; title: string; isActive: boolean; courseContentId: string | null; questions: unknown[]; responses: unknown[] };
+type Form = { id: string; version: number; title: string; isActive: boolean; kind: string; courseContentId: string | null; questions: unknown[]; responses: unknown[] };
 
 const moduleTitle = (module: Module) => module.lessons[0]?.title ?? module.originalName;
 
@@ -27,12 +28,16 @@ const moduleTitle = (module: Module) => module.lessons[0]?.title ?? module.origi
  * Quizzes and forms uploaded before they were per-module (no module) get a
  * "Whole course" tab of their own, shown only when there are any.
  */
-export function ModuleActivities({ courseId, passPercentage, modules, assessments, feedbackForms }: {
+export function ModuleActivities({ courseId, passPercentage, modules, assessments, feedbackForms, hasFinalAssessment = false, collapsible = false }: {
   courseId: string;
   passPercentage: number;
   modules: Module[];
   assessments: Quiz[];
   feedbackForms: Form[];
+  /** A live final assessment exists, so its feedback form can be set up. */
+  hasFinalAssessment?: boolean;
+  /** Fold the card under its heading (the teacher's page). */
+  collapsible?: boolean;
 }) {
   const ordered = [...modules].sort((a, b) => a.version - b.version);
   const live = ordered.filter((module) => module.isPublished && module.lessons.length);
@@ -41,7 +46,10 @@ export function ModuleActivities({ courseId, passPercentage, modules, assessment
   const referenced = new Set([...assessments, ...feedbackForms].map((item) => item.courseContentId).filter(Boolean));
   const blocks = ordered.filter((module) => live.includes(module) || referenced.has(module.id));
   const wholeCourseQuizzes = assessments.filter((item) => !item.courseContentId);
-  const wholeCourseForms = feedbackForms.filter((item) => !item.courseContentId);
+  // The final assessment's form has no module either, but is not a legacy
+  // whole-course form: it gets its own tab below.
+  const finalForms = feedbackForms.filter((item) => item.kind === "FINAL");
+  const wholeCourseForms = feedbackForms.filter((item) => !item.courseContentId && item.kind !== "FINAL");
 
   const tabs: ModuleTab[] = blocks.map((module) => ({
     id: module.id,
@@ -64,6 +72,21 @@ export function ModuleActivities({ courseId, passPercentage, modules, assessment
     });
   }
 
+  // After the module tabs: the final draws on all of them.
+  if (hasFinalAssessment || finalForms.length) {
+    tabs.push({
+      id: "final",
+      label: "Final assessment",
+      panel: <div className="module-parts">
+        <div className="module-part">
+          <h4>MCQ quiz</h4>
+          <p className="muted">The final is built from the module quizzes and managed under &ldquo;Final assessment&rdquo; on the admin course page.</p>
+        </div>
+        <FeedbackPart courseId={courseId} moduleId={null} scope="final" canUpload forms={finalForms} />
+      </div>,
+    });
+  }
+
   const actions = <div className="button-row">
     <a className="button secondary" href={withBase("/api/templates/assessment")}>MCQ template</a>
     <a className="button secondary" href={withBase("/api/templates/feedback")}>Feedback template</a>
@@ -71,10 +94,14 @@ export function ModuleActivities({ courseId, passPercentage, modules, assessment
     <a className="button secondary" href={withBase(`/api/courses/${courseId}/feedback-export`)}>All feedback</a>
   </div>;
   if (!tabs.length) {
-    return <div className="card">
-      <h2>Assessments and feedback, by module</h2>
+    const empty = <>
       {actions}
       <p className="muted">Publish a module with at least one lesson before adding a quiz or feedback to it.</p>
+    </>;
+    if (collapsible) return <CollapsibleCard title="Assessments and feedback, by module">{empty}</CollapsibleCard>;
+    return <div className="card">
+      <h2>Assessments and feedback, by module</h2>
+      {empty}
     </div>;
   }
   return <ModuleTabs
@@ -82,6 +109,7 @@ export function ModuleActivities({ courseId, passPercentage, modules, assessment
     intro="Each module has its own MCQ quiz and its own feedback form. Uploading for a module replaces only that module's live version; older versions and their results are kept."
     actions={actions}
     tabs={tabs}
+    collapsible={collapsible}
   />;
 }
 
@@ -131,7 +159,8 @@ function StatusButton({ assessmentId, active }: { assessmentId: string; active: 
   </form>;
 }
 
-function FeedbackPart({ courseId, moduleId, canUpload, forms }: { courseId: string; moduleId: string | null; canUpload: boolean; forms: Form[] }) {
+function FeedbackPart({ courseId, moduleId, canUpload, forms, scope }: { courseId: string; moduleId: string | null; canUpload: boolean; forms: Form[]; scope?: "final" }) {
+  const isFinal = scope === "final";
   const active = forms.filter((form) => form.isActive);
   const archived = forms.filter((form) => !form.isActive);
   const responses = forms.reduce((sum, form) => sum + form.responses.length, 0);
@@ -148,18 +177,18 @@ function FeedbackPart({ courseId, moduleId, canUpload, forms }: { courseId: stri
       <div className="table-wrap"><table><thead><tr><th>Version</th><th>Questions</th><th>Responses</th><th></th></tr></thead><tbody>
         {archived.map((form) => <tr key={form.id}><td>v{form.version}<br /><span className="muted">{form.title}</span></td><td>{form.questions.length}</td><td>{form.responses.length}</td><td><FormButton formId={form.id} active={false} /></td></tr>)}
       </tbody></table></div>
-      <p className="muted">Restoring a form archives the one live for this module. Responses are never deleted.</p>
+      <p className="muted">Restoring a form archives the one live for this {isFinal ? "final assessment" : "module"}. Responses are never deleted.</p>
     </details>}
-    {canUpload && moduleId && <details>
+    {canUpload && (moduleId || isFinal) && <details>
       <summary>{active.length ? "Upload a new version" : "Upload a feedback form"}</summary>
       <ActionForm action={uploadFeedbackTemplate} submitLabel="Upload and make live">
         <input type="hidden" name="courseId" value={courseId} />
-        <input type="hidden" name="courseContentId" value={moduleId} />
-        <label>Feedback title<input name="title" defaultValue="Module Feedback" required /></label>
+        {isFinal ? <input type="hidden" name="scope" value="final" /> : <input type="hidden" name="courseContentId" value={moduleId ?? ""} />}
+        <label>Feedback title<input name="title" defaultValue={isFinal ? "Final Assessment Feedback" : "Module Feedback"} required /></label>
         <label>Feedback CSV or Excel<input type="file" name="file" accept=".csv,.xlsx,.xls" required /></label>
       </ActionForm>
     </details>}
-    {responses > 0 && moduleId && <p><a href={withBase(`/api/courses/${courseId}/feedback-export?module=${moduleId}`)}>Download this module&apos;s feedback</a></p>}
+    {responses > 0 && (moduleId || isFinal) && <p><a href={withBase(`/api/courses/${courseId}/feedback-export?module=${isFinal ? "final" : moduleId}`)}>Download this {isFinal ? "final assessment" : "module"}&apos;s feedback</a></p>}
   </div>;
 }
 

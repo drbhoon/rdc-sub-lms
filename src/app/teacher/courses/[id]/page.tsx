@@ -3,6 +3,7 @@ import { notFound } from "next/navigation";
 import { approveContent, editLesson, rejectContent, setCourseStatus } from "@/actions/courses";
 import { ActionForm } from "@/components/action-form";
 import { ModuleActivities } from "@/components/module-activities";
+import { CollapsibleCard } from "@/components/collapsible-card";
 import { LearnerAiHistory } from "@/components/learner-ai-history";
 import { ModulePicker } from "@/components/module-picker";
 import { loadAiHistoryLearners } from "@/lib/ai-history";
@@ -14,6 +15,7 @@ import { buildLeaderboardRows, formatDuration } from "@/lib/leaderboard";
 import { classroomScope, enrollmentScopeWhere } from "@/lib/classroom-scope";
 import { answerLearnerQuestion } from "@/actions/course-questions";
 import { formatIst } from "@/lib/ist";
+import { learnersOnly, notTeacherAttempt } from "@/lib/teacher-preview";
 
 type ContentState = { processingStatus: string; isPublished: boolean; approvedAt: Date | null; rejectedAt: Date | null };
 
@@ -52,10 +54,10 @@ export default async function TeacherCourse({ params }: { params: Promise<{ id: 
     where: { id },
     include: {
       contents: { include: { lessons: true }, orderBy: { version: "asc" } },
-      enrollments: { where: enrollmentScopeWhere(scope), include: { employee: { include: { company: true } }, progress: true, classroom: { select: { name: true } } }, orderBy: { employee: { name: "asc" } } },
+      enrollments: { where: { ...learnersOnly, ...enrollmentScopeWhere(scope) }, include: { employee: { include: { company: true } }, progress: true, classroom: { select: { name: true } } }, orderBy: { employee: { name: "asc" } } },
       // courseContent + its lesson, so this page can label which module a
       // quiz belongs to now that a course can have several active at once.
-      assessments: { include: { questions: true, courseContent: { include: { lessons: true } }, attempts: { where: { status: "SUBMITTED" }, include: { employee: { include: { company: true } } } } }, orderBy: { version: "desc" } },
+      assessments: { include: { questions: true, courseContent: { include: { lessons: true } }, attempts: { where: { status: "SUBMITTED", ...notTeacherAttempt }, include: { employee: { include: { company: true } } } } }, orderBy: { version: "desc" } },
       // courseContent + its lesson, so the versions table can say WHICH
       // MODULE a form belongs to now that a course can have several active.
       feedbackForms: { include: { questions: true, courseContent: { include: { lessons: true } }, responses: true }, orderBy: { version: "desc" } },
@@ -130,6 +132,8 @@ export default async function TeacherCourse({ params }: { params: Promise<{ id: 
     completionSecondsOverride: entry.totalSeconds,
   })), 5);
 
+  const unansweredQuestions = learnerQuestions.filter((item) => !item.answer).length;
+
   return <main className="container">
     <div className="badge-row"><span className="badge">{course.status.replaceAll("_", " ")}</span>{!course.isActive && <span className="badge badge-muted">Inactive</span>}</div>
     <h1>{course.title}</h1>
@@ -167,17 +171,17 @@ export default async function TeacherCourse({ params }: { params: Promise<{ id: 
         </div>
         {canPublish && <div className="card"><h2>{course.status === "PUBLISHED" ? "Publish approved changes" : "Publish course"}</h2><p>All current content is processed and approved.</p><form action={setCourseStatus}><input type="hidden" name="courseId" value={course.id}/><input type="hidden" name="status" value="PUBLISHED"/><button>{course.status === "PUBLISHED" ? "Publish changes" : "Publish to enrolled learners"}</button></form></div>}
       </section>
-      <aside className="form"><div className="card"><h2>Learners</h2>{scope.scoped && <p className="message">Showing only your classroom{ownedClassrooms.length > 1 ? "s" : ""}: {ownedClassrooms.map((room) => room.name).join(", ")}.</p>}{course.hasPendingChanges && course.status === "PUBLISHED" && <p className="message">Learners continue seeing the current version until approved changes are published.</p>}{!course.isActive && <p className="message">This course is inactive for new enrolments, but enrolled learners can still see it.</p>}<div className="table-wrap"><table><thead><tr><th>Name</th><th>Classroom</th><th>Progress</th></tr></thead><tbody>
+      <aside className="form"><CollapsibleCard title="Learners" summary={`${course.enrollments.length} enrolled`} defaultOpen>{scope.scoped && <p className="message">Showing only your classroom{ownedClassrooms.length > 1 ? "s" : ""}: {ownedClassrooms.map((room) => room.name).join(", ")}.</p>}{course.hasPendingChanges && course.status === "PUBLISHED" && <p className="message">Learners continue seeing the current version until approved changes are published.</p>}{!course.isActive && <p className="message">This course is inactive for new enrolments, but enrolled learners can still see it.</p>}<div className="table-wrap"><table><thead><tr><th>Name</th><th>Classroom</th><th>Progress</th></tr></thead><tbody>
         {course.enrollments.map((enrollment) => <tr key={enrollment.id}><td>{enrollment.employee.name}<br/><small>{enrollment.employee.employeeCode}</small></td><td>{enrollment.classroom?.name ?? <span className="muted">Unassigned</span>}</td><td><span className="badge">{enrollment.status.replaceAll("_", " ")}</span></td></tr>)}
-        {!course.enrollments.length && <tr><td colSpan={2}>No learners enrolled.</td></tr>}
-      </tbody></table></div>{course.leaderboardEnabled && <section className="topper-panel"><h2>Toppers</h2><p className="muted">{assessmentLeaderboard.length ? "Formula: assessment score 70% + speed 30%. Assessment score is averaged across every quiz-eligible module attempted." : "Formula: progress score 70% + speed score 30%."}</p><ol className="leaderboard-list">{(assessmentLeaderboard.length ? assessmentLeaderboard : progressLeaderboard).map((row) => <li key={row.enrollmentId}><strong>{row.employeeName}</strong><span>{row.rankScore}% - {formatDuration(row.completionSeconds)}</span></li>)}</ol>{!(assessmentLeaderboard.length ? assessmentLeaderboard : progressLeaderboard).length && <p>No learner progress yet.</p>}</section>}</div>
-        <TeacherEvaluationPanel courseId={course.id} learners={course.enrollments.map((enrollment) => ({
+        {!course.enrollments.length && <tr><td colSpan={3}>No learners enrolled.</td></tr>}
+      </tbody></table></div></CollapsibleCard>{course.leaderboardEnabled && <CollapsibleCard title="Toppers" className="topper-panel" summary={`${(assessmentLeaderboard.length ? assessmentLeaderboard : progressLeaderboard).length} ranked`}><p className="muted">{assessmentLeaderboard.length ? "Formula: assessment score 70% + speed 30%. Assessment score is averaged across every quiz-eligible module attempted." : "Formula: progress score 70% + speed score 30%."}</p><ol className="leaderboard-list">{(assessmentLeaderboard.length ? assessmentLeaderboard : progressLeaderboard).map((row) => <li key={row.enrollmentId}><strong>{row.employeeName}</strong><span>{row.rankScore}% - {formatDuration(row.completionSeconds)}</span></li>)}</ol>{!(assessmentLeaderboard.length ? assessmentLeaderboard : progressLeaderboard).length && <p>No learner progress yet.</p>}</CollapsibleCard>}
+        <TeacherEvaluationPanel collapsible courseId={course.id} learners={course.enrollments.map((enrollment) => ({
           employeeId: enrollment.employeeId,
           name: enrollment.employee.name,
           employeeCode: enrollment.employee.employeeCode,
           classroomName: enrollment.classroom?.name ?? null,
         }))} />
-        <div className="card"><h2>Learner questions for you</h2><p className="muted">Questions your learners chose to send to you rather than the AI. Unanswered ones are listed first.</p>
+        <CollapsibleCard title="Learner questions for you" summary={unansweredQuestions ? `${unansweredQuestions} unanswered` : `${learnerQuestions.length} asked, all answered`} defaultOpen={unansweredQuestions > 0}><p className="muted">Questions your learners chose to send to you rather than the AI. Unanswered ones are listed first.</p>
           {learnerQuestions.map((item) => <div className="teacher-thread" key={item.id}>
             <p><b>{item.employee.name}</b> <small className="muted">{item.employee.employeeCode}{item.employee.enrollments[0]?.classroom ? ` · ${item.employee.enrollments[0].classroom.name}` : ""}</small></p>
             <p>{item.question}</p>
@@ -189,14 +193,16 @@ export default async function TeacherCourse({ params }: { params: Promise<{ id: 
                 </ActionForm>}
           </div>)}
           {!learnerQuestions.length && <p className="muted">No learner has asked you anything yet.</p>}
-        </div>
-        <div className="card"><h2>Learner AI history</h2><p className="muted">Pick a learner to see what they asked in this course.</p><p><a className="button secondary" href={withBase(`/api/courses/${course.id}/ai-history`)}>Download complete AI history Excel</a></p><LearnerAiHistory courseId={course.id} learners={aiLearners} /></div>
+        </CollapsibleCard>
+        <CollapsibleCard title="Learner AI history" summary={`${aiLearners.length} learner${aiLearners.length === 1 ? "" : "s"} asked`}><p className="muted">Pick a learner to see what they asked in this course.</p><p><a className="button secondary" href={withBase(`/api/courses/${course.id}/ai-history`)}>Download complete AI history Excel</a></p><LearnerAiHistory courseId={course.id} learners={aiLearners} /></CollapsibleCard>
         <ModuleActivities
           courseId={course.id}
           passPercentage={course.passPercentage}
           modules={course.contents}
           assessments={course.assessments.filter((assessment) => assessment.kind !== "FINAL")}
           feedbackForms={course.feedbackForms}
+          hasFinalAssessment={course.assessments.some((assessment) => assessment.kind === "FINAL" && assessment.status === "ACTIVE")}
+          collapsible
         />
       </aside>
     </div>

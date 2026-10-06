@@ -2,6 +2,7 @@ import ExcelJS from "exceljs";
 import { db } from "@/lib/db";
 import { autoFit, styleHeader, workbookResponse } from "@/lib/excel-response";
 import { routeCourseManager } from "@/lib/route-auth";
+import { notTeacherAttempt } from "@/lib/teacher-preview";
 
 const GREEN = "FFE2F0D9";
 const RED = "FFF4CCCC";
@@ -24,6 +25,7 @@ export async function GET(request: Request, context: { params: Promise<{ id: str
           // in this report belongs to now that a course can have several.
           courseContent: { include: { lessons: true } },
           attempts: {
+            where: notTeacherAttempt,
             include: { employee: { include: { company: true } }, answers: { include: { question: true } } },
             orderBy: [{ startedAt: "asc" }],
           },

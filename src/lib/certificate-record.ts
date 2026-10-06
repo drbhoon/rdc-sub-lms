@@ -1,5 +1,6 @@
 import "server-only";
 import { certificateEligibility } from "@/lib/certificate-eligibility";
+import { allFeedbackAnswered } from "@/lib/feedback-rules";
 import { db } from "@/lib/db";
 
 export type CertificateRecord = {
@@ -64,11 +65,7 @@ export async function getCertificateRecord(employeeId: string, courseId: string)
   // every published module covered under that one shared form.
   const publishedContentIds = enrollment.course.contents.map((content) => content.id);
   const hasActiveFeedbackForm = enrollment.course.feedbackForms.length > 0;
-  const hasSubmittedFeedback = hasActiveFeedbackForm && enrollment.course.feedbackForms.every((form) => {
-    if (form.courseContentId) return form.responses.some((response) => response.courseContentId === form.courseContentId);
-    const responded = new Set(form.responses.map((response) => response.courseContentId));
-    return publishedContentIds.length > 0 && publishedContentIds.every((id) => responded.has(id));
-  });
+  const hasSubmittedFeedback = allFeedbackAnswered(enrollment.course.feedbackForms, publishedContentIds);
 
   // Only the modules a teacher actually quizzed have to be PASSED — a module
   // with no active quiz is not a blocker, same reasoning as a course with no

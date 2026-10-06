@@ -9,6 +9,7 @@ import { FeedbackResponseForm } from "@/components/feedback-response-form";
 import { LessonPlayer } from "@/components/lesson-player";
 import { ModuleTabs, type ModuleTab } from "@/components/module-tabs";
 import { certificateEligibility } from "@/lib/certificate-eligibility";
+import { allFeedbackAnswered } from "@/lib/feedback-rules";
 import { withBase } from "@/lib/base-path";
 import { db } from "@/lib/db";
 import { requireUser } from "@/lib/session";
@@ -97,6 +98,8 @@ export default async function LearnCourse({ params }: { params: Promise<{ id: st
       .map((content) => content.id),
   );
   const feedbackCards = enrollment.course.feedbackForms.flatMap((form) => {
+    // The final assessment's form is shown on the Final assessment tab instead.
+    if (form.kind === "FINAL") return [];
     if (form.courseContentId) {
       if (!completedContentIds.has(form.courseContentId)) return [];
       return [{
@@ -125,11 +128,7 @@ export default async function LearnCourse({ params }: { params: Promise<{ id: st
   // scoped to one module.
   const publishedContentIds = enrollment.course.contents.map((content) => content.id);
   const hasActiveFeedbackForm = enrollment.course.feedbackForms.length > 0;
-  const hasSubmittedFeedback = hasActiveFeedbackForm && enrollment.course.feedbackForms.every((form) => {
-    if (form.courseContentId) return form.responses.some((response) => response.courseContentId === form.courseContentId);
-    const responded = new Set(form.responses.map((response) => response.courseContentId));
-    return publishedContentIds.length > 0 && publishedContentIds.every((contentId) => responded.has(contentId));
-  });
+  const hasSubmittedFeedback = allFeedbackAnswered(enrollment.course.feedbackForms, publishedContentIds);
 
   // Who this learner may ask, and what they have asked so far. Null teacher =
   // no classroom yet, and the Ask-your-teacher card is not rendered at all.
@@ -163,7 +162,7 @@ export default async function LearnCourse({ params }: { params: Promise<{ id: st
   // sidebar, which ran off the bottom of the screen once a course had a few
   // modules. A quiz
   // uploaded before quizzes were per module gets a "Whole course" tab.
-  const feedbackFormFor = (contentId: string) => enrollment.course.feedbackForms.some((form) => !form.courseContentId || form.courseContentId === contentId);
+  const feedbackFormFor = (contentId: string) => enrollment.course.feedbackForms.some((form) => form.kind !== "FINAL" && (!form.courseContentId || form.courseContentId === contentId));
   const quizPart = ({ assessment, bestAttempt }: (typeof assessmentModules)[number]) => <section key={assessment.id}>
     <h3>MCQ assessment</h3>
     <p><strong>{assessment.title}</strong></p>
@@ -221,13 +220,31 @@ export default async function LearnCourse({ params }: { params: Promise<{ id: st
   }
   // The final assessment draws on every module, so it comes last.
   if (finalQuizzes.length) {
+    // Feedback on the final: offered once they have sat it, answered once.
+    const finalForm = enrollment.course.feedbackForms.find((form) => form.kind === "FINAL") ?? null;
+    const finalSat = finalQuizzes.some((quiz) => quiz.bestAttempt);
+    const finalFeedbackDone = finalForm ? finalForm.responses.length > 0 : true;
     moduleTabs.push({
       id: "final",
       label: "Final assessment",
-      status: finalQuizzes.every((quiz) => quiz.bestAttempt?.passed) ? "done" : "todo",
+      status: finalQuizzes.every((quiz) => quiz.bestAttempt?.passed) && finalFeedbackDone ? "done" : "todo",
       panel: <div className="module-panel">
         <p className="muted">Questions are drawn at random from every module of this course.</p>
         {finalQuizzes.map(quizPart)}
+        {finalForm && <section>
+          {finalForm.responses.length > 0
+            ? <p><span className="badge">Feedback submitted</span> Thank you.</p>
+            : finalSat
+              ? <FeedbackResponseForm embedded courseId={id} formId={finalForm.id} courseContentId="" moduleTitle="Final assessment"
+                questions={finalForm.questions.map((question) => ({
+                  id: question.id,
+                  questionText: question.questionText,
+                  type: question.type,
+                  required: question.required,
+                  options: Array.isArray(question.options) ? question.options.map(String) : [],
+                }))} />
+              : <><h3>Feedback</h3><p className="muted">Feedback on the final assessment opens once you have taken it.</p></>}
+        </section>}
       </div>,
     });
   }

@@ -6,6 +6,7 @@ import { db } from "@/lib/db";
 import { buildLeaderboardRows, formatDuration } from "@/lib/leaderboard";
 import { dateRangeWhere, getReportPeriod } from "@/lib/report-period";
 import { requireRole } from "@/lib/session";
+import { learnersOnly, notTeacherAttempt } from "@/lib/teacher-preview";
 
 function PeriodFilter({ period }: { period: ReturnType<typeof getReportPeriod> }) {
   return <form className="period-filter card" method="get">
@@ -34,16 +35,16 @@ export default async function AdminDashboard({ searchParams }: { searchParams: P
     db.course.count({ where: { isActive: true } }),
     db.course.count({ where: { isActive: false } }),
     db.course.count({ where: { createdAt: periodRange } }),
-    db.enrollment.count({ where: { enrolledAt: periodRange } }),
-    db.enrollment.count({ where: { enrolledAt: periodRange, status: "COMPLETED" } }),
+    db.enrollment.count({ where: { enrolledAt: periodRange, ...learnersOnly } }),
+    db.enrollment.count({ where: { enrolledAt: periodRange, status: "COMPLETED", ...learnersOnly } }),
     db.assessmentAttempt.findMany({
-      where: { status: "SUBMITTED", submittedAt: periodRange, assessment: { course: { leaderboardEnabled: true } } },
+      where: { status: "SUBMITTED", submittedAt: periodRange, assessment: { course: { leaderboardEnabled: true } }, ...notTeacherAttempt },
       include: { employee: { include: { company: true } }, assessment: { include: { course: true } } },
       orderBy: [{ scorePercent: "desc" }, { timeTakenSeconds: "asc" }],
       take: 300,
     }),
     db.enrollment.findMany({
-      where: { course: { leaderboardEnabled: true }, OR: [{ enrolledAt: periodRange }, { completedAt: periodRange }] },
+      where: { course: { leaderboardEnabled: true }, OR: [{ enrolledAt: periodRange }, { completedAt: periodRange }], ...learnersOnly },
       include: {
         employee: { include: { company: true } },
         progress: true,

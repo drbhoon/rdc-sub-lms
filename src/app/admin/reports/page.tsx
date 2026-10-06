@@ -7,6 +7,7 @@ import { buildLeaderboardRows, formatDuration } from "@/lib/leaderboard";
 import { dateRangeWhere, getReportPeriod } from "@/lib/report-period";
 import { requireRole } from "@/lib/session";
 import { formatIst, formatIstDate } from "@/lib/ist";
+import { learnersOnly, notTeacherAttempt } from "@/lib/teacher-preview";
 
 function getValue(params: Record<string, string | string[] | undefined>, key: string) {
   const value = params[key];
@@ -35,6 +36,7 @@ export default async function ReportsPage({ searchParams }: { searchParams: Prom
     db.enrollment.findMany({
       where: {
         enrolledAt: periodRange,
+        ...learnersOnly,
         ...(courseId ? { courseId } : {}),
         ...(companyId ? { employee: { companyId } } : {}),
       },
@@ -56,7 +58,7 @@ export default async function ReportsPage({ searchParams }: { searchParams: Prom
       where: { ...(courseId ? { id: courseId } : {}), ...(companyId ? { companies: { some: { companyId } } } : {}) },
       include: {
         companies: { include: { company: true } },
-        enrollments: { include: { progress: true } },
+        enrollments: { where: learnersOnly, include: { progress: true } },
         contents: { where: { isPublished: true }, include: { lessons: { where: { approvedAt: { not: null } } } } },
       },
       orderBy: { title: "asc" },
@@ -66,6 +68,7 @@ export default async function ReportsPage({ searchParams }: { searchParams: Prom
       where: {
         status: "SUBMITTED",
         submittedAt: periodRange,
+        ...notTeacherAttempt,
         ...(courseId ? { assessment: { courseId } } : {}),
         ...(companyId ? { employee: { companyId } } : {}),
       },

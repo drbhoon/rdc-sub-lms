@@ -4,6 +4,7 @@ import { loadCourseGrades } from "@/lib/course-grades";
 import { db } from "@/lib/db";
 import { autoFit, styleHeader, workbookResponse } from "@/lib/excel-response";
 import { routeCourseManager } from "@/lib/route-auth";
+import { learnersOnly } from "@/lib/teacher-preview";
 
 /**
  * Every learner's weighted course result, one row each: each component's score
@@ -20,7 +21,7 @@ export async function GET(_: Request, context: { params: Promise<{ id: string }>
   const owned = await db.classroom.findMany({ where: { courseId: id, teacherUserId: viewer.id }, select: { id: true } });
   const scope = classroomScope({ roles: viewer.roles.map((grant) => grant.role), ownedClassroomIds: owned.map((room) => room.id) });
   const enrollments = await db.enrollment.findMany({
-    where: { courseId: id, ...enrollmentScopeWhere(scope) },
+    where: { courseId: id, ...learnersOnly, ...enrollmentScopeWhere(scope) },
     include: { employee: { include: { company: true } }, classroom: { select: { name: true } } },
     orderBy: { employee: { name: "asc" } },
   });

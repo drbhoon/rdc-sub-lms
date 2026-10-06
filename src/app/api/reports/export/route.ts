@@ -5,6 +5,7 @@ import { autoFit, styleHeader, workbookResponse } from "@/lib/excel-response";
 import { buildLeaderboardRows, formatDuration } from "@/lib/leaderboard";
 import { dateRangeWhere, getReportPeriod } from "@/lib/report-period";
 import { routeUserWithRole } from "@/lib/route-auth";
+import { learnersOnly, notTeacherAttempt } from "@/lib/teacher-preview";
 
 function getParam(searchParams: URLSearchParams, key: string) {
   return searchParams.get(key) ?? "";
@@ -21,7 +22,7 @@ export async function GET(request: Request) {
 
   const [progressRows, activeLearners, courseAnalysis, assessmentAttempts] = await Promise.all([
     db.enrollment.findMany({
-      where: { enrolledAt: periodRange, ...(courseId ? { courseId } : {}), ...(companyId ? { employee: { companyId } } : {}) },
+      where: { enrolledAt: periodRange, ...learnersOnly, ...(courseId ? { courseId } : {}), ...(companyId ? { employee: { companyId } } : {}) },
       include: {
         employee: { include: { company: true } },
         progress: true,
@@ -33,7 +34,7 @@ export async function GET(request: Request) {
     db.employee.findMany({ where: { status: "ACTIVE", ...(companyId ? { companyId } : {}) }, include: { company: true }, orderBy: [{ company: { name: "asc" } }, { name: "asc" }], take: 5000 }),
     db.course.findMany({
       where: { ...(courseId ? { id: courseId } : {}), ...(companyId ? { companies: { some: { companyId } } } : {}) },
-      include: { companies: { include: { company: true } }, enrollments: true },
+      include: { companies: { include: { company: true } }, enrollments: { where: learnersOnly } },
       orderBy: { title: "asc" },
       take: 1000,
     }),
@@ -41,6 +42,7 @@ export async function GET(request: Request) {
       where: {
         status: "SUBMITTED",
         submittedAt: periodRange,
+        ...notTeacherAttempt,
         ...(courseId ? { assessment: { courseId } } : {}),
         ...(companyId ? { employee: { companyId } } : {}),
       },

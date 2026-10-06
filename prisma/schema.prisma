@@ -334,6 +334,12 @@ model Enrollment {
   /// stays that way until someone places them, which is deliberate: nobody is
   /// silently moved into a room they were never put in.
   classroomId        String?
+  /// A teacher's own enrolment on a course they teach, so they can see it as a
+  /// learner does. It is a way of looking, not a learner: it is left out of
+  /// learner counts, rosters, toppers, reports, results and reminders. An
+  /// ordinary enrolment (an admin put them on the roster as a learner) stays
+  /// false, so a teacher who really is taking the course is counted.
+  isTeacherPreview   Boolean             @default(false)
   enrolledAt         DateTime            @default(now())
   startedAt          DateTime?
   completedAt        DateTime?
@@ -501,6 +507,12 @@ model FeedbackForm {
   /// actions/feedback.ts, which also re-scopes "only one ACTIVE at a time"
   /// to the module rather than the whole course.
   courseContentId String?
+  /// MODULE for everything above (courseContentId set, or null on a legacy
+  /// whole-course form). FINAL for the one form that asks about the course's
+  /// final assessment: it has no module either, so this is what tells it apart
+  /// from a legacy whole-course form, which is answered once per module while
+  /// a FINAL form is answered once.
+  kind            AssessmentKind     @default(MODULE)
   title           String             @default("Course Feedback")
   version         Int
   isActive        Boolean            @default(false)

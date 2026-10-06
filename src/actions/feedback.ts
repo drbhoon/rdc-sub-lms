@@ -1,6 +1,6 @@
 "use server";
 
-import { FeedbackQuestionType, Prisma, UserRole } from "@prisma/client";
+import { AssessmentKind, FeedbackQuestionType, Prisma, UserRole } from "@prisma/client";
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
 import { audit } from "@/lib/audit";
@@ -14,7 +14,8 @@ type ActionState = { message?: string };
 
 const uploadSchema = z.object({
   courseId: z.string().min(1),
-  courseContentId: z.string().min(1, "Select which module this feedback belongs to."),
+  // Absent for the final assessment's form (scope=final), which has no module.
+  courseContentId: z.string().optional(),
   title: z.string().trim().min(3).max(150).default("Course Feedback"),
 });
 
@@ -32,20 +33,31 @@ export async function uploadFeedbackTemplate(_: ActionState, formData: FormData)
   if (!(file instanceof File)) return { message: "Select a feedback CSV or Excel file." };
   const parsed = uploadSchema.safeParse(Object.fromEntries(formData));
   if (!parsed.success) return { message: parsed.error.issues[0].message };
-  const { courseContentId } = parsed.data;
-  const targetModule = await db.courseContent.findFirst({ where: { id: courseContentId, courseId, isPublished: true } });
-  if (!targetModule) return { message: "Selected module was not found on this course." };
+  // A form is about one module, or about the final assessment — never both.
+  const isFinal = formData.get("scope") === "final";
+  const courseContentId = isFinal ? null : parsed.data.courseContentId ?? "";
+  const kind = isFinal ? AssessmentKind.FINAL : AssessmentKind.MODULE;
+  if (!isFinal) {
+    if (!courseContentId) return { message: "Select which module this feedback belongs to." };
+    const targetModule = await db.courseContent.findFirst({ where: { id: courseContentId, courseId, isPublished: true } });
+    if (!targetModule) return { message: "Selected module was not found on this course." };
+  }
+  // Versions and "only one live" are counted within the form's own scope. The
+  // final's form has no module, so without `kind` it would share a scope with
+  // legacy whole-course forms, which are also module-less.
+  const scope = { courseId, courseContentId, kind };
 
   try {
     const questions = parseFeedbackRows(await readTabularFile(file));
-    const latest = await db.feedbackForm.aggregate({ where: { courseId, courseContentId }, _max: { version: true } });
+    const latest = await db.feedbackForm.aggregate({ where: scope, _max: { version: true } });
     const version = (latest._max.version ?? 0) + 1;
     const form = await db.$transaction(async (tx) => {
-      await tx.feedbackForm.updateMany({ where: { courseId, courseContentId, isActive: true }, data: { isActive: false } });
+      await tx.feedbackForm.updateMany({ where: { ...scope, isActive: true }, data: { isActive: false } });
       return tx.feedbackForm.create({
         data: {
           courseId,
           courseContentId,
+          kind,
           title: parsed.data.title,
           version,
           isActive: true,
@@ -61,11 +73,11 @@ export async function uploadFeedbackTemplate(_: ActionState, formData: FormData)
         },
       });
     });
-    await audit(actor.id, "FEEDBACK_TEMPLATE_UPLOADED", "FeedbackForm", form.id, { courseId, courseContentId, questionCount: questions.length, fileName: file.name });
+    await audit(actor.id, "FEEDBACK_TEMPLATE_UPLOADED", "FeedbackForm", form.id, { courseId, courseContentId, kind, questionCount: questions.length, fileName: file.name });
     revalidatePath(`/admin/courses/${courseId}`);
     revalidatePath(`/teacher/courses/${courseId}`);
     revalidatePath(`/learn/courses/${courseId}`);
-    return { message: `Feedback template v${version} activated for this module with ${questions.length} questions.` };
+    return { message: `Feedback template v${version} activated for ${isFinal ? "the final assessment" : "this module"} with ${questions.length} questions.` };
   } catch (error) {
     return { message: error instanceof Error ? error.message : "Feedback template upload failed." };
   }
@@ -96,7 +108,9 @@ export async function setFeedbackFormActive(formData: FormData) {
       // Same module only — another module's feedback is a different form and is
       // untouched by this one being restored.
       await tx.feedbackForm.updateMany({
-        where: { courseId: form.courseId, courseContentId: form.courseContentId, isActive: true },
+        // kind as well: the final's form and a legacy whole-course form both
+        // have no module, and restoring one must not stand down the other.
+        where: { courseId: form.courseId, courseContentId: form.courseContentId, kind: form.kind, isActive: true },
         data: { isActive: false },
       });
     }
@@ -159,25 +173,36 @@ export async function submitFeedback(_: FeedbackSubmitState, formData: FormData)
   const form = await db.feedbackForm.findFirst({ where: { id: formId, courseId, isActive: true }, include: { questions: { orderBy: { order: "asc" } } } });
   if (!form) return { message: "Active feedback form not found." };
 
-  const courseContentId = form.courseContentId ?? String(formData.get("courseContentId") ?? "");
-  if (!courseContentId) return { message: "Which module this feedback is for was not specified." };
+  // The final's form is about no module, and a module id sent with it is ignored.
+  const isFinal = form.kind === AssessmentKind.FINAL;
+  const courseContentId = isFinal ? null : form.courseContentId ?? String(formData.get("courseContentId") ?? "");
+  if (!isFinal && !courseContentId) return { message: "Which module this feedback is for was not specified." };
 
-  const moduleDone = await db.lessonProgress.findFirst({
-    where: {
-      enrollmentId: enrollment.id,
-      completedAt: { not: null },
-      lesson: { courseContentId, content: { courseId, isPublished: true } },
-    },
-  });
-  if (!moduleDone) return { message: "Feedback for this module is available once you complete it." };
+  if (isFinal) {
+    // Opens once the learner has sat the final — pass or fail, since how it
+    // went is exactly what they may want to say something about.
+    const sat = await db.assessmentAttempt.findFirst({
+      where: { employeeId: user.employeeId, status: "SUBMITTED", assessment: { courseId, kind: AssessmentKind.FINAL } },
+      select: { id: true },
+    });
+    if (!sat) return { message: "Feedback on the final assessment is available once you have taken it." };
+  } else {
+    const moduleDone = await db.lessonProgress.findFirst({
+      where: {
+        enrollmentId: enrollment.id,
+        completedAt: { not: null },
+        lesson: { courseContentId: courseContentId!, content: { courseId, isPublished: true } },
+      },
+    });
+    if (!moduleDone) return { message: "Feedback for this module is available once you complete it." };
+  }
+
+  const answered = { formId: form.id, employeeId: user.employeeId, courseContentId };
+  const already = { message: `You have already submitted feedback for ${isFinal ? "the final assessment" : "this module"}.`, ok: true };
 
   // Final once given. The form is no longer offered after submitting, and this
   // is the check that makes that true for a stale tab or a hand-made request.
-  const alreadyAnswered = await db.feedbackResponse.findUnique({
-    where: { formId_employeeId_courseContentId: { formId: form.id, employeeId: user.employeeId, courseContentId } },
-    select: { id: true },
-  });
-  if (alreadyAnswered) return { message: "You have already submitted feedback for this module.", ok: true };
+  if (await db.feedbackResponse.findFirst({ where: answered, select: { id: true } })) return already;
 
   const answers = form.questions.map((question) => {
     const result = validateFeedbackValue(question.type, formData.getAll(`question_${question.id}`), question.required);
@@ -185,20 +210,22 @@ export async function submitFeedback(_: FeedbackSubmitState, formData: FormData)
     return { questionId: question.id, value: result.value };
   });
   try {
+    // Serializable, so that two submissions at the same moment cannot both pass
+    // the check and both write: one is refused. A module's response also has a
+    // unique key as a backstop, but that key cannot cover the final's, which
+    // has no module and so a NULL in it — Postgres treats NULLs as distinct.
     await db.$transaction(async (tx) => {
-      // create, not upsert: two tabs submitting together must not let the
-      // second overwrite the first — the unique key refuses it instead.
-      const response = await tx.feedbackResponse.create({
-        data: { formId: form.id, employeeId: user.employeeId!, courseContentId },
-      });
+      if (await tx.feedbackResponse.findFirst({ where: answered, select: { id: true } })) throw new AlreadySubmitted();
+      const response = await tx.feedbackResponse.create({ data: answered });
       await tx.feedbackAnswer.createMany({ data: answers.map((answer) => ({ responseId: response.id, questionId: answer.questionId, value: answer.value as never })) });
-    });
+    }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
     revalidatePath(`/learn/courses/${courseId}`);
     return { message: "Feedback submitted. Thank you.", ok: true };
   } catch (error) {
-    if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002") {
-      return { message: "You have already submitted feedback for this module.", ok: true };
-    }
+    const lostRace = error instanceof Prisma.PrismaClientKnownRequestError && (error.code === "P2002" || error.code === "P2034");
+    if (error instanceof AlreadySubmitted || lostRace) return already;
     return { message: error instanceof Error ? error.message : "Feedback could not be submitted." };
   }
 }
+
+class AlreadySubmitted extends Error {}

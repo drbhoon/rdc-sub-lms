@@ -27,7 +27,7 @@ export default async function FeedbackReportsPage({ searchParams }: { searchPara
       // below with which module each form belongs to — several forms can
       // share the default "Course Feedback" title now that each is its own
       // module's, so the title alone no longer tells them apart.
-      feedbackForms: { select: { id: true, title: true, version: true, courseContent: { select: { lessons: { select: { title: true } } } } }, orderBy: { version: "desc" } },
+      feedbackForms: { select: { id: true, title: true, version: true, kind: true, courseContent: { select: { lessons: { select: { title: true } } } } }, orderBy: { version: "desc" } },
     },
     orderBy: { title: "asc" },
   });
@@ -57,7 +57,7 @@ export default async function FeedbackReportsPage({ searchParams }: { searchPara
     <nav className="report-tabs" aria-label="Report sections"><Link href="/admin/reports">General</Link><Link href="/admin/reports/assessment">Assessment</Link><Link className="active" href="/admin/reports/feedback">Feedback</Link></nav>
     <form className="period-filter card" method="get">
       <label>Course<select name="courseId" defaultValue={selectedCourseId}>{courses.map((course) => <option key={course.id} value={course.id}>{course.title}</option>)}</select></label>
-      <label>Feedback version<select name="formId" defaultValue={selectedFormId}>{selectedCourse?.feedbackForms.map((item) => <option key={item.id} value={item.id}>v{item.version} - {item.title} ({item.courseContent?.lessons[0]?.title ?? "Whole course"})</option>)}</select></label>
+      <label>Feedback version<select name="formId" defaultValue={selectedFormId}>{selectedCourse?.feedbackForms.map((item) => <option key={item.id} value={item.id}>v{item.version} - {item.title} ({item.courseContent?.lessons[0]?.title ?? (item.kind === "FINAL" ? "Final assessment" : "Whole course")})</option>)}</select></label>
       <button>Apply</button>
       {form && <a className="button secondary" href={withBase(`/api/courses/${form.courseId}/feedback-export?formId=${form.id}`)}>Download Overview & Details Excel</a>}
     </form>
@@ -78,7 +78,7 @@ export default async function FeedbackReportsPage({ searchParams }: { searchPara
         })}
       </tbody></table></div></section>
       <section className="card"><h2>Individual responses</h2><div className="table-wrap"><table><thead><tr><th>Learner</th><th>Company</th><th>Module</th><th>Submitted</th>{form.questions.map((question) => <th key={question.id}>Q{question.order}</th>)}</tr></thead><tbody>
-        {form.responses.map((response) => { const answers = new Map(response.answers.map((answer) => [answer.questionId, answer.value])); return <tr key={response.id}><td>{response.employee.name}<br /><span className="muted">{response.employee.employeeCode}</span></td><td>{response.employee.company.name}</td><td>{response.courseContent?.lessons[0]?.title ?? "Whole course"}</td><td>{formatIst(response.submittedAt)}</td>{form.questions.map((question) => <td key={question.id}>{text(answers.get(question.id))}</td>)}</tr>; })}
+        {form.responses.map((response) => { const answers = new Map(response.answers.map((answer) => [answer.questionId, answer.value])); return <tr key={response.id}><td>{response.employee.name}<br /><span className="muted">{response.employee.employeeCode}</span></td><td>{response.employee.company.name}</td><td>{response.courseContent?.lessons[0]?.title ?? (form.kind === "FINAL" ? "Final assessment" : "Whole course")}</td><td>{formatIst(response.submittedAt)}</td>{form.questions.map((question) => <td key={question.id}>{text(answers.get(question.id))}</td>)}</tr>; })}
         {!form.responses.length && <tr><td colSpan={4 + form.questions.length}>No feedback responses yet.</td></tr>}
       </tbody></table></div></section>
     </>}

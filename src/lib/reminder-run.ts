@@ -2,6 +2,7 @@ import { CourseEmailType, EnrollmentStatus } from "@prisma/client";
 import { db } from "@/lib/db";
 import { sendReminderEmail } from "@/lib/course-notifications";
 import { reminderEnrollmentCutoff } from "@/lib/course-reminders";
+import { learnersOnly } from "@/lib/teacher-preview";
 
 const IST_OFFSET_MINUTES = 330;
 
@@ -33,6 +34,8 @@ export async function runCourseReminders(now = new Date()) {
   const enrollments = await db.enrollment.findMany({
     where: {
       status: { not: EnrollmentStatus.COMPLETED },
+      // A teacher's preview of their own course is not an assignment to finish.
+      ...learnersOnly,
       enrolledAt: { lte: enrollmentCutoff },
       employee: { status: "ACTIVE" },
       course: { status: "PUBLISHED" },

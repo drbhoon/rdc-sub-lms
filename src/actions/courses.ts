@@ -14,6 +14,7 @@ import { requireRole } from "@/lib/session";
 import { storage } from "@/lib/storage";
 import { readTabularFile } from "@/lib/tabular-import";
 import { eligibleTeacherWhere } from "@/lib/teacher-eligibility";
+import { enrolTeachersAsPreview } from "@/lib/teacher-preview";
 
 const courseSchema = z.object({
   title: z.string().trim().min(3).max(150),
@@ -49,6 +50,7 @@ export async function createCourse(_: { message?: string }, formData: FormData) 
       teachers: teacherIds.length ? { create: teacherIds.map((userId) => ({ userId })) } : undefined,
     },
   });
+  await enrolTeachersAsPreview(course.id, teacherIds);
   await audit(actor.id, "COURSE_CREATED", "Course", course.id);
   redirect(`/admin/courses/${course.id}`);
 }
@@ -106,6 +108,8 @@ export async function updateCourseTeachers(_: { message?: string }, formData: Fo
     if (teacherCount !== teacherIds.length) return { message: "One or more selected teachers are not eligible." };
   }
   await db.$transaction(async (tx) => {
+    const before = new Set((await tx.courseTeacher.findMany({ where: { courseId }, select: { userId: true } })).map((row) => row.userId));
+    const removed = [...before].filter((userId) => !teacherIds.includes(userId));
     await tx.courseTeacher.deleteMany({ where: teacherIds.length ? { courseId, userId: { notIn: teacherIds } } : { courseId } });
     for (const userId of teacherIds) {
       await tx.courseTeacher.upsert({
@@ -114,6 +118,13 @@ export async function updateCourseTeachers(_: { message?: string }, formData: Fo
         create: { courseId, userId },
       });
     }
+    // A teacher taken off the course loses the preview that came with it. An
+    // ordinary enrolment (isTeacherPreview false) is left alone.
+    if (removed.length) {
+      await tx.enrollment.deleteMany({ where: { courseId, isTeacherPreview: true, employee: { user: { id: { in: removed } } } } });
+    }
+    // Newly added only, so an admin's removal of a preview is not quietly undone.
+    await enrolTeachersAsPreview(courseId, teacherIds.filter((userId) => !before.has(userId)), tx);
   });
   await audit(actor.id, "COURSE_TEACHERS_UPDATED", "Course", courseId, { teacherCount: teacherIds.length });
   revalidatePath("/admin/courses");

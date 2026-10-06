@@ -8,6 +8,7 @@ import { queueTeacherRoleEmails } from "@/lib/course-notifications";
 import { classroomKey, hasClassroomColumns, planClassrooms } from "@/lib/classroom-import";
 import { requireCourseManager } from "@/lib/course-access";
 import { db } from "@/lib/db";
+import { enrolTeachersAsPreview } from "@/lib/teacher-preview";
 import { enrolRoster, queueEnrollmentEmails } from "@/lib/roster-enrolment";
 import { requireRole } from "@/lib/session";
 import { readTabularFile } from "@/lib/tabular-import";
@@ -32,11 +33,13 @@ function revalidateCourse(courseId: string) {
  * vs teach a room), so this bridges them rather than merging them.
  */
 async function grantCourseAccess(tx: Parameters<Parameters<typeof db.$transaction>[0]>[0], courseId: string, userId: string) {
-  await tx.courseTeacher.upsert({
-    where: { courseId_userId: { courseId, userId } },
-    update: {},
-    create: { courseId, userId },
-  });
+  const key = { courseId_userId: { courseId, userId } };
+  if (await tx.courseTeacher.findUnique({ where: key })) return;
+  await tx.courseTeacher.create({ data: { courseId, userId } });
+  // A teacher new to the course is also enrolled as a preview, so they can see
+  // it as a learner does. Only when newly granted: doing it on every save would
+  // put back a preview an admin had removed.
+  await enrolTeachersAsPreview(courseId, [userId], tx);
 }
 
 async function assertEligibleTeacher(userId: string) {

@@ -1,5 +1,6 @@
 import { saveTeacherEvaluation } from "@/actions/grading";
 import { ActionForm } from "@/components/action-form";
+import { CollapsibleCard } from "@/components/collapsible-card";
 import { loadCourseGrades } from "@/lib/course-grades";
 import { formatIst } from "@/lib/ist";
 
@@ -11,12 +12,12 @@ type Learner = { employeeId: string; name: string; employeeCode: string; classro
  * for this course. The learners listed are the ones this teacher may see — the
  * page has already applied the classroom rules.
  */
-export async function TeacherEvaluationPanel({ courseId, learners }: { courseId: string; learners: Learner[] }) {
+export async function TeacherEvaluationPanel({ courseId, learners, collapsible = false }: { courseId: string; learners: Learner[]; collapsible?: boolean }) {
   const grades = await loadCourseGrades(courseId, learners.map((learner) => learner.employeeId));
   if (!grades?.scheme.teacherAssessmentEnabled) return null;
 
-  return <div className="card" id="teacher-assessment">
-    <h2>Teacher assessment</h2>
+  const notAssessed = learners.filter((learner) => !grades.byEmployee.get(learner.employeeId)?.teacherEvaluation).length;
+  const body = <>
     <p className="muted">
       Give each learner a score out of 100 and your comments. It counts for {grades.scheme.teacherWeight} of the
       100 marks in their course result. You can change a score at any time.
@@ -40,5 +41,12 @@ export async function TeacherEvaluationPanel({ courseId, learners }: { courseId:
       </details>;
     })}
     {!learners.length && <p className="muted">No learners to assess.</p>}
+  </>;
+  if (collapsible) {
+    return <CollapsibleCard title="Teacher assessment" id="teacher-assessment" summary={notAssessed ? `${notAssessed} not assessed` : "all assessed"}>{body}</CollapsibleCard>;
+  }
+  return <div className="card" id="teacher-assessment">
+    <h2>Teacher assessment</h2>
+    {body}
   </div>;
 }

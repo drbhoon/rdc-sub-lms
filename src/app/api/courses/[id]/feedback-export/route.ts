@@ -21,13 +21,14 @@ export async function GET(request: Request, context: { params: Promise<{ id: str
   if (!await routeCourseManager(id)) return new Response("Forbidden", { status: 403 });
   const params = new URL(request.url).searchParams;
   const formId = params.get("formId") ?? "";
-  // ?module= narrows the workbook to one module's forms, every version.
+  // ?module= narrows the workbook to one module's forms, every version;
+  // ?module=final to the final assessment's.
   const moduleId = params.get("module") ?? "";
   const course = await db.course.findUnique({
     where: { id },
     include: {
       feedbackForms: {
-        where: formId ? { id: formId } : moduleId ? { courseContentId: moduleId } : undefined,
+        where: formId ? { id: formId } : moduleId === "final" ? { kind: "FINAL" } : moduleId ? { courseContentId: moduleId } : undefined,
         include: {
           questions: { orderBy: { order: "asc" } },
           // courseContent + its lesson, to label which module each response
@@ -76,7 +77,7 @@ export async function GET(request: Request, context: { params: Promise<{ id: str
       const values = new Map(response.answers.map((answer) => [answer.questionId, answer.value]));
       details.addRow([
         response.employee.employeeCode, response.employee.name, response.employee.email, response.employee.company.name,
-        response.employee.locationPlant ?? "", form.title, form.version, response.courseContent?.lessons[0]?.title ?? "Whole course",
+        response.employee.locationPlant ?? "", form.title, form.version, response.courseContent?.lessons[0]?.title ?? (form.kind === "FINAL" ? "Final assessment" : "Whole course"),
         response.submittedAt, response.submittedAt,
         ...Array.from({ length: maxQuestions }, (_, index) => {
           const question = form.questions.find((item) => item.order === index + 1);

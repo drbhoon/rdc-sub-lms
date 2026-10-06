@@ -7,6 +7,7 @@ import { buildFinalBank, checkGradingScheme, finalIsStale } from "@/lib/course-g
 import { courseModules, loadCourseGrades, schemeFromRow } from "@/lib/course-grades";
 import { db } from "@/lib/db";
 import { formatIst } from "@/lib/ist";
+import { learnersOnly } from "@/lib/teacher-preview";
 
 const scoreText = (score: number | null) => (score === null ? "-" : `${Math.round(score * 10) / 10}`);
 
@@ -28,7 +29,7 @@ export async function CourseGradingPanel({ courseId }: { courseId: string }) {
       orderBy: { version: "desc" },
     }),
     db.enrollment.findMany({
-      where: { courseId },
+      where: { courseId, ...learnersOnly },
       include: { employee: { select: { id: true, name: true, employeeCode: true } }, classroom: { select: { name: true } } },
       orderBy: { employee: { name: "asc" } },
     }),
