@@ -3,6 +3,7 @@ import { classroomScope, enrollmentScopeWhere } from "@/lib/classroom-scope";
 import { loadCourseGrades } from "@/lib/course-grades";
 import { db } from "@/lib/db";
 import { autoFit, styleHeader, workbookResponse } from "@/lib/excel-response";
+import { classroomTeacher } from "@/lib/classroom-teacher";
 import { routeCourseManager } from "@/lib/route-auth";
 import { learnersOnly } from "@/lib/teacher-preview";
 
@@ -22,7 +23,7 @@ export async function GET(_: Request, context: { params: Promise<{ id: string }>
   const scope = classroomScope({ roles: viewer.roles.map((grant) => grant.role), ownedClassroomIds: owned.map((room) => room.id) });
   const enrollments = await db.enrollment.findMany({
     where: { courseId: id, ...learnersOnly, ...enrollmentScopeWhere(scope) },
-    include: { employee: { include: { company: true } }, classroom: { select: { name: true } } },
+    include: { employee: { include: { company: true } }, classroom: { select: { name: true, teacher: { select: { email: true, employee: { select: { name: true, employeeCode: true } } } } } } },
     orderBy: { employee: { name: "asc" } },
   });
   const grades = await loadCourseGrades(id, enrollments.map((enrollment) => enrollment.employeeId));
@@ -32,7 +33,7 @@ export async function GET(_: Request, context: { params: Promise<{ id: string }>
   const workbook = new ExcelJS.Workbook();
   const sheet = workbook.addWorksheet("Course Results");
   sheet.addRow([
-    "Course", "Employee Code", "Learner", "Email", "Company", "Classroom",
+    "Course", "Employee Code", "Learner", "Email", "Company", "Classroom", "Teacher Name", "Teacher Employee Code",
     ...components.map((component) => `${component.label} (weight ${component.weight})`),
     "Course Result /100", "Complete", "Pending", "Teacher Comments",
   ]);
@@ -40,6 +41,7 @@ export async function GET(_: Request, context: { params: Promise<{ id: string }>
   for (const enrollment of enrollments) {
     const row = grades.byEmployee.get(enrollment.employeeId);
     if (!row) continue;
+    const teacher = classroomTeacher(enrollment.classroom?.teacher);
     sheet.addRow([
       course.title,
       enrollment.employee.employeeCode,
@@ -47,6 +49,8 @@ export async function GET(_: Request, context: { params: Promise<{ id: string }>
       enrollment.employee.email,
       enrollment.employee.company.name,
       enrollment.classroom?.name ?? "",
+      teacher.name,
+      teacher.code,
       // Blank, not 0, for what has not been attempted: a 0 would read as a
       // score the learner earned.
       ...row.grade.components.map((component) => component.score ?? ""),

@@ -3,6 +3,7 @@ import { buildFinalAssessment } from "@/actions/grading";
 import { ActionForm } from "@/components/action-form";
 import { GradingSchemeForm } from "@/components/grading-scheme-form";
 import { withBase } from "@/lib/base-path";
+import { classroomTeacher } from "@/lib/classroom-teacher";
 import { buildFinalBank, checkGradingScheme, finalIsStale } from "@/lib/course-grading";
 import { courseModules, loadCourseGrades, schemeFromRow } from "@/lib/course-grades";
 import { db } from "@/lib/db";
@@ -30,7 +31,7 @@ export async function CourseGradingPanel({ courseId }: { courseId: string }) {
     }),
     db.enrollment.findMany({
       where: { courseId, ...learnersOnly },
-      include: { employee: { select: { id: true, name: true, employeeCode: true } }, classroom: { select: { name: true } } },
+      include: { employee: { select: { id: true, name: true, employeeCode: true } }, classroom: { select: { name: true, teacher: { select: { email: true, employee: { select: { name: true, employeeCode: true } } } } } } },
       orderBy: { employee: { name: "asc" } },
     }),
   ]);
@@ -100,7 +101,7 @@ export async function CourseGradingPanel({ courseId }: { courseId: string }) {
         <div className="table-wrap">
           <table>
             <thead><tr>
-              <th>Learner</th><th>Classroom</th>
+              <th>Learner</th><th>Classroom</th><th>Teacher</th>
               {columns.map((component) => <th key={component.key}>{component.label}<br /><span className="muted">weight {component.weight}</span></th>)}
               <th>Course result /100</th>
             </tr></thead>
@@ -108,14 +109,16 @@ export async function CourseGradingPanel({ courseId }: { courseId: string }) {
               {enrollments.map((enrollment) => {
                 const row = grades.byEmployee.get(enrollment.employeeId);
                 if (!row) return null;
+                const teacher = classroomTeacher(enrollment.classroom?.teacher);
                 return <tr key={enrollment.id}>
                   <td><strong>{enrollment.employee.name}</strong><br /><span className="muted">{enrollment.employee.employeeCode}</span></td>
                   <td>{enrollment.classroom?.name ?? <span className="muted">-</span>}</td>
+                  <td>{teacher.name ? <><strong>{teacher.name}</strong>{teacher.code && <><br /><span className="muted">{teacher.code}</span></>}</> : <span className="muted">-</span>}</td>
                   {row.grade.components.map((component) => <td key={component.key}>{scoreText(component.score)}</td>)}
                   <td><strong>{row.grade.total}</strong>{!row.grade.complete && <><br /><span className="muted">{row.grade.pending.length} pending</span></>}</td>
                 </tr>;
               })}
-              {!enrollments.length && <tr><td colSpan={columns.length + 3}>No learners are enrolled yet.</td></tr>}
+              {!enrollments.length && <tr><td colSpan={columns.length + 4}>No learners are enrolled yet.</td></tr>}
             </tbody>
           </table>
         </div>

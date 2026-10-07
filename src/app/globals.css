@@ -42,6 +42,8 @@ label { display:grid; gap:.4rem; color:#334155; font-weight:600; }
 .hero-images figcaption { padding:.7rem .85rem; font-weight:700; color:var(--navy); }
 .grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(230px,1fr)); gap:1rem; }
 .two-col { display:grid; grid-template-columns:minmax(0,2fr) minmax(260px,1fr); gap:1rem; align-items:start; }
+/* Grid items default to min-width:auto, so a wide table inside one stretched the column past its track and ran under its neighbour. 0 lets the table scroll within its card instead. */
+.two-col > * { min-width:0; }
 .card { background:white; border:1px solid var(--line); border-radius:12px; padding:1.1rem; box-shadow:0 2px 8px #12233f0a; }
 .card h2,.card h3 { margin-top:0; }
 .stat { font-size:2rem; font-weight:800; color:var(--navy); }
@@ -49,7 +51,7 @@ label { display:grid; gap:.4rem; color:#334155; font-weight:600; }
 .message { background:var(--pale); border-left:4px solid var(--blue); padding:.75rem; border-radius:5px; margin:.8rem 0; }
 .error { color:var(--danger); }
 .success { color:var(--success); }
-.form { display:grid; gap:1rem; }
+.form { display:grid; grid-template-columns:minmax(0,1fr); gap:1rem; }
 .form-row { display:grid; grid-template-columns:repeat(auto-fit,minmax(180px,1fr)); gap:1rem; }
 .checkbox { display:flex; align-items:center; gap:.5rem; }
 .checkbox input { width:auto; }
