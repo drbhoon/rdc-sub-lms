@@ -12,14 +12,18 @@ type Question = {
 
 type Answer = { questionId: string; selectedOption: "A" | "B" | "C" | "D" | null; timeSpentSeconds: number };
 
-export function AssessmentPlayer({ attemptId, questions, timeLimitSeconds }: { attemptId: string; questions: Question[]; timeLimitSeconds: number }) {
+export function AssessmentPlayer({ attemptId, questions, timeLimitSeconds, initialRemainingSeconds }: {
+  attemptId: string; questions: Question[]; timeLimitSeconds: number;
+  /** For an attempt picked up again: the time it has left, so reloading never hands out a fresh clock. */
+  initialRemainingSeconds?: number;
+}) {
   const initialState: AssessmentSubmitState = {};
   const [state, formAction, pending] = useActionState(submitAssessment, initialState);
   const [index, setIndex] = useState(0);
   const [selected, setSelected] = useState<Record<string, "A" | "B" | "C" | "D">>({});
   const [finished, setFinished] = useState(false);
   const [expired, setExpired] = useState(false);
-  const [remaining, setRemaining] = useState(timeLimitSeconds);
+  const [remaining, setRemaining] = useState(initialRemainingSeconds ?? timeLimitSeconds);
   const submitForm = useRef<HTMLFormElement>(null);
   const question = questions[index];
   const answers = useMemo<Answer[]>(() => questions.map((item) => ({

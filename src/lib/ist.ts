@@ -40,3 +40,25 @@ export function formatIstDate(date: Date | null | undefined): string {
 export function toExcelIst(date: Date): Date {
   return new Date(date.getTime() + IST_OFFSET_MS);
 }
+
+/**
+ * What an admin types into a date-time box ("2026-10-12T10:00") is India time,
+ * whatever zone the server or the browser happens to be in. The server runs in
+ * UTC, so `new Date("2026-10-12T10:00")` would silently read it as UTC and
+ * schedule everything five and a half hours late.
+ */
+export function parseIstLocal(value: string | null | undefined): Date | null {
+  const match = /^(\d{4})-(\d{2})-(\d{2})[T ](\d{2}):(\d{2})$/.exec((value ?? "").trim());
+  if (!match) return null;
+  const [year, month, day, hour, minute] = match.slice(1).map(Number);
+  const date = new Date(Date.UTC(year, month - 1, day, hour, minute) - IST_OFFSET_MS);
+  // Reject a date that does not exist (31 Feb would roll into March).
+  const back = new Date(date.getTime() + IST_OFFSET_MS);
+  if (back.getUTCFullYear() !== year || back.getUTCMonth() !== month - 1 || back.getUTCDate() !== day) return null;
+  return date;
+}
+
+/** The value for a date-time box, in India time: "2026-10-12T10:00". */
+export function toIstLocalInput(date: Date | null | undefined): string {
+  return date ? new Date(date.getTime() + IST_OFFSET_MS).toISOString().slice(0, 16) : "";
+}

@@ -10,6 +10,8 @@ import { LessonPlayer } from "@/components/lesson-player";
 import { ModuleTabs, type ModuleTab } from "@/components/module-tabs";
 import { certificateEligibility } from "@/lib/certificate-eligibility";
 import { allFeedbackAnswered } from "@/lib/feedback-rules";
+import { emptyAttempts, loadFinalAttempts, loadFinalSchedules, sittingForEnrollment } from "@/lib/final-schedule";
+import type { FinalSitting } from "@/lib/final-sitting";
 import { withBase } from "@/lib/base-path";
 import { db } from "@/lib/db";
 import { requireUser } from "@/lib/session";
@@ -218,6 +220,40 @@ export default async function LearnCourse({ params }: { params: Promise<{ id: st
       panel: <div className="module-panel">{wholeCourseQuizzes.map(quizPart)}</div>,
     });
   }
+  // The final does not open by itself: it opens when an admin schedules this
+  // learner's classroom, and each learner has one attempt (an admin can allow
+  // another). Whether they may start it is decided in lib/final-sitting, the
+  // same place the Start button's server action asks.
+  const finalAssessment = finalQuizzes[0]?.assessment ?? null;
+  let finalState: FinalSitting | null = null;
+  if (finalAssessment) {
+    const [schedules, attempts] = await Promise.all([
+      loadFinalSchedules(id),
+      loadFinalAttempts(finalAssessment.id, finalAssessment.timeLimitSeconds, [user.employeeId]),
+    ]);
+    finalState = sittingForEnrollment(enrollment, schedules, attempts.get(user.employeeId) ?? emptyAttempts);
+  }
+  const finalPart = ({ assessment, bestAttempt }: (typeof assessmentModules)[number]) => <section key={assessment.id}>
+    <h3>MCQ assessment</h3>
+    <p><strong>{assessment.title}</strong></p>
+    <p className="muted">{assessment.questionsPerAttempt ?? assessment.questions.length} random questions from a bank of {assessment.questions.length} · pass mark {assessment.passPercentage}% · {Math.round(assessment.timeLimitSeconds / 60)} minutes · one attempt</p>
+    {bestAttempt && <p><span className="badge">{bestAttempt.passed ? "Passed" : "Not passed"}</span> Your score: {bestAttempt.scorePercent}%</p>}
+    {finalState?.state === "NOT_SCHEDULED" && <p className="message">Your final assessment has not been scheduled yet. Your administrator will schedule it for your class, and it will open here at that time.</p>}
+    {finalState?.state === "SCHEDULED" && <p className="message">Your final assessment opens on <strong>{formatIst(finalState.opensAt)}</strong>.</p>}
+    {finalState?.state === "CLOSED" && <p className="message">The final assessment for your class closed on {formatIst(finalState.closedAt)}. If you could not take it, please contact your administrator.</p>}
+    {finalState?.state === "USED" && <p className="message">You have used your attempt. If you need another, please ask your administrator.</p>}
+    {(finalState?.state === "OPEN" || finalState?.state === "RESUME") && <>
+      {finalState.state === "OPEN" && <p className="message">
+        {finalState.closesAt ? <>Open until <strong>{formatIst(finalState.closesAt)}</strong>. </> : null}
+        You have <strong>one attempt</strong>. It counts from the moment you start, even if you leave the page, and the timer keeps running.
+      </p>}
+      {finalState.state === "RESUME" && <p className="message">You have an attempt in progress. Carry on where you left off; the timer has kept running.</p>}
+      <form action={startAssessment}>
+        <input type="hidden" name="assessmentId" value={assessment.id} />
+        <button>{finalState.state === "RESUME" ? "Resume final assessment" : "Start final assessment"}</button>
+      </form>
+    </>}
+  </section>;
   // The final assessment draws on every module, so it comes last.
   if (finalQuizzes.length) {
     // Feedback on the final: offered once they have sat it, answered once.
@@ -230,7 +266,7 @@ export default async function LearnCourse({ params }: { params: Promise<{ id: st
       status: finalQuizzes.every((quiz) => quiz.bestAttempt?.passed) && finalFeedbackDone ? "done" : "todo",
       panel: <div className="module-panel">
         <p className="muted">Questions are drawn at random from every module of this course.</p>
-        {finalQuizzes.map(quizPart)}
+        {finalQuizzes.map(finalPart)}
         {finalForm && <section>
           {finalForm.responses.length > 0
             ? <p><span className="badge">Feedback submitted</span> Thank you.</p>

@@ -3,6 +3,7 @@ import { notFound } from "next/navigation";
 import { AssessmentPlayer } from "@/components/assessment-player";
 import { db } from "@/lib/db";
 import { selectAttemptQuestions } from "@/lib/assessment-selection";
+import { secondsLeft } from "@/lib/final-sitting";
 import { requireUser } from "@/lib/session";
 
 export default async function AssessmentAttemptPage({ params }: { params: Promise<{ id: string; attemptId: string }> }) {
@@ -33,6 +34,9 @@ export default async function AssessmentAttemptPage({ params }: { params: Promis
     <AssessmentPlayer
       attemptId={attempt.id}
       timeLimitSeconds={attempt.assessment.timeLimitSeconds}
+      // The final carries on from the clock it already had: one attempt means
+      // reloading the page cannot buy more time.
+      initialRemainingSeconds={attempt.assessment.kind === "FINAL" ? secondsLeft(attempt.startedAt, attempt.assessment.timeLimitSeconds, new Date()) : undefined}
       questions={questions.map((question) => ({
         id: question.id,
         order: question.order,

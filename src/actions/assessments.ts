@@ -1,6 +1,6 @@
 "use server";
 
-import { AssessmentStatus, UserRole } from "@prisma/client";
+import { AssessmentKind, AssessmentStatus, Prisma, UserRole } from "@prisma/client";
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { z } from "zod";
@@ -9,6 +9,7 @@ import { parseAssessmentRows } from "@/lib/assessment-import";
 import { selectAttemptQuestions } from "@/lib/assessment-selection";
 import { requireCourseManager } from "@/lib/course-access";
 import { db } from "@/lib/db";
+import { emptyAttempts, loadFinalAttempts, loadFinalSchedules, sittingForEnrollment } from "@/lib/final-schedule";
 import { requireRole, requireUser } from "@/lib/session";
 import { readTabularFile } from "@/lib/tabular-import";
 
@@ -139,19 +140,53 @@ export async function startAssessment(formData: FormData) {
   if (!enrollment) redirect("/unauthorized");
   if (assessment._count.questions === 0) redirect(`/learn/courses/${assessment.courseId}`);
   const offeredCount = Math.min(assessment.questionsPerAttempt ?? assessment._count.questions, assessment._count.questions);
+
+  // The final is not like a module quiz. It opens only when an admin has
+  // scheduled the learner's classroom, and each learner has one attempt (more
+  // only if an admin allows). This is the check that holds for a doctored
+  // request as well as for the page: the Start button is just a convenience.
+  if (assessment.kind === AssessmentKind.FINAL) {
+    const [schedules, attempts] = await Promise.all([
+      loadFinalSchedules(assessment.courseId),
+      loadFinalAttempts(assessment.id, assessment.timeLimitSeconds, [user.employeeId]),
+    ]);
+    const summary = attempts.get(user.employeeId) ?? emptyAttempts;
+    const sitting = sittingForEnrollment(enrollment, schedules, summary);
+    // Part-way through already: carry on with that attempt, never start another.
+    if (sitting.state === "RESUME" && summary.resumable) redirect(`/learn/courses/${assessment.courseId}/assessment/${summary.resumable.id}`);
+    if (sitting.state !== "OPEN") redirect(`/learn/courses/${assessment.courseId}`);
+  }
+
   const latest = await db.assessmentAttempt.aggregate({
     where: { assessmentId: assessment.id, employeeId: user.employeeId },
     _max: { attemptNumber: true },
   });
-  const attempt = await db.assessmentAttempt.create({
-    data: {
-      assessmentId: assessment.id,
-      employeeId: user.employeeId,
-      enrollmentId: enrollment.id,
-      attemptNumber: (latest._max.attemptNumber ?? 0) + 1,
-      totalQuestions: offeredCount,
-    },
-  });
+  let attempt;
+  try {
+    attempt = await db.assessmentAttempt.create({
+      data: {
+        assessmentId: assessment.id,
+        employeeId: user.employeeId,
+        enrollmentId: enrollment.id,
+        attemptNumber: (latest._max.attemptNumber ?? 0) + 1,
+        totalQuestions: offeredCount,
+      },
+    });
+  } catch (error) {
+    // Two clicks at once both read the same latest number; the unique key on
+    // (assessment, learner, attempt number) lets only one of them through. For
+    // the final that is what keeps "one attempt" true: the other click is sent
+    // to the attempt that won instead of making a second.
+    if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002") {
+      const existing = await db.assessmentAttempt.findFirst({
+        where: { assessmentId: assessment.id, employeeId: user.employeeId, status: "IN_PROGRESS" },
+        orderBy: { startedAt: "desc" },
+        select: { id: true },
+      });
+      redirect(existing ? `/learn/courses/${assessment.courseId}/assessment/${existing.id}` : `/learn/courses/${assessment.courseId}`);
+    }
+    throw error;
+  }
   redirect(`/learn/courses/${assessment.courseId}/assessment/${attempt.id}`);
 }
 

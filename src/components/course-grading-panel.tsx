@@ -1,4 +1,5 @@
 import { AssessmentKind, AssessmentStatus } from "@prisma/client";
+import Link from "next/link";
 import { buildFinalAssessment } from "@/actions/grading";
 import { ActionForm } from "@/components/action-form";
 import { GradingSchemeForm } from "@/components/grading-scheme-form";
@@ -17,7 +18,7 @@ const scoreText = (score: number | null) => (score === null ? "-" : `${Math.roun
  * assessment, and every learner's weighted result.
  */
 export async function CourseGradingPanel({ courseId }: { courseId: string }) {
-  const [modules, grading, moduleQuizzes, finals, enrollments] = await Promise.all([
+  const [modules, grading, moduleQuizzes, finals, enrollments, scheduledRooms, totalRooms] = await Promise.all([
     courseModules(courseId),
     db.courseGrading.findUnique({ where: { courseId } }),
     db.assessment.findMany({
@@ -34,6 +35,8 @@ export async function CourseGradingPanel({ courseId }: { courseId: string }) {
       include: { employee: { select: { id: true, name: true, employeeCode: true } }, classroom: { select: { name: true, teacher: { select: { email: true, employee: { select: { name: true, employeeCode: true } } } } } } },
       orderBy: { employee: { name: "asc" } },
     }),
+    db.finalAssessmentSchedule.count({ where: { courseId } }),
+    db.classroom.count({ where: { courseId } }),
   ]);
 
   const scheme = schemeFromRow(grading);
@@ -71,6 +74,12 @@ export async function CourseGradingPanel({ courseId }: { courseId: string }) {
           {activeFinal.questionsPerAttempt ?? activeFinal._count.questions} questions per learner from a bank of {activeFinal._count.questions} ·
           pass mark {activeFinal.passPercentage}% · {Math.round(activeFinal.timeLimitSeconds / 60)} minutes ·
           built {formatIst(activeFinal.createdAt)} · {activeFinal._count.attempts} submitted attempt(s)
+        </p>
+        <p>
+          {scheduledRooms === 0
+            ? <>The final is <strong>not scheduled for any classroom</strong>, so no learner can start it yet. </>
+            : <>Scheduled for <strong>{scheduledRooms}</strong> of {totalRooms} classroom{totalRooms === 1 ? "" : "s"}. </>}
+          <Link href={`/admin/courses/${courseId}/final`}>Schedule the final and manage attempts</Link>
         </p>
         {stale && <p className="message">A module quiz has been replaced, added or removed since this final was built, so its bank no longer matches the modules. Build it again to bring it up to date.</p>}
       </> : <p className="muted">Not built yet.</p>}

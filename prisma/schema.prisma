@@ -193,19 +193,19 @@ model Session {
 }
 
 model Course {
-  id                   String                @id @default(cuid())
+  id                   String                    @id @default(cuid())
   title                String
   category             String
   description          String
   durationMinutes      Int
-  passPercentage       Int                   @default(70)
-  aiTokenLimit         Int                   @default(50000)
-  certificateEnabled   Boolean               @default(true)
-  leaderboardEnabled   Boolean               @default(true)
-  requiredVideoPercent Int                   @default(80)
-  isActive             Boolean               @default(true)
-  status               CourseStatus          @default(DRAFT)
-  hasPendingChanges    Boolean               @default(false)
+  passPercentage       Int                       @default(70)
+  aiTokenLimit         Int                       @default(50000)
+  certificateEnabled   Boolean                   @default(true)
+  leaderboardEnabled   Boolean                   @default(true)
+  requiredVideoPercent Int                       @default(80)
+  isActive             Boolean                   @default(true)
+  status               CourseStatus              @default(DRAFT)
+  hasPendingChanges    Boolean                   @default(false)
   publishedAt          DateTime?
   companies            CourseCompany[]
   teachers             CourseTeacher[]
@@ -216,11 +216,12 @@ model Course {
   aiInteractions       CourseAiInteraction[]
   emailLogs            CourseEmailLog[]
   classrooms           Classroom[]
+  finalSchedules       FinalAssessmentSchedule[]
   questions            CourseQuestion[]
   grading              CourseGrading?
   teacherEvaluations   TeacherEvaluation[]
-  createdAt            DateTime              @default(now())
-  updatedAt            DateTime              @updatedAt
+  createdAt            DateTime                  @default(now())
+  updatedAt            DateTime                  @updatedAt
 
   @@index([status])
 }
@@ -254,15 +255,16 @@ model CourseTeacher {
 /// so a teacher leaving must not block their deletion or destroy the room and
 /// its roster. Such a room is simply unassigned until someone is named.
 model Classroom {
-  id            String       @id @default(cuid())
+  id            String                    @id @default(cuid())
   courseId      String
   name          String
   teacherUserId String?
-  course        Course       @relation(fields: [courseId], references: [id], onDelete: Cascade)
-  teacher       User?        @relation(fields: [teacherUserId], references: [id], onDelete: SetNull)
+  course        Course                    @relation(fields: [courseId], references: [id], onDelete: Cascade)
+  teacher       User?                     @relation(fields: [teacherUserId], references: [id], onDelete: SetNull)
   enrollments   Enrollment[]
-  createdAt     DateTime     @default(now())
-  updatedAt     DateTime     @updatedAt
+  finalSchedule FinalAssessmentSchedule[]
+  createdAt     DateTime                  @default(now())
+  updatedAt     DateTime                  @updatedAt
 
   @@unique([courseId, name])
   @@index([teacherUserId])
@@ -325,29 +327,36 @@ model Lesson {
 }
 
 model Enrollment {
-  id                 String              @id @default(cuid())
-  employeeId         String
-  courseId           String
-  status             EnrollmentStatus    @default(NOT_STARTED)
+  id                   String              @id @default(cuid())
+  employeeId           String
+  courseId             String
+  status               EnrollmentStatus    @default(NOT_STARTED)
   /// Which classroom this learner sits in for this course. Null means
   /// unassigned — every enrolment made before classrooms existed is null and
   /// stays that way until someone places them, which is deliberate: nobody is
   /// silently moved into a room they were never put in.
-  classroomId        String?
+  classroomId          String?
   /// A teacher's own enrolment on a course they teach, so they can see it as a
   /// learner does. It is a way of looking, not a learner: it is left out of
   /// learner counts, rosters, toppers, reports, results and reminders. An
   /// ordinary enrolment (an admin put them on the roster as a learner) stays
   /// false, so a teacher who really is taking the course is counted.
-  isTeacherPreview   Boolean             @default(false)
-  enrolledAt         DateTime            @default(now())
-  startedAt          DateTime?
-  completedAt        DateTime?
-  employee           Employee            @relation(fields: [employeeId], references: [id], onDelete: Cascade)
-  course             Course              @relation(fields: [courseId], references: [id], onDelete: Cascade)
-  classroom          Classroom?          @relation(fields: [classroomId], references: [id], onDelete: SetNull)
-  progress           LessonProgress[]
-  assessmentAttempts AssessmentAttempt[]
+  isTeacherPreview     Boolean             @default(false)
+  /// How many times this learner may sit the course's FINAL assessment. One,
+  /// unless an admin has allowed another (see allowFinalAttempt).
+  finalAttemptsAllowed Int                 @default(1)
+  /// An admin has let this learner sit the final outside their classroom's
+  /// schedule: they missed the window, or are being given another go after it
+  /// closed. It opens nothing once their attempts are used up.
+  finalAdminOpened     Boolean             @default(false)
+  enrolledAt           DateTime            @default(now())
+  startedAt            DateTime?
+  completedAt          DateTime?
+  employee             Employee            @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+  course               Course              @relation(fields: [courseId], references: [id], onDelete: Cascade)
+  classroom            Classroom?          @relation(fields: [classroomId], references: [id], onDelete: SetNull)
+  progress             LessonProgress[]
+  assessmentAttempts   AssessmentAttempt[]
 
   @@unique([employeeId, courseId])
   @@index([courseId, status])
@@ -698,4 +707,27 @@ model CourseEmailLog {
   @@index([type, sentAt])
   @@index([courseId, type, sentAt])
   @@index([employeeId, type, sentAt])
+}
+
+/// When a classroom may sit the course's final assessment. Until an admin
+/// schedules it, nobody can: the final no longer opens by itself. Tied to the
+/// classroom, not to the final's version, so rebuilding the final keeps the
+/// schedule. A row with no classroom schedules the learners who are in none.
+model FinalAssessmentSchedule {
+  id          String     @id @default(cuid())
+  courseId    String
+  classroomId String?
+  opensAt     DateTime
+  /// Optional: from this moment nobody NEW may start it. Someone already
+  /// part-way through keeps their own time limit.
+  closesAt    DateTime?
+  createdAt   DateTime   @default(now())
+  updatedAt   DateTime   @updatedAt
+  course      Course     @relation(fields: [courseId], references: [id], onDelete: Cascade)
+  classroom   Classroom? @relation(fields: [classroomId], references: [id], onDelete: Cascade)
+
+  /// NULL classrooms are distinct to Postgres, so "no classroom" is kept to
+  /// one row by the code that writes it (actions/final-schedule.ts).
+  @@unique([courseId, classroomId])
+  @@index([courseId])
 }
