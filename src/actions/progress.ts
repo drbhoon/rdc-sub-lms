@@ -33,4 +33,6 @@ export async function recordProgress(formData: FormData) {
     await tx.enrollment.update({ where: { id: enrollment.id }, data: { status: total > 0 && completed >= total ? "COMPLETED" : "IN_PROGRESS", startedAt: enrollment.startedAt ?? new Date(), completedAt: total > 0 && completed >= total ? new Date() : null } });
   });
   revalidatePath(`/learn/courses/${lesson.content.courseId}`);
+  // What the lesson player needs to tell the learner they have finished.
+  return { lessonCompleted: documentComplete || videoComplete };
 }

@@ -185,8 +185,17 @@ export default async function LearnCourse({ params }: { params: Promise<{ id: st
       <button>{bestAttempt ? "Retake assessment" : "Start assessment"}</button>
     </form>
   </section>;
+  // A quiz uploaded before quizzes were per module belongs to no module. With
+  // several modules it gets a "Whole course" tab of its own; with ONE there is
+  // nothing to tell it apart from, so it is shown inside that module instead of
+  // a second tab (and is still required for the certificate, as before).
+  const wholeCourseQuizzes = assessmentModules.filter(({ assessment }) => !assessment.courseContentId && assessment.kind !== "FINAL");
+  const singleModule = enrollment.course.contents.length === 1;
   const moduleTabs: ModuleTab[] = enrollment.course.contents.map((content, index) => {
-    const quizzes = assessmentModules.filter(({ assessment }) => assessment.courseContentId === content.id);
+    const quizzes = [
+      ...assessmentModules.filter(({ assessment }) => assessment.courseContentId === content.id),
+      ...(singleModule ? wholeCourseQuizzes : []),
+    ];
     const feedback = feedbackCards.filter((card) => card.courseContentId === content.id);
     const hasFeedback = feedbackFormFor(content.id);
     const complete = completedContentIds.has(content.id);
@@ -220,9 +229,8 @@ export default async function LearnCourse({ params }: { params: Promise<{ id: st
       </div>,
     };
   }).filter((tab) => tab.show);
-  const wholeCourseQuizzes = assessmentModules.filter(({ assessment }) => !assessment.courseContentId && assessment.kind !== "FINAL");
   const finalQuizzes = assessmentModules.filter(({ assessment }) => assessment.kind === "FINAL");
-  if (wholeCourseQuizzes.length) {
+  if (wholeCourseQuizzes.length && !singleModule) {
     moduleTabs.push({
       id: "whole-course",
       label: "Whole course",
@@ -309,7 +317,7 @@ export default async function LearnCourse({ params }: { params: Promise<{ id: st
 
     <div className="learning-shell">
       <section className="learning-main">
-        <LessonPlayer lessons={lessons} />
+        <LessonPlayer lessons={lessons} moduleCount={enrollment.course.contents.length} />
       </section>
       <aside className="learning-sidebar">
         {teacherName && <AskTeacherPanel courseId={id} teacherName={teacherName} threads={teacherThreads} />}
