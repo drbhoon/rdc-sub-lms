@@ -6,6 +6,7 @@ import { redirect } from "next/navigation";
 import { db } from "@/lib/db";
 import { env } from "@/lib/env";
 import { sendOtpEmail } from "@/lib/mail";
+import { safeNextPath } from "@/lib/next-path";
 import { generateOtp, normalizeEmail } from "@/lib/security";
 import { createSession, destroySession } from "@/lib/session";
 
@@ -67,7 +68,8 @@ export async function verifyOtp(_: AuthState, formData: FormData): Promise<AuthS
   }
   await db.otpChallenge.update({ where: { id: challenge.id }, data: { usedAt: new Date() } });
   await createSession(user.id);
-  redirect("/dashboard");
+  // Straight to the page they came for; the dashboard only when they came for none.
+  redirect(safeNextPath(String(formData.get("next") ?? "")) ?? "/dashboard");
 }
 
 export async function logout() {

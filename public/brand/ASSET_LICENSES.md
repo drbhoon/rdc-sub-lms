@@ -33,3 +33,9 @@
 - File: `uf-disha.jpg`
 - Source: Provided by RDC project owner from `D:\RDC Drive\Sales and Branding\Branding\UF  Disha picture with Logo.jpg`.
 - Use: RDC LMS login page branding.
+
+## Graduation ceremony image
+
+- File: `graduation-ceremony.jpg`
+- Source: Provided by RDC project owner (photograph of the work-integrated learning graduation ceremony).
+- Use: RDC LMS login page.

@@ -1,5 +1,4 @@
 import Link from "next/link";
-import { notFound } from "next/navigation";
 import { startAssessment } from "@/actions/assessments";
 import { loadCourseGrades } from "@/lib/course-grades";
 import { findLearnerTeacher } from "@/actions/course-questions";
@@ -17,10 +16,19 @@ import { db } from "@/lib/db";
 import { requireUser } from "@/lib/session";
 import { formatIst } from "@/lib/ist";
 
+function NotAvailable({ email }: { email: string }) {
+  return <main className="narrow card">
+    <h1>This course is not available to you</h1>
+    <p>You are signed in as <strong>{email}</strong>. This course is not open to that account yet: either you are not enrolled in it, or it has not been published.</p>
+    <p className="muted">If you were sent this link, sign out and sign in again with the e-mail address you were invited on, or ask your administrator to enrol you.</p>
+    <div className="button-row"><Link className="button" href="/learn/courses">My courses</Link></div>
+  </main>;
+}
+
 export default async function LearnCourse({ params }: { params: Promise<{ id: string }> }) {
   const user = await requireUser();
   const { id } = await params;
-  if (!user.employeeId) notFound();
+  if (!user.employeeId) return <NotAvailable email={user.email} />;
   const enrollment = await db.enrollment.findUnique({
     where: { employeeId_courseId: { employeeId: user.employeeId, courseId: id } },
     include: {
@@ -58,7 +66,9 @@ export default async function LearnCourse({ params }: { params: Promise<{ id: st
       },
     },
   });
-  if (!enrollment || enrollment.course.status !== "PUBLISHED") notFound();
+  // An invite link opened with the wrong account, or before the course is
+  // published, used to be a bare 404 that explained nothing.
+  if (!enrollment || enrollment.course.status !== "PUBLISHED") return <NotAvailable email={user.email} />;
 
   const progress = new Map(enrollment.progress.map((item) => [item.lessonId, item]));
   const lessons = enrollment.course.contents.flatMap((content) => content.lessons.map((lesson) => ({

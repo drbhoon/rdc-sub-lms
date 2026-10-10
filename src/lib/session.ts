@@ -1,8 +1,9 @@
-import { cookies } from "next/headers";
+import { cookies, headers } from "next/headers";
 import { redirect } from "next/navigation";
 import type { UserRole } from "@prisma/client";
 import { db } from "@/lib/db";
 import { env } from "@/lib/env";
+import { loginUrl } from "@/lib/next-path";
 import { hasAnyEffectiveRole, hasEffectiveRole } from "@/lib/roles";
 import { randomToken, tokenHash } from "@/lib/security";
 
@@ -41,7 +42,11 @@ export async function currentUser() {
 
 export async function requireUser() {
   const user = await currentUser();
-  if (!user) redirect("/login");
+  if (!user) {
+    // Signed out: to the login, remembering the page asked for (set by
+    // src/proxy.ts), so an invite link lands on its course once they are in.
+    redirect(loginUrl((await headers()).get("x-next-path")));
+  }
   return user;
 }
 
