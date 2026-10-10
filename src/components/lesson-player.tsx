@@ -77,7 +77,9 @@ export function LessonPlayer({ lessons, moduleCount }: {
             ? <button disabled={pending} onClick={finish}>Finish</button>
             : <button disabled={pending} onClick={() => { save({ page }); setPage(page + 1); }}>Next</button>}
         </div>
-        {page === lesson.pageCount && lesson.completed && <p className="message success" role="status">You have completed this {unit}.</p>}
+        {page === lesson.pageCount && lesson.completed && <p className="message success" role="status">
+          You have completed this {unit}. Please take the assessment and give your feedback below to get the certificate, if you are eligible.
+        </p>}
         {page === lesson.pageCount && finishNote && <p className="message" role="status">{finishNote}</p>}
       </>}
       {lesson.type === "VIDEO" && lesson.videoKey && <video className="video" controls preload="metadata" src={withBase(`/api/files/${lesson.videoKey}`)} onPlay={(e) => { lastVideoTime.current = e.currentTarget.currentTime; }} onSeeking={(e) => { lastVideoTime.current = e.currentTarget.currentTime; }} onTimeUpdate={(e) => trackVideo(e.currentTarget.currentTime)} onPause={(e) => trackVideo(e.currentTarget.currentTime, true)} onEnded={(e) => trackVideo(e.currentTarget.currentTime, true)} />}

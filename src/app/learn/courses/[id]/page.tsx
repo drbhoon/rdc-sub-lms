@@ -9,6 +9,7 @@ import { LessonPlayer } from "@/components/lesson-player";
 import { ModuleTabs, type ModuleTab } from "@/components/module-tabs";
 import { certificateEligibility } from "@/lib/certificate-eligibility";
 import { allFeedbackAnswered } from "@/lib/feedback-rules";
+import { supersededQuizIds } from "@/lib/superseded-quizzes";
 import { emptyAttempts, loadFinalAttempts, loadFinalSchedules, sittingForEnrollment } from "@/lib/final-schedule";
 import type { FinalSitting } from "@/lib/final-sitting";
 import { withBase } from "@/lib/base-path";
@@ -89,7 +90,12 @@ export default async function LearnCourse({ params }: { params: Promise<{ id: st
   // course. Only the modules a teacher actually put a quiz on are required
   // for the certificate — a course with 5 modules and 2 quizzes is not
   // blocked on the 3 that were never meant to have one.
-  const assessmentModules = enrollment.course.assessments.map((assessment) => ({
+  //
+  // In a one-module course an older module-less quiz is dropped once the module
+  // has its own (see lib/superseded-quizzes.ts): it would be a second quiz on
+  // the same single module, and the certificate check ignores it too.
+  const superseded = supersededQuizIds(enrollment.course.assessments, enrollment.course.contents.length);
+  const assessmentModules = enrollment.course.assessments.filter((assessment) => !superseded.has(assessment.id)).map((assessment) => ({
     assessment,
     bestAttempt: assessment.attempts[0],
     title: assessment.courseContent?.lessons[0]?.title ?? "Whole course",

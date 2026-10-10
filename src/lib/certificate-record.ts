@@ -1,6 +1,7 @@
 import "server-only";
 import { certificateEligibility } from "@/lib/certificate-eligibility";
 import { allFeedbackAnswered } from "@/lib/feedback-rules";
+import { supersededQuizIds } from "@/lib/superseded-quizzes";
 import { db } from "@/lib/db";
 
 export type CertificateRecord = {
@@ -70,8 +71,12 @@ export async function getCertificateRecord(employeeId: string, courseId: string)
   // Only the modules a teacher actually quizzed have to be PASSED — a module
   // with no active quiz is not a blocker, same reasoning as a course with no
   // quiz at all was never blocked on "pass the quiz you don't have".
-  const hasActiveAssessment = enrollment.course.assessments.length > 0;
-  const hasPassedAssessment = hasActiveAssessment && enrollment.course.assessments.every((assessment) => assessment.attempts.length > 0);
+  // The same set the learner page hides, so a quiz they cannot see cannot hold
+  // the certificate back.
+  const superseded = supersededQuizIds(enrollment.course.assessments, enrollment.course.contents.length);
+  const requiredAssessments = enrollment.course.assessments.filter((assessment) => !superseded.has(assessment.id));
+  const hasActiveAssessment = requiredAssessments.length > 0;
+  const hasPassedAssessment = hasActiveAssessment && requiredAssessments.every((assessment) => assessment.attempts.length > 0);
 
   const eligibility = certificateEligibility({
     certificateEnabled: enrollment.course.certificateEnabled,
