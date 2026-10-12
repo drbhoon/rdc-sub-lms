@@ -5,6 +5,7 @@ import { db } from "@/lib/db";
 import { autoFit, styleHeader, workbookResponse } from "@/lib/excel-response";
 import { classroomTeacher } from "@/lib/classroom-teacher";
 import { routeCourseManager } from "@/lib/route-auth";
+import { resultFilterFromParams, resultFilterWhere } from "@/lib/results-filter";
 import { learnersOnly } from "@/lib/teacher-preview";
 
 /**
@@ -12,7 +13,7 @@ import { learnersOnly } from "@/lib/teacher-preview";
  * and weight, the total out of 100, and the teacher's comments. Classroom rules
  * apply as on the teacher's page — a teacher running classrooms gets only theirs.
  */
-export async function GET(_: Request, context: { params: Promise<{ id: string }> }) {
+export async function GET(request: Request, context: { params: Promise<{ id: string }> }) {
   const { id } = await context.params;
   const viewer = await routeCourseManager(id);
   if (!viewer) return new Response("Forbidden", { status: 403 });
@@ -22,7 +23,14 @@ export async function GET(_: Request, context: { params: Promise<{ id: string }>
   const owned = await db.classroom.findMany({ where: { courseId: id, teacherUserId: viewer.id }, select: { id: true } });
   const scope = classroomScope({ roles: viewer.roles.map((grant) => grant.role), ownedClassroomIds: owned.map((room) => room.id) });
   const enrollments = await db.enrollment.findMany({
-    where: { courseId: id, ...learnersOnly, ...enrollmentScopeWhere(scope) },
+    // ?classroom= ?teacher= ?learner= carry the dropdown choices from the results table, so the
+    // download holds exactly what is on screen. Classroom rules still apply on top of them.
+    where: {
+      AND: [
+        { courseId: id, ...learnersOnly, ...enrollmentScopeWhere(scope) },
+        resultFilterWhere(resultFilterFromParams(new URL(request.url).searchParams)),
+      ],
+    },
     include: { employee: { include: { company: true } }, classroom: { select: { name: true, teacher: { select: { email: true, employee: { select: { name: true, employeeCode: true } } } } } } },
     orderBy: { employee: { name: "asc" } },
   });

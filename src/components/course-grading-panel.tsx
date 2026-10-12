@@ -2,16 +2,14 @@ import { AssessmentKind, AssessmentStatus } from "@prisma/client";
 import Link from "next/link";
 import { buildFinalAssessment } from "@/actions/grading";
 import { ActionForm } from "@/components/action-form";
+import { CourseResultsTable, type ResultRow } from "@/components/course-results-table";
 import { GradingSchemeForm } from "@/components/grading-scheme-form";
-import { withBase } from "@/lib/base-path";
 import { classroomTeacher } from "@/lib/classroom-teacher";
 import { buildFinalBank, checkGradingScheme, finalIsStale } from "@/lib/course-grading";
 import { courseModules, loadCourseGrades, schemeFromRow } from "@/lib/course-grades";
 import { db } from "@/lib/db";
 import { formatIst } from "@/lib/ist";
 import { learnersOnly } from "@/lib/teacher-preview";
-
-const scoreText = (score: number | null) => (score === null ? "-" : `${Math.round(score * 10) / 10}`);
 
 /**
  * The admin's side of the course assessment engine: the weights, the final
@@ -32,7 +30,7 @@ export async function CourseGradingPanel({ courseId }: { courseId: string }) {
     }),
     db.enrollment.findMany({
       where: { courseId, ...learnersOnly },
-      include: { employee: { select: { id: true, name: true, employeeCode: true } }, classroom: { select: { name: true, teacher: { select: { email: true, employee: { select: { name: true, employeeCode: true } } } } } } },
+      include: { employee: { select: { id: true, name: true, employeeCode: true } }, classroom: { select: { name: true, teacherUserId: true, teacher: { select: { email: true, employee: { select: { name: true, employeeCode: true } } } } } } },
       orderBy: { employee: { name: "asc" } },
     }),
     db.finalAssessmentSchedule.count({ where: { courseId } }),
@@ -49,6 +47,26 @@ export async function CourseGradingPanel({ courseId }: { courseId: string }) {
   const stale = activeFinal ? finalIsStale(activeFinal.builtFromAssessmentIds, moduleQuizzes.map((quiz) => quiz.id)) : false;
   const grades = scheme ? await loadCourseGrades(courseId, enrollments.map((enrollment) => enrollment.employeeId)) : null;
   const columns = grades?.byEmployee.values().next().value?.grade.components ?? [];
+
+  const resultRows: ResultRow[] = enrollments.flatMap((enrollment) => {
+    const row = grades?.byEmployee.get(enrollment.employeeId);
+    if (!row) return [];
+    const teacher = classroomTeacher(enrollment.classroom?.teacher);
+    return [{
+      id: enrollment.id,
+      employeeId: enrollment.employeeId,
+      name: enrollment.employee.name,
+      code: enrollment.employee.employeeCode,
+      classroomId: enrollment.classroomId,
+      classroomName: enrollment.classroom?.name ?? null,
+      teacherUserId: enrollment.classroom?.teacherUserId ?? null,
+      teacherName: teacher.name,
+      teacherCode: teacher.code,
+      scores: row.grade.components.map((component) => component.score),
+      total: row.grade.total,
+      pending: row.grade.complete ? 0 : row.grade.pending.length,
+    }];
+  });
 
   return <>
     <div className="card" id="course-assessment">
@@ -106,31 +124,7 @@ export async function CourseGradingPanel({ courseId }: { courseId: string }) {
     <div className="card" id="course-results">
       <h2>Course results</h2>
       {!grades ? <p className="muted">Save the assessment weights above to see each learner&apos;s course result.</p> : <>
-        <p><a className="button secondary" href={withBase(`/api/courses/${courseId}/grades`)}>Download results Excel</a></p>
-        <div className="table-wrap">
-          <table>
-            <thead><tr>
-              <th>Learner</th><th>Classroom</th><th>Teacher</th>
-              {columns.map((component) => <th key={component.key}>{component.label}<br /><span className="muted">weight {component.weight}</span></th>)}
-              <th>Course result /100</th>
-            </tr></thead>
-            <tbody>
-              {enrollments.map((enrollment) => {
-                const row = grades.byEmployee.get(enrollment.employeeId);
-                if (!row) return null;
-                const teacher = classroomTeacher(enrollment.classroom?.teacher);
-                return <tr key={enrollment.id}>
-                  <td><strong>{enrollment.employee.name}</strong><br /><span className="muted">{enrollment.employee.employeeCode}</span></td>
-                  <td>{enrollment.classroom?.name ?? <span className="muted">-</span>}</td>
-                  <td>{teacher.name ? <><strong>{teacher.name}</strong>{teacher.code && <><br /><span className="muted">{teacher.code}</span></>}</> : <span className="muted">-</span>}</td>
-                  {row.grade.components.map((component) => <td key={component.key}>{scoreText(component.score)}</td>)}
-                  <td><strong>{row.grade.total}</strong>{!row.grade.complete && <><br /><span className="muted">{row.grade.pending.length} pending</span></>}</td>
-                </tr>;
-              })}
-              {!enrollments.length && <tr><td colSpan={columns.length + 4}>No learners are enrolled yet.</td></tr>}
-            </tbody>
-          </table>
-        </div>
+        <CourseResultsTable courseId={courseId} columns={columns.map((column) => ({ key: column.key, label: column.label, weight: column.weight }))} rows={resultRows} />
       </>}
     </div>
   </>;

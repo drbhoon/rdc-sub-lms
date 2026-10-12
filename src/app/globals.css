@@ -226,3 +226,7 @@ h1 { color:var(--navy); margin-top:0; }
 .collapsible > summary:focus-visible { outline:3px solid var(--blue); outline-offset:3px; border-radius:6px; }
 .collapsible-summary { font-size:.85rem; font-weight:600; }
 .collapsible-body { margin-top:.85rem; }
+.scroll-list { max-height: 22rem; overflow: auto; }
+.scroll-list thead th { position: sticky; top: 0; background: white; }
+.results-table .filter-row td { background: var(--pale); padding-top: .55rem; padding-bottom: .55rem; vertical-align: middle; font-weight: 600; }
+.results-table .filter-row select { width: 100%; min-width: 170px; padding: .5rem .55rem; font-size: .95rem; }

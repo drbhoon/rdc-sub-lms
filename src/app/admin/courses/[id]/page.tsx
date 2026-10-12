@@ -7,6 +7,7 @@ import { deleteCourseContent, retryContent } from "@/actions/content";
 import { createClassroom, deleteClassroom, updateClassroom } from "@/actions/classrooms";
 import { ActionForm } from "@/components/action-form";
 import { ClassroomLearnerPicker } from "@/components/classroom-learner-picker";
+import { CollapsibleCard } from "@/components/collapsible-card";
 import { ClassroomUploadForm } from "@/components/classroom-upload-form";
 import { ContentUploadForm } from "@/components/content-upload-form";
 import { CourseEnrollmentPicker } from "@/components/course-enrollment-picker";
@@ -219,8 +220,8 @@ export default async function CourseAdminPage({ params }: { params: Promise<{ id
       </section>
 
       <aside className="form">
-        <div className="card">
-          <h2>Classrooms</h2>
+        {/* A course can have dozens of classrooms, so the whole card folds under its heading. */}
+        <CollapsibleCard title="Classrooms" summary={`${course.classrooms.length} classroom${course.classrooms.length === 1 ? "" : "s"}`}>
           <p className="muted">A classroom groups learners under one teacher. Assessments, feedback and the leaderboard stay course-wide; a classroom decides who a teacher sees.</p>
           <ActionForm action={createClassroom} submitLabel="Create classroom">
             <input type="hidden" name="courseId" value={course.id} />
@@ -230,7 +231,7 @@ export default async function CourseAdminPage({ params }: { params: Promise<{ id
               {teachers.map((teacher) => <option key={teacher.id} value={teacher.id}>{teacher.employee?.name ?? teacher.email}</option>)}
             </select></label>
           </ActionForm>
-          {course.classrooms.length > 0 && <div className="table-wrap"><table><thead><tr><th>Classroom</th><th>Teacher</th><th>Learners</th><th>Action</th></tr></thead><tbody>
+          {course.classrooms.length > 0 && <div className="table-wrap scroll-list"><table><thead><tr><th>Classroom</th><th>Teacher</th><th>Learners</th><th>Action</th></tr></thead><tbody>
             {course.classrooms.map((room) => <tr key={room.id}>
               <td>{room.name}</td>
               <td>{room.teacher ? (room.teacher.employee?.name ?? room.teacher.email) : <span className="muted">Unassigned</span>}</td>
@@ -274,7 +275,7 @@ export default async function CourseAdminPage({ params }: { params: Promise<{ id
             <a href={withBase("/api/templates/classrooms")}>Download the template</a>.
           </p>
           <ClassroomUploadForm courseId={course.id} />
-        </div>
+        </CollapsibleCard>
         <div className="card">
           <h2>Course controls</h2>
           <p><strong>Teachers:</strong> {course.teachers.length ? course.teachers.map((t) => t.user.employee?.name ?? t.user.email).join(", ") : "None assigned"}</p>
