@@ -60,7 +60,7 @@ export default async function AssessmentReportsPage({ searchParams }: { searchPa
 
   return <main className="container">
     <h1>Assessment reports</h1>
-    <nav className="report-tabs" aria-label="Report sections"><Link href="/admin/reports">General</Link><Link className="active" href="/admin/reports/assessment">Assessment</Link><Link href="/admin/reports/feedback">Feedback</Link></nav>
+    <nav className="report-tabs" aria-label="Report sections"><Link href="/admin/reports">General</Link><Link className="active" href="/admin/reports/assessment">Assessment</Link><Link href="/admin/reports/feedback">Feedback</Link><Link href="/admin/reports/custom">Custom</Link></nav>
     <form className="period-filter card" method="get">
       <label>Course<select name="courseId" defaultValue={selectedCourseId}>{courses.map((course) => <option key={course.id} value={course.id}>{course.title}</option>)}</select></label>
       <label>Assessment version<select name="assessmentId" defaultValue={selectedAssessmentId}>{selectedCourse?.assessments.map((item) => <option key={item.id} value={item.id}>v{item.version} - {item.title} ({item.courseContent?.lessons[0]?.title ?? "Whole course"})</option>)}</select></label>

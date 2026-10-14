@@ -9,7 +9,7 @@ import { requireCourseManager } from "@/lib/course-access";
 import { hasEmailColumn, parseCourseEnrollmentRow } from "@/lib/course-enrollment-import";
 import { db } from "@/lib/db";
 import { eligibleLearnerForCourseWhere } from "@/lib/enrollment-eligibility";
-import { enrolRoster, queueEnrollmentEmails } from "@/lib/roster-enrolment";
+import { enrolRoster, MAX_ROSTER_ROWS, queueEnrollmentEmails } from "@/lib/roster-enrolment";
 import { requireRole } from "@/lib/session";
 import { storage } from "@/lib/storage";
 import { readTabularFile } from "@/lib/tabular-import";
@@ -276,8 +276,9 @@ export async function enrollFromTemplate(_: EnrollmentImportState, formData: For
   const rows = rawRows.map(parseCourseEnrollmentRow).filter((row) => row.email);
   const skippedNoEmail = rawRows.length - rows.length;
   if (!rows.length) return { message: "No row in the file has an e-mail address." };
+  if (rows.length > MAX_ROSTER_ROWS) return { message: `The file has ${rows.length} learners; one upload can carry up to ${MAX_ROSTER_ROWS}. Split it into two files.` };
 
-  const { created, enrolled, alreadyEnrolled, rowErrors, newlyEnrolled } = await enrolRoster(course, rows);
+  const { created, enrolled, alreadyEnrolled, rowErrors, newlyEnrolled, codeReplaced } = await enrolRoster(course, rows);
   queueEnrollmentEmails(newlyEnrolled, course);
 
   await audit(actor.id, "COURSE_ROSTER_ENROLLED", "Course", courseId, {
@@ -289,6 +290,7 @@ export async function enrollFromTemplate(_: EnrollmentImportState, formData: For
   const notes: string[] = [];
   if (created) notes.push(`${created} new learner${created === 1 ? "" : "s"} added`);
   if (alreadyEnrolled) notes.push(`${alreadyEnrolled} already enrolled`);
+  if (codeReplaced.length) notes.push(`${codeReplaced.length} employee code${codeReplaced.length === 1 ? " was" : "s were"} already in use by someone else, so ${codeReplaced.length === 1 ? "that learner was" : "those learners were"} given an INTERN- code (${codeReplaced.slice(0, 3).join(", ")}${codeReplaced.length > 3 ? ", and more" : ""})`);
   if (skippedNoEmail) notes.push(`${skippedNoEmail} row${skippedNoEmail === 1 ? "" : "s"} skipped with no e-mail`);
   if (rowErrors.length) notes.push(`${rowErrors.length} row${rowErrors.length === 1 ? "" : "s"} failed (${rowErrors.slice(0, 3).join("; ")}${rowErrors.length > 3 ? "; and more" : ""})`);
 

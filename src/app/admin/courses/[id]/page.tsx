@@ -295,15 +295,14 @@ export default async function CourseAdminPage({ params }: { params: Promise<{ id
           </ActionForm>
         </div>
 
-        <div className="card">
-          <h2>Assign teachers</h2>
+        <CollapsibleCard title="Assign Teachers – Click for entire list" summary={`${selectedTeacherIds.size} assigned`}>
           <ActionForm action={updateCourseTeachers} submitLabel="Save teacher assignment">
             <input type="hidden" name="courseId" value={course.id} />
             {teachers.length ? teachers.map((teacher) => <label className="checkbox" key={teacher.id}>
               <input type="checkbox" name="teacherIds" value={teacher.id} defaultChecked={selectedTeacherIds.has(teacher.id)} />{teacher.employee?.name ?? teacher.email}
             </label>) : <p className="muted">No active teachers are available. Grant teacher role from Employees first.</p>}
           </ActionForm>
-        </div>
+        </CollapsibleCard>
 
         <div className="card">
           <h2>Enroll employees</h2>

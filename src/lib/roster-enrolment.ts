@@ -16,7 +16,12 @@ export type RosterEnrolmentResult = {
   employeeIdByEmail: Map<string, string>;
   /** People enrolled by THIS upload, who are owed the enrolment e-mail. */
   newlyEnrolled: Pick<Employee, "id" | "name" | "email">[];
+  /** New learners whose EMP_CODE in the file was already someone else's, so were given an INTERN- code instead. */
+  codeReplaced: string[];
 };
+
+/** Most people one roster upload may carry. Rows are saved one at a time, so this keeps a single request inside the proxy's timeout. */
+export const MAX_ROSTER_ROWS = 1000;
 
 /**
  * Enrol a list of people on a course by e-mail, admitting anyone not yet in
@@ -83,6 +88,16 @@ export async function enrolRoster(course: Pick<Course, "id">, rows: CourseEnroll
     chunk.forEach((email, index) => personIds.set(email, resolved[index]));
   }
 
+  // Employee codes are unique across LMS. A roster's EMP_CODE that already
+  // belongs to a different person (say, an on-roll code typed against an
+  // intern's e-mail) or that two rows share used to make employee.create fail
+  // with "Unique constraint failed on (employeeCode)" and drop the row. Such a
+  // person is given an INTERN- code instead and listed in the result.
+  const wantedCodes = [...new Set(newEmails.map((email) => byEmail.get(email)!.employeeCode).filter(Boolean))];
+  const takenCodes = new Set(
+    (await db.employee.findMany({ where: { employeeCode: { in: wantedCodes } }, select: { employeeCode: true } })).map((e) => e.employeeCode),
+  );
+
   const existingEnrollments = await db.enrollment.findMany({
     where: { courseId, employeeId: { in: [...employeeIdByEmail.values()] } },
     select: { employeeId: true },
@@ -90,20 +105,25 @@ export async function enrolRoster(course: Pick<Course, "id">, rows: CourseEnroll
   const enrolledEmployeeIds = new Set(existingEnrollments.map((enrollment) => enrollment.employeeId));
 
   const result: RosterEnrolmentResult = {
-    created: 0, enrolled: 0, alreadyEnrolled: 0, rowErrors: [], employeeIdByEmail: new Map(), newlyEnrolled: [],
+    created: 0, enrolled: 0, alreadyEnrolled: 0, rowErrors: [], employeeIdByEmail: new Map(), newlyEnrolled: [], codeReplaced: [],
   };
 
   for (const email of emails) {
     const row = byEmail.get(email)!;
     try {
       const isNew = !employeeIdByEmail.has(email);
+      let employeeCode = internEmployeeCode(email);
+      if (isNew && row.employeeCode) {
+        if (takenCodes.has(row.employeeCode)) result.codeReplaced.push(`${email} (${row.employeeCode})`);
+        else employeeCode = row.employeeCode;
+      }
       const employeeId = await db.$transaction(async (tx) => {
         let id = employeeIdByEmail.get(email);
         if (!id) {
           const companyId = companyIdByNormalised.get(normaliseCompany(row.company.trim() || "Interns"))!;
           const employee = await tx.employee.create({
             data: {
-              employeeCode: row.employeeCode || internEmployeeCode(email),
+              employeeCode,
               name: row.name || nameFromEmail(email),
               email,
               companyId,
@@ -114,6 +134,7 @@ export async function enrolRoster(course: Pick<Course, "id">, rows: CourseEnroll
             },
           });
           id = employee.id;
+          takenCodes.add(employeeCode);
           const user = await tx.user.upsert({
             where: { email },
             update: { employeeId: id },

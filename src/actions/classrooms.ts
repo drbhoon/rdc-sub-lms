@@ -9,7 +9,7 @@ import { classroomKey, hasClassroomColumns, planClassrooms } from "@/lib/classro
 import { requireCourseManager } from "@/lib/course-access";
 import { db } from "@/lib/db";
 import { enrolTeachersAsPreview } from "@/lib/teacher-preview";
-import { enrolRoster, queueEnrollmentEmails } from "@/lib/roster-enrolment";
+import { enrolRoster, MAX_ROSTER_ROWS, queueEnrollmentEmails } from "@/lib/roster-enrolment";
 import { requireRole } from "@/lib/session";
 import { readTabularFile } from "@/lib/tabular-import";
 import { eligibleTeacherWhere } from "@/lib/teacher-eligibility";
@@ -242,6 +242,9 @@ export async function importClassrooms(_: ClassroomImportState, formData: FormDa
     return refused(`${toEnrol} learner(s) in the file are not on this course yet, and it is inactive. Reactivate it first.`, []);
   }
 
+  if (plan.learners.length > MAX_ROSTER_ROWS) {
+    return refused(`The file has ${plan.learners.length} learners; one upload can carry up to ${MAX_ROSTER_ROWS}. Split it into two files.`, []);
+  }
   const enrolment = await enrolRoster(course, plan.learners);
   queueEnrollmentEmails(enrolment.newlyEnrolled, course);
 
@@ -304,6 +307,7 @@ export async function importClassrooms(_: ClassroomImportState, formData: FormDa
     `${placed} learner(s) placed${moved ? `, ${moved} of them moved from another classroom` : ""}`,
   ];
   if (enrolment.enrolled) notes.push(`${enrolment.enrolled} newly enrolled on the course${enrolment.created ? `, ${enrolment.created} of them new to LMS` : ""}; their enrolment e-mails are being sent`);
+  if (enrolment.codeReplaced.length) notes.push(`${enrolment.codeReplaced.length} employee code(s) were already in use by someone else, so those learners were given an INTERN- code`);
   if (needsTeacherRole.size) notes.push(`${needsTeacherRole.size} person(s) given the Teacher role and e-mailed a sign-in link`);
   return {
     ok: enrolment.rowErrors.length === 0,
