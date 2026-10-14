@@ -115,6 +115,7 @@ export default async function ReportsPage({ searchParams }: { searchParams: Prom
       <Link href="/admin/reports/assessment">Assessment</Link>
       <Link href="/admin/reports/feedback">Feedback</Link>
       <Link href="/admin/reports/custom">Custom</Link>
+      <Link href="/admin/reports/infographic">Infographic</Link>
     </nav>
     <form className="period-filter card" method="get">
       <label>Period

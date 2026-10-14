@@ -248,3 +248,23 @@ h1 { color:var(--navy); margin-top:0; }
 .check-dropdown-group { display:block; margin:.5rem 0 .15rem; font-size:.78rem; text-transform:uppercase; letter-spacing:.04em; color:#64748b; }
 .custom-report-actions { display:flex; gap:.6rem; flex-wrap:wrap; align-items:center; }
 .report-tabs + .grid { margin-bottom:1rem; }
+
+/* Infographic: blocks of four big numbers, alternating deep blue and pale blue. */
+.info-filter { align-items:end; }
+.infographic { display:grid; grid-template-columns:repeat(auto-fit,minmax(300px,1fr)); gap:1rem; }
+.info-title { grid-column:1/-1; background:#dfe9fb; border-radius:12px; padding:1.4rem 1rem; text-align:center; }
+.info-title p { margin:0; color:#334a78; }
+.info-title h2 { margin:.3rem 0 0; font-size:1.9rem; letter-spacing:.03em; text-transform:uppercase; color:#1f3a8a; }
+.info-block { border-radius:12px; padding:1.2rem 1rem 1.4rem; text-align:center; }
+.info-block h2 { margin:0 0 1rem; font-size:1rem; letter-spacing:.08em; text-transform:uppercase; }
+.info-dark { background:#1f3a8a; color:white; }
+.info-pale { background:#e6edfb; color:#1f3a8a; }
+.info-tiles { display:grid; grid-template-columns:1fr 1fr; gap:1.4rem .8rem; }
+.info-tile { display:flex; flex-direction:column; align-items:center; gap:.2rem; }
+.info-tile strong { font-size:1.9rem; line-height:1.15; }
+.info-tile span { font-size:.82rem; opacity:.9; }
+@media print {
+  .topbar, .report-tabs, .info-filter { display:none !important; }
+  .infographic { grid-template-columns:repeat(2,1fr); }
+  .info-block, .info-title { -webkit-print-color-adjust:exact; print-color-adjust:exact; break-inside:avoid; }
+}

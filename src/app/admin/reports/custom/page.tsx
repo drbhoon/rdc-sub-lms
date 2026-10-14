@@ -27,6 +27,7 @@ export default async function CustomReportPage({ searchParams }: { searchParams:
       <Link href="/admin/reports/assessment">Assessment</Link>
       <Link href="/admin/reports/feedback">Feedback</Link>
       <Link className="active" href="/admin/reports/custom">Custom</Link>
+      <Link href="/admin/reports/infographic">Infographic</Link>
     </nav>
     <form className="card" method="get">
       <p className="muted">Tick the columns you want, then narrow the learners with any of the filters. A filter with nothing ticked means <strong>any</strong>. One row is one learner on one course.</p>

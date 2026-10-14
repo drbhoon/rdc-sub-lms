@@ -138,7 +138,7 @@ export function customReportQueryString(query: CustomReportQuery): string {
 }
 
 const IST_OFFSET_MS = 330 * 60 * 1000;
-function istDay(value: string, endOfDay: boolean): Date {
+export function istDay(value: string, endOfDay: boolean): Date {
   const [y, m, d] = value.split("-").map(Number);
   return new Date(Date.UTC(y, m - 1, d, endOfDay ? 23 : 0, endOfDay ? 59 : 0, endOfDay ? 59 : 0, endOfDay ? 999 : 0) - IST_OFFSET_MS);
 }
