@@ -133,13 +133,19 @@ export default async function TeacherCourse({ params }: { params: Promise<{ id: 
   })), 5);
 
   const unansweredQuestions = learnerQuestions.filter((item) => !item.answer).length;
+  const awaitingApproval = course.contents.filter(needsApproval).length;
 
   return <main className="container">
     <div className="badge-row"><span className="badge">{course.status.replaceAll("_", " ")}</span>{!course.isActive && <span className="badge badge-muted">Inactive</span>}</div>
     <h1>{course.title}</h1>
-    <div className="two-col">
+    <div className="stat-chips">
+      <div className="stat-chip"><strong>{course.enrollments.length}</strong><span>learners</span></div>
+      <div className={`stat-chip${unansweredQuestions ? " stat-chip-alert" : ""}`}><strong>{unansweredQuestions}</strong><span>unanswered questions</span></div>
+      <div className={`stat-chip${awaitingApproval ? " stat-chip-alert" : ""}`}><strong>{awaitingApproval}</strong><span>awaiting approval</span></div>
+    </div>
+    <div className={`two-col teacher-cols${awaitingApproval ? " approval-first" : ""}`}>
       <section className="form">
-        <div className="card"><h2>Content approval</h2>
+        <CollapsibleCard title="Content approval" summary={awaitingApproval ? `${awaitingApproval} awaiting approval` : "nothing waiting"} defaultOpen={awaitingApproval > 0}>
           <ModulePicker legend="Module" initialId={(course.contents.find(needsApproval) ?? course.contents[0])?.id} options={course.contents.map((content, index) => { const questions = parseQuizQuestions(content.quizQuestions); return { id: content.id, label: moduleOptionLabel(content, index), panel: <article className="card">
             <h3>Module {index + 1}: {content.originalName}</h3>
             <p><span className="badge">{content.processingStatus}</span> {content.isPublished && <span className="badge">LIVE</span>} {content.rejectedAt && <span className="badge">REJECTED</span>}</p>
@@ -168,19 +174,10 @@ export default async function TeacherCourse({ params }: { params: Promise<{ id: 
             </div>}
             {content.approvedAt && <p className="success">Approved</p>}
           </article> }; })} />
-        </div>
+        </CollapsibleCard>
         {canPublish && <div className="card"><h2>{course.status === "PUBLISHED" ? "Publish approved changes" : "Publish course"}</h2><p>All current content is processed and approved.</p><form action={setCourseStatus}><input type="hidden" name="courseId" value={course.id}/><input type="hidden" name="status" value="PUBLISHED"/><button>{course.status === "PUBLISHED" ? "Publish changes" : "Publish to enrolled learners"}</button></form></div>}
       </section>
-      <aside className="form"><CollapsibleCard title="Learners" summary={`${course.enrollments.length} enrolled`} defaultOpen>{scope.scoped && <p className="message">Showing only your classroom{ownedClassrooms.length > 1 ? "s" : ""}: {ownedClassrooms.map((room) => room.name).join(", ")}.</p>}{course.hasPendingChanges && course.status === "PUBLISHED" && <p className="message">Learners continue seeing the current version until approved changes are published.</p>}{!course.isActive && <p className="message">This course is inactive for new enrolments, but enrolled learners can still see it.</p>}<div className="table-wrap"><table><thead><tr><th>Name</th><th>Classroom</th><th>Progress</th></tr></thead><tbody>
-        {course.enrollments.map((enrollment) => <tr key={enrollment.id}><td>{enrollment.employee.name}<br/><small>{enrollment.employee.employeeCode}</small></td><td>{enrollment.classroom?.name ?? <span className="muted">Unassigned</span>}</td><td><span className="badge">{enrollment.status.replaceAll("_", " ")}</span></td></tr>)}
-        {!course.enrollments.length && <tr><td colSpan={3}>No learners enrolled.</td></tr>}
-      </tbody></table></div></CollapsibleCard>{course.leaderboardEnabled && <CollapsibleCard title="Toppers" className="topper-panel" summary={`${(assessmentLeaderboard.length ? assessmentLeaderboard : progressLeaderboard).length} ranked`}><p className="muted">{assessmentLeaderboard.length ? "Formula: assessment score 70% + speed 30%. Assessment score is averaged across every quiz-eligible module attempted." : "Formula: progress score 70% + speed score 30%."}</p><ol className="leaderboard-list">{(assessmentLeaderboard.length ? assessmentLeaderboard : progressLeaderboard).map((row) => <li key={row.enrollmentId}><strong>{row.employeeName}</strong><span>{row.rankScore}% - {formatDuration(row.completionSeconds)}</span></li>)}</ol>{!(assessmentLeaderboard.length ? assessmentLeaderboard : progressLeaderboard).length && <p>No learner progress yet.</p>}</CollapsibleCard>}
-        <TeacherEvaluationPanel collapsible courseId={course.id} learners={course.enrollments.map((enrollment) => ({
-          employeeId: enrollment.employeeId,
-          name: enrollment.employee.name,
-          employeeCode: enrollment.employee.employeeCode,
-          classroomName: enrollment.classroom?.name ?? null,
-        }))} />
+      <aside className="form">
         <CollapsibleCard title="Learner questions for you" summary={unansweredQuestions ? `${unansweredQuestions} unanswered` : `${learnerQuestions.length} asked, all answered`} defaultOpen={unansweredQuestions > 0}><p className="muted">Questions your learners chose to send to you rather than the AI. Unanswered ones are listed first.</p>
           {learnerQuestions.map((item) => <div className="teacher-thread" key={item.id}>
             <p><b>{item.employee.name}</b> <small className="muted">{item.employee.employeeCode}{item.employee.enrollments[0]?.classroom ? ` · ${item.employee.enrollments[0].classroom.name}` : ""}</small></p>
@@ -194,6 +191,16 @@ export default async function TeacherCourse({ params }: { params: Promise<{ id: 
           </div>)}
           {!learnerQuestions.length && <p className="muted">No learner has asked you anything yet.</p>}
         </CollapsibleCard>
+        <CollapsibleCard title="Learners" summary={`${course.enrollments.length} enrolled`} defaultOpen>{scope.scoped && <p className="message">Showing only your classroom{ownedClassrooms.length > 1 ? "s" : ""}: {ownedClassrooms.map((room) => room.name).join(", ")}.</p>}{course.hasPendingChanges && course.status === "PUBLISHED" && <p className="message">Learners continue seeing the current version until approved changes are published.</p>}{!course.isActive && <p className="message">This course is inactive for new enrolments, but enrolled learners can still see it.</p>}<div className="table-wrap"><table><thead><tr><th>Name</th><th>Classroom</th><th>Progress</th></tr></thead><tbody>
+        {course.enrollments.map((enrollment) => <tr key={enrollment.id}><td>{enrollment.employee.name}<br/><small>{enrollment.employee.employeeCode}</small></td><td>{enrollment.classroom?.name ?? <span className="muted">Unassigned</span>}</td><td><span className="badge">{enrollment.status.replaceAll("_", " ")}</span></td></tr>)}
+        {!course.enrollments.length && <tr><td colSpan={3}>No learners enrolled.</td></tr>}
+      </tbody></table></div></CollapsibleCard>{course.leaderboardEnabled && <CollapsibleCard title="Toppers" className="topper-panel" summary={`${(assessmentLeaderboard.length ? assessmentLeaderboard : progressLeaderboard).length} ranked`}><p className="muted">{assessmentLeaderboard.length ? "Formula: assessment score 70% + speed 30%. Assessment score is averaged across every quiz-eligible module attempted." : "Formula: progress score 70% + speed score 30%."}</p><ol className="leaderboard-list">{(assessmentLeaderboard.length ? assessmentLeaderboard : progressLeaderboard).map((row) => <li key={row.enrollmentId}><strong>{row.employeeName}</strong><span>{row.rankScore}% - {formatDuration(row.completionSeconds)}</span></li>)}</ol>{!(assessmentLeaderboard.length ? assessmentLeaderboard : progressLeaderboard).length && <p>No learner progress yet.</p>}</CollapsibleCard>}
+        <TeacherEvaluationPanel collapsible courseId={course.id} learners={course.enrollments.map((enrollment) => ({
+          employeeId: enrollment.employeeId,
+          name: enrollment.employee.name,
+          employeeCode: enrollment.employee.employeeCode,
+          classroomName: enrollment.classroom?.name ?? null,
+        }))} />
         <CollapsibleCard title="Learner AI history" summary={`${aiLearners.length} learner${aiLearners.length === 1 ? "" : "s"} asked`}><p className="muted">Pick a learner to see what they asked in this course.</p><p><a className="button secondary" href={withBase(`/api/courses/${course.id}/ai-history`)}>Download complete AI history Excel</a></p><LearnerAiHistory courseId={course.id} learners={aiLearners} /></CollapsibleCard>
         <ModuleActivities
           courseId={course.id}

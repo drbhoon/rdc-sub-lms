@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useState } from "react";
 import { ProgressRing } from "@/components/progress-ring";
+import { coverFor } from "@/lib/course-cover";
 
 export type CourseTile = {
   id: string;
@@ -28,10 +29,6 @@ const STATUS_TEXT: Record<CourseTile["status"], string> = {
   IN_PROGRESS: "In progress",
   COMPLETED: "Completed",
 };
-
-/** Four brand-toned cover colours, picked from the title so a course always gets the same one. */
-const COVERS = ["#1f3a8a", "#0f766e", "#7c3aed", "#b45309"];
-const coverFor = (title: string) => COVERS[[...title].reduce((sum, char) => sum + char.charCodeAt(0), 0) % COVERS.length];
 
 /**
  * The learner's courses as tiles, with chips to narrow them by status. The

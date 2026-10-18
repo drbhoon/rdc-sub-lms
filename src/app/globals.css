@@ -324,7 +324,7 @@ h1 { color:var(--navy); margin-top:0; }
 .chip-active { background:var(--navy); border-color:var(--navy); color:white; }
 .chip-active span { color:#c7d3ea; }
 .tile-grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(260px,1fr)); gap:1rem; }
-.course-tile { display:flex; flex-direction:column; background:white; border:1px solid #e3e8f0; border-radius:var(--radius); overflow:hidden; box-shadow:var(--shadow); transition:transform .15s ease, box-shadow .15s ease; }
+.course-tile { position:relative; display:flex; flex-direction:column; background:white; border:1px solid #e3e8f0; border-radius:var(--radius); overflow:hidden; box-shadow:var(--shadow); transition:transform .15s ease, box-shadow .15s ease; }
 .course-tile:hover { transform:translateY(-2px); box-shadow:var(--shadow-lift); }
 .tile-cover { position:relative; height:92px; color:white; padding:.75rem .9rem; overflow:hidden; }
 .tile-category { position:relative; z-index:1; display:inline-block; background:#ffffff26; border-radius:99px; padding:.2rem .6rem; font-size:.72rem; font-weight:700; letter-spacing:.03em; }
@@ -389,4 +389,27 @@ h1 { color:var(--navy); margin-top:0; }
   .lesson-list-buttons { display:flex; overflow-x:auto; gap:.5rem; padding-bottom:.25rem; scrollbar-width:none; }
   .lesson-list-buttons::-webkit-scrollbar { display:none; }
   .lesson-list-buttons button { width:auto; flex:0 0 auto; max-width:78vw; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; border-radius:99px; padding:.55rem .95rem; font-size:.88rem; }
+}
+
+/* Teacher course page: the three numbers to check first, then the work in the order a teacher does it. */
+.stat-chips { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:.6rem; margin:.25rem 0 1rem; }
+.stat-chip { background:white; border:1px solid #e3e8f0; border-radius:var(--radius); padding:.7rem .8rem; box-shadow:var(--shadow); display:grid; gap:.1rem; }
+.stat-chip strong { font-size:1.6rem; line-height:1.1; color:var(--navy); }
+.stat-chip span { font-size:.78rem; color:var(--muted); font-weight:600; line-height:1.25; }
+.stat-chip-alert { background:#fff7e0; border-color:#f2d98a; }
+.stat-chip-alert strong { color:#92580a; }
+.teacher-cols > aside,.teacher-cols > section { min-width:0; }
+@media (max-width:760px) {
+  /* Questions and learners first; but when a module is waiting for approval, that comes first. */
+  .teacher-cols > aside { order:-1; }
+  .teacher-cols.approval-first > aside { order:0; }
+  .stat-chip { padding:.6rem .65rem; }
+  .stat-chip strong { font-size:1.35rem; }
+}
+/* Folding cards and per-learner rows are easy to hit with a thumb. */
+@media (pointer:coarse) {
+  .collapsible > summary { min-height:44px; align-items:center; }
+  .teacher-eval > summary { min-height:44px; padding:.35rem 0; }
+  .teacher-eval { border-top:1px solid var(--line); }
+  .teacher-eval > summary small { display:block; }
 }
