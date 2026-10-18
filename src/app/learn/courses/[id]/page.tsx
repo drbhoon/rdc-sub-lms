@@ -6,6 +6,7 @@ import { AskTeacherPanel } from "@/components/ask-teacher-panel";
 import { CourseAiAssistant } from "@/components/course-ai-assistant";
 import { FeedbackResponseForm } from "@/components/feedback-response-form";
 import { LessonPlayer } from "@/components/lesson-player";
+import { ProgressRing } from "@/components/progress-ring";
 import { ModuleTabs, type ModuleTab } from "@/components/module-tabs";
 import { certificateEligibility } from "@/lib/certificate-eligibility";
 import { allFeedbackAnswered } from "@/lib/feedback-rules";
@@ -315,16 +316,26 @@ export default async function LearnCourse({ params }: { params: Promise<{ id: st
   const courseGrade = (await loadCourseGrades(id, [user.employeeId]))?.byEmployee.get(user.employeeId)?.grade ?? null;
 
   return <main className="container learn-container">
-    <div className="badge-row"><span className="badge">{enrollment.status.replaceAll("_", " ")}</span>{!enrollment.course.isActive && <span className="badge badge-muted">Inactive</span>}</div>
-    <h1>{enrollment.course.title}</h1>
+    <section className="course-hero">
+      <ProgressRing percent={percent} size={72} stroke={8} label={`${completed} of ${lessons.length} lessons complete`} />
+      <div className="course-hero-text">
+        <div className="badge-row"><span className="badge">{enrollment.status.replaceAll("_", " ")}</span>{!enrollment.course.isActive && <span className="badge badge-muted">Inactive</span>}</div>
+        <h1>{enrollment.course.title}</h1>
+        <p className="muted">{completed} of {lessons.length} lessons complete</p>
+      </div>
+    </section>
     {!enrollment.course.isActive && <p className="message">This course is inactive for new enrolments, but remains available to you because you are already enrolled.</p>}
-    <div className="progress"><span style={{ width: `${percent}%` }} /></div>
-    <p>{completed} of {lessons.length} lessons complete</p>
 
     <div className="learning-shell">
       <section className="learning-main">
         <LessonPlayer lessons={lessons} moduleCount={enrollment.course.contents.length} />
       </section>
+      {/* Below the course: learners study first, then take the module's
+          assessment and give its feedback. On a phone this is the next thing
+          after the lessons; on a laptop it sits under them. */}
+      <div className="learning-tabs">
+        <ModuleTabs title="Assessments and feedback" intro="Choose a module to see its assessment and feedback." tabs={moduleTabs} initialId={firstOpenTab} />
+      </div>
       <aside className="learning-sidebar">
         {teacherName && <AskTeacherPanel courseId={id} teacherName={teacherName} threads={teacherThreads} />}
         <CourseAiAssistant courseId={id} />
@@ -359,12 +370,6 @@ export default async function LearnCourse({ params }: { params: Promise<{ id: st
         </div>
 
       </aside>
-    </div>
-
-    {/* Below the course: learners study first, then take the module's
-        assessment and give its feedback. */}
-    <div className="module-tabs-below">
-      <ModuleTabs title="Assessments and feedback" intro="Choose a module to see its assessment and feedback." tabs={moduleTabs} initialId={firstOpenTab} />
     </div>
   </main>;
 }
