@@ -2,6 +2,7 @@ import { withBase } from "@/lib/base-path";
 import { Prisma, UserRole } from "@prisma/client";
 import { createEmployee, deleteEmployee, updateUserRoles, importEmployeesFromMaster } from "@/actions/employees";
 import { ActionForm } from "@/components/action-form";
+import { CollapsibleCard } from "@/components/collapsible-card";
 import { EmployeeCourseEnrollmentForm } from "@/components/employee-course-enrollment-form";
 import { EmployeeImportForm } from "@/components/employee-import-form";
 import { db } from "@/lib/db";
@@ -81,7 +82,7 @@ export default async function EmployeesPage({ searchParams }: { searchParams: Pr
   return <main className="container">
     <h1>Employees</h1>
     <p><a className="button secondary" href={withBase("/api/employees/export")}>Download employee data Excel</a></p>
-    <div className="two-col">
+    <div className="employees-layout">
       <section className="card">
         <h2>Employee master</h2>
         <form className="employee-search" method="get" role="search">
@@ -138,8 +139,7 @@ export default async function EmployeesPage({ searchParams }: { searchParams: Pr
         </div>
       </section>
 
-      <aside className="card">
-        <h2>Import from Employee Master</h2>
+      <CollapsibleCard title="Import from Employee Master" summary="pull from ZingHR and Truein">
         <p className="muted">
           Pulls learners from the shared employee master, refreshed nightly from
           ZingHR (on roll) and Truein (off roll). Existing learners are updated in
@@ -161,10 +161,9 @@ export default async function EmployeesPage({ searchParams }: { searchParams: Pr
             <span className="muted">Leave both ticked for everyone.</span>
           </fieldset>
         </ActionForm>
-      </aside>
+      </CollapsibleCard>
 
-      <aside className="card">
-        <h2>Add one employee</h2>
+      <CollapsibleCard title="Add one employee" summary="single addition">
         <p className="muted">Use this form for individual additions. Excel upload remains available for bulk changes.</p>
         {!companies.length ? <p>Create a company through the employee import first.</p> : <ActionForm action={createEmployee} submitLabel="Add employee">
           <div className="form-row">
@@ -188,18 +187,16 @@ export default async function EmployeesPage({ searchParams }: { searchParams: Pr
             <label className="checkbox"><input type="checkbox" name="superAdmin" />Super Admin</label>
           </fieldset>
         </ActionForm>}
-      </aside>
+      </CollapsibleCard>
 
-      <aside className="card">
-        <h2>Import employees</h2>
+      <CollapsibleCard title="Import employees" summary="Excel upload">
         <p className="muted">Use the RDC template. Required: EMP_CODE, EMP_NAME, EMAIL, COMPANY and DESIGNATION. Optional: LOCATION_PLANT, DEPARTMENT, STATUS (defaults to ACTIVE), ROLE (Learner, Teacher, Super Admin), MANAGER_NAME and MOBILE_NUMBER. Re-importing an EMP_CODE updates that employee and grants listed roles.</p>
         <p><a className="button secondary" href={withBase("/templates/rdc-employee-import-template.xlsx")}>Download Excel template</a></p>
         <p><a href={withBase("/templates/rdc-employee-import-template.csv")}>Download CSV template</a></p>
         <EmployeeImportForm />
-      </aside>
+      </CollapsibleCard>
 
-      <aside className="card">
-        <h2>Allocate courses to employee</h2>
+      <CollapsibleCard title="Allocate courses to employee" summary="enrol in courses">
         <p className="muted">Search an employee, then select one or more eligible courses.</p>
         <EmployeeCourseEnrollmentForm
           employees={allocatable.map((employee) => {
@@ -222,7 +219,7 @@ export default async function EmployeesPage({ searchParams }: { searchParams: Pr
             companyIds: course.companies.map((company) => company.companyId),
           }))}
         />
-      </aside>
+      </CollapsibleCard>
     </div>
   </main>;
 }

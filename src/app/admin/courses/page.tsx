@@ -2,6 +2,8 @@ import Link from "next/link";
 import { UserRole } from "@prisma/client";
 import { createCourse } from "@/actions/courses";
 import { ActionForm } from "@/components/action-form";
+import { CollapsibleCard } from "@/components/collapsible-card";
+import { coverFor } from "@/lib/course-cover";
 import { InactiveCourses } from "@/components/inactive-courses";
 import { db } from "@/lib/db";
 import { requireRole } from "@/lib/session";
@@ -29,18 +31,23 @@ export default async function CoursesPage() {
 
   const active = courses.filter((course) => course.isActive);
   const inactive = courses.filter((course) => !course.isActive);
-  const card = (course: (typeof courses)[number]) => <div className={`card course-card ${course.isActive ? "" : "inactive-card"}`} key={course.id}>
-    <div className="badge-row">
-      <span className="badge">{course.status.replaceAll("_", " ")}</span>
-      {!course.isActive && <span className="badge badge-muted">Inactive</span>}
+  const card = (course: (typeof courses)[number]) => <div className={`course-tile${course.isActive ? "" : " inactive-card"}`} key={course.id}>
+    <div className="tile-cover" style={{ background: coverFor(course.title) }}>
+      <span className="tile-category">{course.category}</span>
+      <span className="tile-initial" aria-hidden="true">{course.title.charAt(0).toUpperCase()}</span>
     </div>
-    {/* The title link stretches over the whole card, so the card still opens
-        the course; the learner count is its own link and sits above it. */}
-    <h3><Link className="stretched-link" href={`/admin/courses/${course.id}`}>{course.title}</Link></h3>
-    <p className="muted">{course.category} - {course.durationMinutes} minutes</p>
-    <p>{course.companies.map((c) => c.company.name).join(", ")}</p>
-    <small>{course._count.contents} uploads - <Link className="count-link" href={`/admin/courses/${course.id}/learners`} title="See who is enrolled">{course._count.enrollments} learners</Link></small>
-    {!course.teachers.length && <p className="muted">No teacher assigned yet.</p>}
+    <div className="tile-body">
+      {/* The title link stretches over the whole tile, so the tile still opens
+          the course; the learner count is its own link and sits above it. */}
+      <h3><Link className="stretched-link" href={`/admin/courses/${course.id}`}>{course.title}</Link></h3>
+      <p className="muted">{course.durationMinutes} minutes · {course.companies.map((c) => c.company.name).join(", ")}</p>
+      <p className="muted">{course._count.contents} uploads · <Link className="count-link" href={`/admin/courses/${course.id}/learners`} title="See who is enrolled">{course._count.enrollments} learners</Link></p>
+      {!course.teachers.length && <p className="muted">No teacher assigned yet.</p>}
+      <div className="tile-foot">
+        <span className={`status-pill${course.status === "PUBLISHED" ? " status-completed" : ""}`}>{course.status.replaceAll("_", " ")}</span>
+        {!course.isActive && <span className="status-pill">Inactive</span>}
+      </div>
+    </div>
   </div>;
 
   return <main className="container">
@@ -49,14 +56,14 @@ export default async function CoursesPage() {
       <section className="card">
         <h2>Course catalogue</h2>
         <InactiveCourses count={inactive.length}>{inactive.map(card)}</InactiveCourses>
-        <div className="grid">
+        <div className="tile-grid">
           {active.map(card)}
           {!active.length && <p>{courses.length ? "No active courses." : "No courses created."}</p>}
         </div>
       </section>
 
-      <aside className="card">
-        <h2>Create course</h2>
+      <aside>
+        <CollapsibleCard title="Create course" summary="add a draft course">
         {!companies.length ? <p>Import employees first so companies are available.</p> : <ActionForm action={createCourse} submitLabel="Create draft course">
           <label>Course title<input name="title" required /></label>
           <label>Category<input name="category" required /></label>
@@ -81,6 +88,7 @@ export default async function CoursesPage() {
           <label className="checkbox"><input type="checkbox" name="certificateEnabled" defaultChecked />Certificate enabled</label>
           <label className="checkbox"><input type="checkbox" name="leaderboardEnabled" defaultChecked />Leaderboard enabled</label>
         </ActionForm>}
+        </CollapsibleCard>
       </aside>
     </div>
   </main>;

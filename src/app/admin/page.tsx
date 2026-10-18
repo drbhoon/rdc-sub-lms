@@ -1,5 +1,6 @@
 import { withBase } from "@/lib/base-path";
 import Link from "next/link";
+import { BookCheck, BookX, FilePlus2, Users, type LucideIcon } from "lucide-react";
 import type { CSSProperties } from "react";
 import { UserRole } from "@prisma/client";
 import { db } from "@/lib/db";
@@ -87,16 +88,24 @@ export default async function AdminDashboard({ searchParams }: { searchParams: P
   }), 5);
   const leaderboard = assessmentLeaderboard.length ? assessmentLeaderboard : progressLeaderboard;
 
+  const kpis: { icon: LucideIcon; value: number; label: string; href?: string; linkLabel?: string }[] = [
+    { icon: Users, value: employees, label: "Active employees", href: "/admin/employees", linkLabel: "Manage" },
+    { icon: BookCheck, value: activeCourses, label: "Active courses", href: "/admin/courses", linkLabel: "Manage" },
+    { icon: BookX, value: inactiveCourses, label: "Inactive courses" },
+    { icon: FilePlus2, value: coursesInPeriod, label: "Courses created in period" },
+  ];
+
   return <main className="container">
     <h1>Administration</h1>
     <PeriodFilter period={period} />
     <p className="muted">Overview shown for {period.label}.</p>
 
-    <div className="grid">
-      <div className="card"><div className="stat">{employees}</div><p>Active employees</p><Link className="button secondary" href="/admin/employees">Manage employees</Link></div>
-      <div className="card"><div className="stat">{activeCourses}</div><p>Active courses</p><Link className="button secondary" href="/admin/courses">Manage courses</Link></div>
-      <div className="card"><div className="stat">{inactiveCourses}</div><p>Inactive courses</p></div>
-      <div className="card"><div className="stat">{coursesInPeriod}</div><p>Courses created in period</p></div>
+    <div className="kpi-grid">
+      {kpis.map(({ icon: Icon, value, label, href, linkLabel }) => <div className="kpi" key={label}>
+        <span className="kpi-icon"><Icon size={22} aria-hidden="true" /></span>
+        <div className="kpi-text"><strong>{value}</strong><span>{label}</span></div>
+        {href && <Link className="kpi-link" href={href}>{linkLabel}</Link>}
+      </div>)}
     </div>
 
     <div className="two-col dashboard-row">
@@ -108,7 +117,7 @@ export default async function AdminDashboard({ searchParams }: { searchParams: P
       <section className="card">
         <h2>Toppers</h2>
         <p className="muted">{assessmentLeaderboard.length ? "Formula: assessment score 70% + speed score 30%." : "Formula: progress score 70% + speed score 30%."}</p>
-        <ol className="leaderboard-list">
+        <ol className="leaderboard-list ranked">
           {leaderboard.map((row) => <li key={row.enrollmentId}>
             <strong>{row.employeeName}</strong>
             <span>{row.rankScore}% - {row.courseTitle} - {formatDuration(row.completionSeconds)}</span>

@@ -1,12 +1,12 @@
 "use client";
 
 import {
-  BarChart3, BookOpen, GraduationCap, LayoutDashboard, MoreHorizontal, Presentation, Users, X, type LucideIcon,
+  BarChart3, BookOpen, ChevronsLeft, ChevronsRight, GraduationCap, LayoutDashboard, MoreHorizontal, Presentation, Users, X, type LucideIcon,
 } from "lucide-react";
 import Image from "next/image";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { useState, type ReactNode } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { withBase } from "@/lib/base-path";
 
 export type NavItem = { href: string; label: string };
@@ -48,6 +48,27 @@ export function AppNav({ items, name, email, signOut }: { items: NavItem[]; name
   const [openAt, setOpenAt] = useState<string | null>(null);
   const sheetOpen = openAt === pathname;
 
+  // A laptop can shrink the sidebar to icons to give wide tables more room. The
+  // choice lives on <html> (CSS reads it from there) and is remembered.
+  const [collapsed, setCollapsed] = useState(false);
+  useEffect(() => {
+    let saved = false;
+    try { saved = localStorage.getItem("lms-sidebar") === "collapsed"; } catch { /* storage blocked: stay expanded */ }
+    if (saved) {
+      document.documentElement.dataset.sidebar = "collapsed";
+      // Reading storage is only possible after mount, so the first paint is expanded.
+      // eslint-disable-next-line react-hooks/set-state-in-effect
+      setCollapsed(true);
+    }
+  }, []);
+  function toggleSidebar() {
+    const next = !collapsed;
+    setCollapsed(next);
+    if (next) document.documentElement.dataset.sidebar = "collapsed";
+    else delete document.documentElement.dataset.sidebar;
+    try { localStorage.setItem("lms-sidebar", next ? "collapsed" : "expanded"); } catch { /* not remembered */ }
+  }
+
   const isActive = (href: string) =>
     href === "/admin" ? pathname === "/admin" : pathname === href || pathname.startsWith(`${href}/`);
   const iconFor = (href: string) => ICONS[href] ?? BookOpen;
@@ -63,13 +84,18 @@ export function AppNav({ items, name, email, signOut }: { items: NavItem[]; name
 
   return <>
     <aside className="sidebar" aria-label="Main navigation">
-      {brand}
+      <div className="sidebar-top">
+        {brand}
+        <button type="button" className="sidebar-toggle" onClick={toggleSidebar} aria-label={collapsed ? "Expand menu" : "Collapse menu"} title={collapsed ? "Expand menu" : "Collapse menu"}>
+          {collapsed ? <ChevronsRight size={18} aria-hidden="true" /> : <ChevronsLeft size={18} aria-hidden="true" />}
+        </button>
+      </div>
       <nav className="side-nav">
         {items.map((item) => {
           const Icon = iconFor(item.href);
           const active = isActive(item.href);
           return <Link key={item.href} href={item.href} className={active ? "active" : undefined} aria-current={active ? "page" : undefined}>
-            <Icon size={20} aria-hidden="true" />{item.label}
+            <Icon size={20} aria-hidden="true" /><span className="nav-label">{item.label}</span>
           </Link>;
         })}
       </nav>
