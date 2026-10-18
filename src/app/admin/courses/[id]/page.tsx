@@ -1,3 +1,5 @@
+import { BookOpen } from "lucide-react";
+import { AdminHero } from "@/components/admin-ui";
 import Link from "next/link";
 import { withBase } from "@/lib/base-path";
 import { notFound } from "next/navigation";
@@ -150,13 +152,13 @@ export default async function CourseAdminPage({ params }: { params: Promise<{ id
   })), 5);
 
   return <main className="container">
-    <div className="badge-row">
-      <span className="badge">{course.status.replaceAll("_", " ")}</span>
-      <span className={`badge ${course.isActive ? "" : "badge-muted"}`}>{course.isActive ? "Active" : "Inactive"}</span>
-    </div>
-    <h1>{course.title}</h1>
-    <p>{course.description}</p>
-    <p><Link className="button secondary" href={`/admin/courses/${course.id}/learners`}>{course.enrollments.length} enrolled learner{course.enrollments.length === 1 ? "" : "s"} - view and remove</Link></p>
+    <AdminHero icon={BookOpen} title={course.title} subtitle={course.description}>
+      <div className="hero-meta">
+        <span className="status-pill">{course.status.replaceAll("_", " ")}</span>
+        <span className="status-pill">{course.isActive ? "Active" : "Inactive"}</span>
+        <Link className="button hero-button" href={`/admin/courses/${course.id}/learners`}>{course.enrollments.length} enrolled learner{course.enrollments.length === 1 ? "" : "s"} - view and remove</Link>
+      </div>
+    </AdminHero>
 
     <div className="two-col">
       <section className="form">

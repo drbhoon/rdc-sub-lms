@@ -1,7 +1,8 @@
+import { BarChart3, Gauge, Library, Users } from "lucide-react";
+import { AdminHero, StatTile, toneAt } from "@/components/admin-ui";
 import { withBase } from "@/lib/base-path";
 import { UserRole } from "@prisma/client";
 import Link from "next/link";
-import type { CSSProperties } from "react";
 import { db } from "@/lib/db";
 import { buildLeaderboardRows, formatDuration } from "@/lib/leaderboard";
 import { dateRangeWhere, getReportPeriod } from "@/lib/report-period";
@@ -109,7 +110,7 @@ export default async function ReportsPage({ searchParams }: { searchParams: Prom
   }), 20);
 
   return <main className="container">
-    <h1>Reports</h1>
+    <AdminHero icon={BarChart3} title="Reports" subtitle="Learner progress, assessments, feedback and custom views of your training data." />
     <nav className="report-tabs" aria-label="Report sections">
       <Link className="active" href="/admin/reports">General</Link>
       <Link href="/admin/reports/assessment">Assessment</Link>
@@ -146,10 +147,10 @@ export default async function ReportsPage({ searchParams }: { searchParams: Prom
       <a className="button secondary" href={withBase(`/api/reports/export?${exportParams.toString()}`)}>Download Excel</a>
     </form>
 
-    <div className="grid">
-      <div className="card"><div className="stat">{progressRows.length}</div><p>Learner-course records in period</p></div>
-      <div className="card"><div className="stat">{activeLearners.length}</div><p>Active learners</p></div>
-      <div className="card completion-card"><div className="completion-circle small" style={{ "--percent": completionRate } as CSSProperties}><span>{completionRate}%</span></div><p>Completion rate</p></div>
+    <div className="stat-grid">
+      <StatTile icon={Library} value={progressRows.length} label="Learner-course records in period" tone={toneAt(0)} />
+      <StatTile icon={Users} value={activeLearners.length} label="Active learners" tone={toneAt(1)} />
+      <StatTile icon={Gauge} value={`${completionRate}%`} label="Completion rate" tone={toneAt(2)} />
     </div>
 
     <section className="card">

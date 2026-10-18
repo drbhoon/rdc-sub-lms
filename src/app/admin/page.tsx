@@ -1,7 +1,8 @@
 import { withBase } from "@/lib/base-path";
 import Link from "next/link";
-import { BookCheck, BookX, FilePlus2, Users, type LucideIcon } from "lucide-react";
-import type { CSSProperties } from "react";
+import { BarChart3, BookCheck, BookX, FilePlus2, FileText, LayoutDashboard, Users, type LucideIcon } from "lucide-react";
+import { AdminHero, StatTile, toneAt } from "@/components/admin-ui";
+import { ProgressRing } from "@/components/progress-ring";
 import { UserRole } from "@prisma/client";
 import { db } from "@/lib/db";
 import { buildLeaderboardRows, formatDuration } from "@/lib/leaderboard";
@@ -10,7 +11,7 @@ import { requireRole } from "@/lib/session";
 import { learnersOnly, notTeacherAttempt } from "@/lib/teacher-preview";
 
 function PeriodFilter({ period }: { period: ReturnType<typeof getReportPeriod> }) {
-  return <form className="period-filter card" method="get">
+  return <form className="hero-filter" method="get">
     <label>Overview period
       <select name="period" defaultValue={period.key}>
         <option value="today">Today</option>
@@ -88,30 +89,26 @@ export default async function AdminDashboard({ searchParams }: { searchParams: P
   }), 5);
   const leaderboard = assessmentLeaderboard.length ? assessmentLeaderboard : progressLeaderboard;
 
-  const kpis: { icon: LucideIcon; value: number; label: string; href?: string; linkLabel?: string }[] = [
-    { icon: Users, value: employees, label: "Active employees", href: "/admin/employees", linkLabel: "Manage" },
-    { icon: BookCheck, value: activeCourses, label: "Active courses", href: "/admin/courses", linkLabel: "Manage" },
+  const kpis: { icon: LucideIcon; value: number; label: string; href?: string }[] = [
+    { icon: Users, value: employees, label: "Active employees", href: "/admin/employees" },
+    { icon: BookCheck, value: activeCourses, label: "Active courses", href: "/admin/courses" },
     { icon: BookX, value: inactiveCourses, label: "Inactive courses" },
     { icon: FilePlus2, value: coursesInPeriod, label: "Courses created in period" },
   ];
 
   return <main className="container">
-    <h1>Administration</h1>
-    <PeriodFilter period={period} />
-    <p className="muted">Overview shown for {period.label}.</p>
+    <AdminHero icon={LayoutDashboard} title="Administration" subtitle={`Overview shown for ${period.label}`}>
+      <PeriodFilter period={period} />
+    </AdminHero>
 
-    <div className="kpi-grid">
-      {kpis.map(({ icon: Icon, value, label, href, linkLabel }) => <div className="kpi" key={label}>
-        <span className="kpi-icon"><Icon size={22} aria-hidden="true" /></span>
-        <div className="kpi-text"><strong>{value}</strong><span>{label}</span></div>
-        {href && <Link className="kpi-link" href={href}>{linkLabel}</Link>}
-      </div>)}
+    <div className="stat-grid">
+      {kpis.map(({ icon, value, label, href }, index) => <StatTile key={label} icon={icon} value={value} label={href ? `${label} · Manage` : label} tone={toneAt(index)} href={href} />)}
     </div>
 
     <div className="two-col dashboard-row">
       <section className="card completion-card">
         <h2>Course completion rate</h2>
-        <div className="completion-circle" style={{ "--percent": completionRate } as CSSProperties}><span>{completionRate}%</span></div>
+        <ProgressRing percent={completionRate} size={170} stroke={18} label={`${completionRate}% completion rate`} />
         <p>{completedInPeriod} completed out of {enrollmentsInPeriod} learner enrolments in this period.</p>
       </section>
       <section className="card">
@@ -127,10 +124,15 @@ export default async function AdminDashboard({ searchParams }: { searchParams: P
       </section>
     </div>
 
-    <section className="card">
-      <h2>Reports and testing guide</h2>
-      <p>Use reports for learner progress trackers, active learner lists, course analysis and period filters.</p>
-      <p className="form-row"><Link className="button secondary" href="/admin/reports">Open reports</Link><a className="button secondary" href={withBase("/guides/rdc-lms-hr-admin-test-guide.docx")}>Download HR Admin test guide</a></p>
-    </section>
+    <div className="action-tiles">
+      <Link className="action-tile" href="/admin/reports">
+        <span className="action-icon"><BarChart3 size={24} aria-hidden="true" /></span>
+        <div><strong>Open reports</strong><span>Progress trackers, active learners, course analysis, custom reports and the infographic.</span></div>
+      </Link>
+      <a className="action-tile" href={withBase("/guides/rdc-lms-hr-admin-test-guide.docx")}>
+        <span className="action-icon"><FileText size={24} aria-hidden="true" /></span>
+        <div><strong>HR Admin test guide</strong><span>Download the step-by-step guide for testing the LMS.</span></div>
+      </a>
+    </div>
   </main>;
 }

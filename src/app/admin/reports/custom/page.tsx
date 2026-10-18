@@ -1,3 +1,5 @@
+import { SlidersHorizontal } from "lucide-react";
+import { AdminHero } from "@/components/admin-ui";
 import { UserRole } from "@prisma/client";
 import Link from "next/link";
 import { CheckDropdown } from "@/components/check-dropdown";
@@ -21,7 +23,7 @@ export default async function CustomReportPage({ searchParams }: { searchParams:
   const filtered = FILTERS.some(({ key }) => query.filters[key].length) || Boolean(query.from || query.to);
 
   return <main className="container">
-    <h1>Reports</h1>
+    <AdminHero icon={SlidersHorizontal} title="Reports" subtitle="Pick the columns and filters you want, then view or download the result." />
     <nav className="report-tabs" aria-label="Report sections">
       <Link href="/admin/reports">General</Link>
       <Link href="/admin/reports/assessment">Assessment</Link>

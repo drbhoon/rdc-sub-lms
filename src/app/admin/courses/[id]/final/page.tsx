@@ -1,3 +1,5 @@
+import { CalendarClock } from "lucide-react";
+import { AdminHero } from "@/components/admin-ui";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { Prisma, UserRole } from "@prisma/client";
@@ -111,7 +113,7 @@ export default async function FinalAssessmentPage({ params, searchParams }: {
   const filtered = Boolean(query || showFilter);
   return <main className="container">
     <p><Link href={`/admin/courses/${course.id}`}>&larr; Back to the course</Link></p>
-    <h1>{course.title}: final assessment sittings</h1>
+    <AdminHero icon={CalendarClock} title={`${course.title}: final assessment sittings`} subtitle="Schedule the final for each classroom and manage second attempts." />
     <p className="muted">
       The final assessment does not open by itself. Schedule it for a classroom and its learners can start it from the
       time you set. Each learner has one attempt; you can allow another to a particular learner below.

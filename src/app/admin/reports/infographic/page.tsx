@@ -1,6 +1,7 @@
+import { AdminHero } from "@/components/admin-ui";
 import { UserRole } from "@prisma/client";
 import {
-  Activity, Award, Bot, CheckCheck, CircleCheck, CircleX, Factory, FileText, Gauge, Hourglass, Layers, Library,
+  Activity, Award, Sparkles, Bot, CheckCheck, CircleCheck, CircleX, Factory, FileText, Gauge, Hourglass, Layers, Library,
   MessageSquare, MousePointerClick, PauseCircle, Pencil, Percent, PlayCircle, Presentation, School, Star, TrendingUp, Users, Video,
   type LucideIcon,
 } from "lucide-react";
@@ -47,7 +48,7 @@ export default async function InfographicPage({ searchParams }: { searchParams: 
   const scope = [company?.name ?? "All companies", from || to ? `enrolled ${from || "the start"} to ${to || "today"}` : "all time"].join(" · ");
 
   return <main className="container">
-    <h1>Reports</h1>
+    <AdminHero icon={Sparkles} title="Reports" subtitle="The whole programme at a glance: people, completion, assessments and feedback." />
     <nav className="report-tabs" aria-label="Report sections">
       <Link href="/admin/reports">General</Link>
       <Link href="/admin/reports/assessment">Assessment</Link>

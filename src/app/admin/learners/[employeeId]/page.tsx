@@ -1,3 +1,5 @@
+import { Bot, CheckCheck, Library, Pencil, UserRound } from "lucide-react";
+import { AdminHero, StatTile, toneAt } from "@/components/admin-ui";
 import { notFound } from "next/navigation";
 import { UserRole } from "@prisma/client";
 import { audit } from "@/lib/audit";
@@ -45,13 +47,12 @@ export default async function LearnerActivityPage({ params }: { params: Promise<
   return <main className="container">
     <div className="view-only-banner"><strong>View-only learner activity</strong><span>You are viewing recorded activity as an administrator. No learner data can be changed from this page.</span></div>
     <p><a className="button secondary" href={withBase("/admin/employees")}>Back to employees</a></p>
-    <h1>{employee.name}</h1>
-    <p>{employee.employeeCode} · {employee.email} · {employee.company.name} · {employee.designation}</p>
-    <div className="grid">
-      <div className="card"><div className="stat">{employee.enrollments.length}</div><p>Course enrolments</p></div>
-      <div className="card"><div className="stat">{employee.enrollments.filter((item) => item.status === "COMPLETED").length}</div><p>Courses completed</p></div>
-      <div className="card"><div className="stat">{employee.assessmentAttempts.filter((item) => item.status === "SUBMITTED").length}</div><p>Assessment attempts</p></div>
-      <div className="card"><div className="stat">{employee.aiInteractions.length}</div><p>AI questions in retained history</p></div>
+    <AdminHero icon={UserRound} title={employee.name} subtitle={`${employee.employeeCode} · ${employee.email} · ${employee.company.name} · ${employee.designation}`} />
+    <div className="stat-grid">
+      <StatTile icon={Library} value={employee.enrollments.length} label="Course enrolments" tone={toneAt(0)} />
+      <StatTile icon={CheckCheck} value={employee.enrollments.filter((item) => item.status === "COMPLETED").length} label="Courses completed" tone={toneAt(1)} />
+      <StatTile icon={Pencil} value={employee.assessmentAttempts.filter((item) => item.status === "SUBMITTED").length} label="Assessment attempts" tone={toneAt(2)} />
+      <StatTile icon={Bot} value={employee.aiInteractions.length} label="AI questions in retained history" tone={toneAt(3)} />
     </div>
 
     <section className="card dashboard-row"><h2>Courses and progress</h2><div className="table-wrap"><table><thead><tr><th>Course</th><th>Status</th><th>Enrolled</th><th>Started</th><th>Completed</th><th>Lessons touched</th><th>Lessons completed</th></tr></thead><tbody>

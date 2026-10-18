@@ -1,3 +1,5 @@
+import { ListChecks, MessageSquare, Star } from "lucide-react";
+import { AdminHero, StatTile, toneAt } from "@/components/admin-ui";
 import { UserRole } from "@prisma/client";
 import Link from "next/link";
 import { withBase } from "@/lib/base-path";
@@ -53,7 +55,7 @@ export default async function FeedbackReportsPage({ searchParams }: { searchPara
   const averageRating = ratingValues.length ? Math.round(ratingValues.reduce((sum, item) => sum + item, 0) / ratingValues.length * 10) / 10 : 0;
 
   return <main className="container">
-    <h1>Feedback reports</h1>
+    <AdminHero icon={MessageSquare} title="Feedback reports" subtitle="What learners said about each module, question by question." />
     <nav className="report-tabs" aria-label="Report sections"><Link href="/admin/reports">General</Link><Link href="/admin/reports/assessment">Assessment</Link><Link className="active" href="/admin/reports/feedback">Feedback</Link><Link href="/admin/reports/custom">Custom</Link><Link href="/admin/reports/infographic">Infographic</Link></nav>
     <form className="period-filter card" method="get">
       <label>Course<select name="courseId" defaultValue={selectedCourseId}>{courses.map((course) => <option key={course.id} value={course.id}>{course.title}</option>)}</select></label>
@@ -62,7 +64,7 @@ export default async function FeedbackReportsPage({ searchParams }: { searchPara
       {form && <a className="button secondary" href={withBase(`/api/courses/${form.courseId}/feedback-export?formId=${form.id}`)}>Download Overview & Details Excel</a>}
     </form>
     {!form ? <div className="card"><p>No feedback form is available.</p></div> : <>
-      <div className="grid"><div className="card"><div className="stat">{form.responses.length}</div><p>Responses</p></div><div className="card"><div className="stat">{form.questions.length}</div><p>Questions</p></div><div className="card"><div className="stat">{averageRating || "-"}</div><p>Average rating across rating questions</p></div></div>
+      <div className="stat-grid"><StatTile icon={MessageSquare} value={form.responses.length} label="Responses" tone={toneAt(0)} /><StatTile icon={ListChecks} value={form.questions.length} label="Questions" tone={toneAt(1)} /><StatTile icon={Star} value={averageRating || "-"} label="Average rating across rating questions" tone={toneAt(2)} /></div>
       <section className="card dashboard-row"><h2>Overview: response summary</h2><div className="table-wrap"><table><thead><tr><th>Question</th><th>Text</th><th>Type</th><th>Responses</th><th>Distribution / Summary</th></tr></thead><tbody>
         {form.questions.map((question) => {
           const values = form.responses.flatMap((response) => {

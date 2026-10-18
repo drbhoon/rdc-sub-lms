@@ -1,3 +1,5 @@
+import { Users } from "lucide-react";
+import { AdminHero } from "@/components/admin-ui";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { Prisma, UserRole } from "@prisma/client";
@@ -90,11 +92,8 @@ export default async function CourseLearnersPage({ params, searchParams }: {
   const filtered = Boolean(query || statusFilter);
   return <main className="container">
     <p><Link href={`/admin/courses/${course.id}`}>&larr; Back to the course</Link></p>
-    <h1>{course.title}: enrolled learners</h1>
-    <p className="muted">
-      {filtered ? `${matching} of ${total} learners match.` : `${total} learner${total === 1 ? "" : "s"} enrolled.`}
-      {matching > rows.length && ` Showing the first ${rows.length}; narrow the search to see the rest.`}
-    </p>
+    <AdminHero icon={Users} title={`${course.title}: enrolled learners`}
+      subtitle={`${filtered ? `${matching} of ${total} learners match.` : `${total} learner${total === 1 ? "" : "s"} enrolled.`}${matching > rows.length ? ` Showing the first ${rows.length}; narrow the search to see the rest.` : ""}`} />
 
     <section className="card">
       <form className="employee-search" method="get" role="search">

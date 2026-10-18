@@ -1,3 +1,6 @@
+import { Users } from "lucide-react";
+import { AdminHero } from "@/components/admin-ui";
+import { coverFor } from "@/lib/course-cover";
 import { withBase } from "@/lib/base-path";
 import { Prisma, UserRole } from "@prisma/client";
 import { createEmployee, deleteEmployee, updateUserRoles, importEmployeesFromMaster } from "@/actions/employees";
@@ -34,6 +37,9 @@ function employeeSearch(query: string): Prisma.EmployeeWhereInput {
     ],
   };
 }
+
+const initialsOf = (name: string) =>
+  name.split(/\s+/).filter(Boolean).slice(0, 2).map((part) => part[0]?.toUpperCase()).join("") || "?";
 
 export default async function EmployeesPage({ searchParams }: { searchParams: Promise<{ q?: string }> }) {
   const actor = await requireRole(UserRole.SUPER_ADMIN);
@@ -80,8 +86,9 @@ export default async function EmployeesPage({ searchParams }: { searchParams: Pr
   const lastSyncDetail = (lastSync?.metadata ?? {}) as { created?: number; updated?: number; skippedNoEmail?: number };
 
   return <main className="container">
-    <h1>Employees</h1>
-    <p><a className="button secondary" href={withBase("/api/employees/export")}>Download employee data Excel</a></p>
+    <AdminHero icon={Users} title="Employees" subtitle="Search people, manage their roles, and bring in or enrol learners.">
+      <a className="button hero-button" href={withBase("/api/employees/export")}>Download employee data Excel</a>
+    </AdminHero>
     <div className="employees-layout">
       <section className="card">
         <h2>Employee master</h2>
@@ -110,10 +117,10 @@ export default async function EmployeesPage({ searchParams }: { searchParams: Pr
                 const roles = new Set(employee.user?.roles.map((role) => role.role) ?? []);
                 const taughtCount = employee.user?.coursesTaught.length ?? 0;
                 return <tr key={employee.id}>
-                  <td><strong>{employee.name}</strong><br /><span className="muted">{employee.employeeCode} - {employee.email}</span></td>
+                  <td><div className="person"><span className="avatar" style={{ background: coverFor(employee.name) }} aria-hidden="true">{initialsOf(employee.name)}</span><div><strong>{employee.name}</strong><br /><span className="muted">{employee.employeeCode} - {employee.email}</span></div></div></td>
                   <td>{employee.company.name}{employee.locationPlant && <><br /><span className="muted">{employee.locationPlant}</span></>}</td>
                   <td>{employee.department}<br /><span className="muted">{employee.designation}</span></td>
-                  <td><span className="badge">{employee.status}</span></td>
+                  <td><span className={`status-pill${employee.status === "ACTIVE" ? " status-completed" : ""}`}>{employee.status === "ACTIVE" ? "Active" : "Inactive"}</span></td>
                   <td><a className="button secondary" href={withBase(`/admin/learners/${employee.id}`)}>View activity</a></td>
                   <td>
                     {employee.user && employee.status === "ACTIVE" ? <ActionForm action={updateUserRoles} submitLabel="Save roles">
@@ -125,11 +132,11 @@ export default async function EmployeesPage({ searchParams }: { searchParams: Pr
                     </ActionForm> : <span className="muted">Inactive</span>}
                   </td>
                   <td>
-                    {actor.employeeId === employee.id ? <span className="muted">Current login cannot be deleted.</span> : <ActionForm action={deleteEmployee} submitLabel="Delete employee" buttonClassName="danger">
+                    {actor.employeeId === employee.id ? <span className="muted">Current login cannot be deleted.</span> : <details className="row-danger"><summary>Delete…</summary><ActionForm action={deleteEmployee} submitLabel="Delete employee" buttonClassName="danger">
                       <input type="hidden" name="employeeId" value={employee.id} />
                       <label className="checkbox"><input type="checkbox" name="confirmDelete" />Confirm permanent deletion</label>
                       <span className="muted">Removes enrollments, progress, assessments, feedback and AI history.</span>
-                    </ActionForm>}
+                    </ActionForm></details>}
                   </td>
                 </tr>;
               })}

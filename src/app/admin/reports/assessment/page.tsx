@@ -1,3 +1,5 @@
+import { CircleCheck, ClipboardCheck, Pencil, Percent, Users } from "lucide-react";
+import { AdminHero, StatTile, toneAt } from "@/components/admin-ui";
 import { UserRole } from "@prisma/client";
 import Link from "next/link";
 import { withBase } from "@/lib/base-path";
@@ -59,7 +61,7 @@ export default async function AssessmentReportsPage({ searchParams }: { searchPa
   }).sort((a, b) => b.date.getTime() - a.date.getTime()).slice(0, 500) : [];
 
   return <main className="container">
-    <h1>Assessment reports</h1>
+    <AdminHero icon={ClipboardCheck} title="Assessment reports" subtitle="Scores, pass rates and question-by-question performance for every quiz." />
     <nav className="report-tabs" aria-label="Report sections"><Link href="/admin/reports">General</Link><Link className="active" href="/admin/reports/assessment">Assessment</Link><Link href="/admin/reports/feedback">Feedback</Link><Link href="/admin/reports/custom">Custom</Link><Link href="/admin/reports/infographic">Infographic</Link></nav>
     <form className="period-filter card" method="get">
       <label>Course<select name="courseId" defaultValue={selectedCourseId}>{courses.map((course) => <option key={course.id} value={course.id}>{course.title}</option>)}</select></label>
@@ -68,11 +70,11 @@ export default async function AssessmentReportsPage({ searchParams }: { searchPa
       {assessment && <a className="button secondary" href={withBase(`/api/courses/${assessment.courseId}/assessment-results?assessmentId=${assessment.id}`)}>Download Overview, Details & Timeline Excel</a>}
     </form>
     {!assessment ? <div className="card"><p>No assessment is available.</p></div> : <>
-      <div className="grid">
-        <div className="card"><div className="stat">{latest.length}</div><p>Learners in latest-attempt summary</p></div>
-        <div className="card"><div className="stat">{submitted.length}</div><p>All submitted attempts</p></div>
-        <div className="card"><div className="stat">{averageScore}%</div><p>Average latest score</p></div>
-        <div className="card"><div className="stat">{passRate}%</div><p>Latest-attempt pass rate</p></div>
+      <div className="stat-grid">
+        <StatTile icon={Users} value={latest.length} label="Learners in latest-attempt summary" tone={toneAt(0)} />
+        <StatTile icon={Pencil} value={submitted.length} label="All submitted attempts" tone={toneAt(1)} />
+        <StatTile icon={Percent} value={`${averageScore}%`} label="Average latest score" tone={toneAt(2)} />
+        <StatTile icon={CircleCheck} value={`${passRate}%`} label="Latest-attempt pass rate" tone={toneAt(3)} />
       </div>
       <section className="card dashboard-row"><h2>Overview: question performance</h2><p className="muted">Calculated from each learner&apos;s latest submitted attempt.</p><div className="table-wrap"><table><thead><tr><th>Question</th><th>Text</th><th>Answered</th><th>Correct</th><th>Correct %</th><th>A</th><th>B</th><th>C</th><th>D</th><th>Answer</th></tr></thead><tbody>
         {assessment.questions.map((question) => {

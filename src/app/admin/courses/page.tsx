@@ -1,3 +1,5 @@
+import { BookOpen } from "lucide-react";
+import { AdminHero } from "@/components/admin-ui";
 import Link from "next/link";
 import { UserRole } from "@prisma/client";
 import { createCourse } from "@/actions/courses";
@@ -51,7 +53,7 @@ export default async function CoursesPage() {
   </div>;
 
   return <main className="container">
-    <h1>Courses</h1>
+    <AdminHero icon={BookOpen} title="Courses" subtitle="Create, publish and manage every course, its teachers and its learners." />
     <div className="two-col">
       <section className="card">
         <h2>Course catalogue</h2>
