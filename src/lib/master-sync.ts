@@ -6,11 +6,17 @@ import { fetchMasterEmployees, masterConfigured, type MasterSource } from "@/lib
 /**
  * Bring LMS's employee list in line with the shared employee master.
  *
- * The master is refreshed nightly from ZingHR (on roll) and Truein (off roll)
- * and LMS used to be updated from it only when an admin pressed the button, so
- * the two drifted apart in between — LMS showed fewer people than the master.
- * This is that button's work, lifted out of the server action so the worker
- * can do it every morning as well.
+ * The master is refreshed nightly from ZingHR (on roll) and Truein (off roll).
+ * An admin runs this with "Sync Employee Data with Master" when they need LMS
+ * to catch up; the worker can also run it on a schedule, but that is off unless
+ * MASTER_SYNC_TIME_IST is set.
+ *
+ * The MASTER WINS for everything it holds: name, e-mail, company, designation,
+ * location, manager, mobile. Only the employee code is never rewritten, because
+ * it is how a person is matched. A field the master leaves blank is left as it
+ * is here rather than wiped, and the department (which the master does not
+ * hold) is never touched. A changed e-mail moves the person's existing login to
+ * the new address; it does not create a second login.
  *
  * The Excel upload stays. It is the only way in for a learner who is in
  * neither feed, which is a real case here: LMS is deliberately open to people
@@ -28,6 +34,8 @@ export class MasterUnavailableError extends Error {}
 export type MasterSyncResult = {
   created: number;
   updated: number;
+  /** People whose e-mail address changed to match the master. */
+  emailsChanged: number;
   /** Everyone the master returned, before LMS dropped the ones it cannot use. */
   received: number;
   skippedNoEmail: number;
@@ -94,17 +102,36 @@ export async function syncEmployeesFromMaster(sources: MasterSource[] = []): Pro
         { employeeCode: { in: wanted.map((person) => person.employee_code) } },
       ],
     },
-    select: { employeeCode: true, email: true },
+    select: { id: true, employeeCode: true, email: true },
   });
   const codeForEmail = new Map(existing.map((row) => [row.email, row.employeeCode]));
   const knownCodes = new Set(existing.map((row) => row.employeeCode));
+  const existingByCode = new Map(existing.map((row) => [row.employeeCode, row]));
+
+  // Logins, to know whether a changed address can be moved onto the person's
+  // existing login or is already used by somebody else's.
+  const logins = await db.user.findMany({
+    where: { OR: [{ email: { in: [...byEmail.keys()] } }, { employeeId: { in: existing.map((row) => row.id) } }] },
+    select: { email: true, employeeId: true },
+  });
+  const loginByEmail = new Map(logins.map((login) => [login.email, login]));
 
   const conflicts: string[] = [];
+  let emailsChanged = 0;
   const importable = [...byEmail.entries()].filter(([email, person]) => {
     const heldBy = codeForEmail.get(email);
     if (heldBy && heldBy !== person.employee_code) {
       conflicts.push(`${email} (here as ${heldBy}, master says ${person.employee_code})`);
       return false;
+    }
+    const current = existingByCode.get(person.employee_code);
+    if (current && current.email !== email) {
+      const taken = loginByEmail.get(email);
+      if (taken && taken.employeeId !== current.id) {
+        conflicts.push(`${email} (already the login of someone else; ${person.employee_code} stays ${current.email})`);
+        return false;
+      }
+      emailsChanged += 1;
     }
     return true;
   });
@@ -152,36 +179,63 @@ export async function syncEmployeesFromMaster(sources: MasterSource[] = []): Pro
       await db.$transaction(async (tx) => {
         for (const [email, person] of chunk) {
           const companyName = String(person.company ?? "").trim() || "Third Party";
-          const data = {
-            name: person.employee_name,
+          const text = (value: string | null | undefined) => String(value ?? "").trim();
+          const designation = text(person.designation);
+          const location = text(person.location);
+          const manager = text(person.manager_name);
+          const mobile = text(person.contact_number);
+
+          // Everything the master holds replaces what is here. A blank in the
+          // master leaves the existing value alone (it is "not given", not
+          // "cleared"), and the employee code is the one thing never rewritten.
+          const update = {
+            name: text(person.employee_name) || undefined,
             email,
             companyId: companyIds.get(companyName)!,
-            // The master holds no department. "General" matches what the Excel
-            // import already defaults to, so the two paths agree.
-            department: "General",
-            designation: String(person.designation ?? "").trim() || "Not specified",
-            locationPlant: String(person.location ?? "").trim() || null,
-            managerName: String(person.manager_name ?? "").trim() || null,
-            mobileNumber: String(person.contact_number ?? "").trim() || null,
+            ...(designation ? { designation } : {}),
+            ...(location ? { locationPlant: location } : {}),
+            ...(manager ? { managerName: manager } : {}),
+            ...(mobile ? { mobileNumber: mobile } : {}),
             // Joined in by the portal, so this costs no extra call per person.
-            personId: person.person_id,
+            ...(person.person_id ? { personId: person.person_id } : {}),
           };
 
           const employee = await tx.employee.upsert({
             where: { employeeCode: person.employee_code },
-            // Roles, status, enrolments and progress belong to LMS and are
-            // never touched by a refresh from the master.
-            update: data,
-            create: { ...data, employeeCode: person.employee_code, status: EmployeeStatus.ACTIVE },
+            // Roles, status, department, enrolments and progress belong to LMS
+            // and are never touched by a refresh from the master.
+            update,
+            create: {
+              employeeCode: person.employee_code,
+              name: text(person.employee_name),
+              email,
+              companyId: companyIds.get(companyName)!,
+              // The master holds no department. "General" matches what the Excel
+              // import already defaults to, so the two paths agree.
+              department: "General",
+              designation: designation || "Not specified",
+              locationPlant: location || null,
+              managerName: manager || null,
+              mobileNumber: mobile || null,
+              personId: person.person_id,
+              status: EmployeeStatus.ACTIVE,
+            },
           });
           if (knownCodes.has(person.employee_code)) updated += 1;
           else created += 1;
 
-          const user = await tx.user.upsert({
-            where: { email },
-            update: { employeeId: employee.id },
-            create: { email, employeeId: employee.id },
-          });
+          // One login per employee. When the address changed, the existing
+          // login is moved to it (keeping its roles and history); creating a
+          // second login for the same person is what used to fail here and
+          // silently threw the whole batch away.
+          const linked = await tx.user.findUnique({ where: { employeeId: employee.id } });
+          const user = linked
+            ? linked.email === email ? linked : await tx.user.update({ where: { id: linked.id }, data: { email } })
+            : await tx.user.upsert({
+              where: { email },
+              update: { employeeId: employee.id },
+              create: { email, employeeId: employee.id },
+            });
           await tx.userRoleGrant.upsert({
             where: { userId_role: { userId: user.id, role: UserRole.LEARNER } },
             update: {},
@@ -198,6 +252,7 @@ export async function syncEmployeesFromMaster(sources: MasterSource[] = []): Pro
   }
 
   const notes: string[] = [];
+  if (emailsChanged) notes.push(`${emailsChanged} e-mail address${emailsChanged === 1 ? "" : "es"} changed to match the master`);
   if (skippedNoEmail) notes.push(`${skippedNoEmail} skipped with no e-mail address`);
   if (duplicateEmails) notes.push(`${duplicateEmails} duplicate address${duplicateEmails === 1 ? "" : "es"} collapsed`);
   if (conflicts.length) {
@@ -224,6 +279,7 @@ export async function syncEmployeesFromMaster(sources: MasterSource[] = []): Pro
   return {
     created,
     updated,
+    emailsChanged,
     received: people.length,
     skippedNoEmail,
     duplicateEmails,

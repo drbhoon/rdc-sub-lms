@@ -146,21 +146,24 @@ export default async function EmployeesPage({ searchParams }: { searchParams: Pr
         </div>
       </section>
 
-      <CollapsibleCard title="Import from Employee Master" summary="pull from ZingHR and Truein">
+      <CollapsibleCard title="Sync Employee Data with Master" summary="update from ZingHR and Truein">
         <p className="muted">
-          Pulls learners from the shared employee master, refreshed nightly from
-          ZingHR (on roll) and Truein (off roll). Existing learners are updated in
-          place — roles, enrolments and progress are never touched. Anyone without
-          an e-mail address is skipped, since sign-in here is an emailed code, so
-          LMS can hold fewer people than the master by exactly that many.
+          Brings LMS in line with the shared employee master, which is refreshed
+          nightly from ZingHR (on roll) and Truein (off roll). New people are added,
+          and for everyone already here the master&apos;s name, e-mail, company,
+          designation, location, manager and mobile replace what LMS holds. Only the
+          employee code is never changed. A field the master leaves blank is kept
+          as it is. Roles, department, enrolments and progress are never touched.
+          Anyone without an e-mail address is skipped, since sign-in here is an
+          emailed code.
         </p>
         <p className="message">
-          This also runs by itself every morning.{" "}
+          This runs only when you press the button.{" "}
           {lastSync
             ? `Last run ${formatIst(lastSync.createdAt)}: ${lastSyncDetail.created ?? 0} added, ${lastSyncDetail.updated ?? 0} updated, ${lastSyncDetail.skippedNoEmail ?? 0} skipped with no e-mail address.`
             : "It has not run yet."}
         </p>
-        <ActionForm action={importEmployeesFromMaster} submitLabel="Import from master">
+        <ActionForm action={importEmployeesFromMaster} submitLabel="Sync Employee Data with Master">
           <fieldset>
             <legend>Who to import</legend>
             <label className="checkbox"><input type="checkbox" name="onroll" defaultChecked />On roll (ZingHR)</label>

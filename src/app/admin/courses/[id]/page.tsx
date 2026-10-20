@@ -15,8 +15,9 @@ import { ContentUploadForm } from "@/components/content-upload-form";
 import { CourseEnrollmentPicker } from "@/components/course-enrollment-picker";
 import { ModuleActivities } from "@/components/module-activities";
 import { CourseGradingPanel } from "@/components/course-grading-panel";
-import { LearnerAiHistory } from "@/components/learner-ai-history";
+import { LearnerQaHistory } from "@/components/learner-qa-history";
 import { loadAiHistoryLearners } from "@/lib/ai-history";
+import { loadTeacherQaLearners } from "@/lib/teacher-qa";
 import { buildLeaderboardRows, formatDuration } from "@/lib/leaderboard";
 import { db } from "@/lib/db";
 import { env } from "@/lib/env";
@@ -26,7 +27,7 @@ import { eligibleTeacherWhere } from "@/lib/teacher-eligibility";
 import { learnersOnly, notTeacherAttempt } from "@/lib/teacher-preview";
 
 export default async function CourseAdminPage({ params }: { params: Promise<{ id: string }> }) {
-  await requireRole(UserRole.SUPER_ADMIN);
+  const viewer = await requireRole(UserRole.SUPER_ADMIN);
   const { id } = await params;
   const course = await db.course.findUnique({
     where: { id },
@@ -56,6 +57,7 @@ export default async function CourseAdminPage({ params }: { params: Promise<{ id
   if (!course) notFound();
 
   const aiLearners = await loadAiHistoryLearners(id);
+  const teacherLearners = await loadTeacherQaLearners(id, viewer);
   const [employees, companies, teachers] = await Promise.all([
     course.isActive && course.status === "PUBLISHED"
       ? db.employee.findMany({
@@ -337,10 +339,8 @@ export default async function CourseAdminPage({ params }: { params: Promise<{ id
         </div>
 
         <div className="card">
-          <h2>Learner AI history</h2>
-          <p className="muted">Pick a learner to see what they asked in this course.</p>
-          <p><a className="button secondary" href={withBase(`/api/courses/${course.id}/ai-history`)}>Download complete AI history Excel</a></p>
-          <LearnerAiHistory courseId={course.id} learners={aiLearners} />
+          <h2>Learner Q&amp;A History (AI &amp; Teacher)</h2>
+          <LearnerQaHistory courseId={course.id} aiLearners={aiLearners} teacherLearners={teacherLearners} />
         </div>
 
         {course.leaderboardEnabled && <div className="card">

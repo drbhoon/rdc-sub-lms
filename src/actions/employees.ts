@@ -318,6 +318,7 @@ export async function importEmployeesFromMaster(
     sources: sources.length ? sources : ["all"],
     created: result.created,
     updated: result.updated,
+    emailsChanged: result.emailsChanged,
     skippedNoEmail: result.skippedNoEmail,
     duplicateEmails: result.duplicateEmails,
     conflicts: result.conflicts,

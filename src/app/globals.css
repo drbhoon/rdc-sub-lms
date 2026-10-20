@@ -513,3 +513,8 @@ a.stat-tile:hover { transform:translateY(-2px); }
 .row-danger[open] > summary { margin-bottom:.5rem; }
 .hero-meta { display:flex; flex-wrap:wrap; align-items:center; justify-content:flex-end; gap:.6rem; }
 .admin-hero .status-pill { background:#ffffff26; color:white; }
+
+/* Live version in a version dropdown. */
+select.select-live { border-color:#16a34a; background:#ecfdf3; color:#166534; font-weight:700; }
+option.option-live { color:#166534; background:#ecfdf3; font-weight:700; }
+.live-legend { color:#166534; font-weight:600; }

@@ -1,3 +1,4 @@
+import { LiveVersionSelect } from "@/components/live-version-select";
 import { CircleCheck, ClipboardCheck, Pencil, Percent, Users } from "lucide-react";
 import { AdminHero, StatTile, toneAt } from "@/components/admin-ui";
 import { UserRole } from "@prisma/client";
@@ -23,7 +24,7 @@ export default async function AssessmentReportsPage({ searchParams }: { searchPa
       title: true,
       // courseContent + its lesson, purely to label the version dropdown
       // below with which module each quiz belongs to.
-      assessments: { select: { id: true, title: true, version: true, courseContent: { select: { lessons: { select: { title: true } } } } }, orderBy: { version: "desc" } },
+      assessments: { select: { id: true, title: true, version: true, status: true, courseContent: { select: { lessons: { select: { title: true } } } } }, orderBy: { version: "desc" } },
     },
     orderBy: { title: "asc" },
   });
@@ -65,7 +66,7 @@ export default async function AssessmentReportsPage({ searchParams }: { searchPa
     <nav className="report-tabs" aria-label="Report sections"><Link href="/admin/reports">General</Link><Link className="active" href="/admin/reports/assessment">Assessment</Link><Link href="/admin/reports/feedback">Feedback</Link><Link href="/admin/reports/custom">Custom</Link><Link href="/admin/reports/infographic">Infographic</Link></nav>
     <form className="period-filter card" method="get">
       <label>Course<select name="courseId" defaultValue={selectedCourseId}>{courses.map((course) => <option key={course.id} value={course.id}>{course.title}</option>)}</select></label>
-      <label>Assessment version<select name="assessmentId" defaultValue={selectedAssessmentId}>{selectedCourse?.assessments.map((item) => <option key={item.id} value={item.id}>v{item.version} - {item.title} ({item.courseContent?.lessons[0]?.title ?? "Whole course"})</option>)}</select></label>
+      <label>Assessment version<LiveVersionSelect name="assessmentId" defaultValue={selectedAssessmentId} options={(selectedCourse?.assessments ?? []).map((item) => ({ value: item.id, label: `v${item.version} - ${item.title} (${item.courseContent?.lessons[0]?.title ?? "Whole course"})`, live: item.status === "ACTIVE" }))} /></label>
       <button>Apply</button>
       {assessment && <a className="button secondary" href={withBase(`/api/courses/${assessment.courseId}/assessment-results?assessmentId=${assessment.id}`)}>Download Overview, Details & Timeline Excel</a>}
     </form>

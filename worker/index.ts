@@ -167,7 +167,8 @@ function startDailyJobs() {
   const onTestBed = Boolean(env.RAILWAY_ENVIRONMENT);
   const jobs: ReturnType<typeof createDailyJob>[] = [];
 
-  const syncAt = scheduledTime(env.MASTER_SYNC_TIME_IST, "04:00", onTestBed);
+  // Off unless MASTER_SYNC_TIME_IST names a time: admins run "Sync Employee Data with Master" when they need it.
+  const syncAt = scheduledTime(env.MASTER_SYNC_TIME_IST, "off", onTestBed);
   if (syncAt && masterConfigured()) {
     jobs.push(createDailyJob({
       name: "employee master sync",
@@ -178,6 +179,7 @@ function startDailyJobs() {
         await audit(null, "EMPLOYEES_SYNCED_FROM_MASTER", "Employee", undefined, {
           created: result.created,
           updated: result.updated,
+          emailsChanged: result.emailsChanged,
           received: result.received,
           skippedNoEmail: result.skippedNoEmail,
           duplicateEmails: result.duplicateEmails,

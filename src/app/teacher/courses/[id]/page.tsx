@@ -1,12 +1,12 @@
-import { withBase } from "@/lib/base-path";
 import { notFound } from "next/navigation";
 import { approveContent, editLesson, rejectContent, setCourseStatus } from "@/actions/courses";
 import { ActionForm } from "@/components/action-form";
 import { ModuleActivities } from "@/components/module-activities";
 import { CollapsibleCard } from "@/components/collapsible-card";
-import { LearnerAiHistory } from "@/components/learner-ai-history";
+import { LearnerQaHistory } from "@/components/learner-qa-history";
 import { ModulePicker } from "@/components/module-picker";
 import { loadAiHistoryLearners } from "@/lib/ai-history";
+import { loadTeacherQaLearners } from "@/lib/teacher-qa";
 import { TeacherEvaluationPanel } from "@/components/teacher-evaluation-panel";
 import { parseQuizQuestions } from "@/lib/ai-study-pack";
 import { requireCourseManager } from "@/lib/course-access";
@@ -65,6 +65,7 @@ export default async function TeacherCourse({ params }: { params: Promise<{ id: 
   });
   if (!course) notFound();
   const aiLearners = await loadAiHistoryLearners(id);
+  const teacherLearners = await loadTeacherQaLearners(id, viewer);
   const activeContents = course.contents.filter((content) => !content.rejectedAt);
   const canPublish = course.hasPendingChanges && activeContents.length > 0 && activeContents.every(
     (content) => content.processingStatus === "COMPLETED" && content.approvedAt && content.lessons.every((lesson) => lesson.approvedAt),
@@ -201,7 +202,9 @@ export default async function TeacherCourse({ params }: { params: Promise<{ id: 
           employeeCode: enrollment.employee.employeeCode,
           classroomName: enrollment.classroom?.name ?? null,
         }))} />
-        <CollapsibleCard title="Learner AI history" summary={`${aiLearners.length} learner${aiLearners.length === 1 ? "" : "s"} asked`}><p className="muted">Pick a learner to see what they asked in this course.</p><p><a className="button secondary" href={withBase(`/api/courses/${course.id}/ai-history`)}>Download complete AI history Excel</a></p><LearnerAiHistory courseId={course.id} learners={aiLearners} /></CollapsibleCard>
+        <CollapsibleCard title="Learner Q&A History (AI & Teacher)" summary={`${aiLearners.length} asked the AI · ${teacherLearners.length} asked you`}>
+          <LearnerQaHistory courseId={course.id} aiLearners={aiLearners} teacherLearners={teacherLearners} />
+        </CollapsibleCard>
         <ModuleActivities
           courseId={course.id}
           passPercentage={course.passPercentage}
