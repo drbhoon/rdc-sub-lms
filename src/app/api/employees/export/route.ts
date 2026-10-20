@@ -7,6 +7,9 @@ import { routeUserWithRole } from "@/lib/route-auth";
 export async function GET() {
   if (!await routeUserWithRole(UserRole.SUPER_ADMIN)) return new Response("Forbidden", { status: 403 });
 
+  const lastSeen = (await db.employee.aggregate({ _max: { masterSeenAt: true } }))._max.masterSeenAt;
+  const seenCutoff = lastSeen ? new Date(lastSeen.getTime() - 10 * 60 * 1000) : null;
+
   const employees = await db.employee.findMany({
     include: {
       company: true,
@@ -31,6 +34,8 @@ export async function GET() {
     "Roles",
     "Manager",
     "Mobile",
+    "Source",
+    "In Master",
     "Enrolled Courses",
     "Completed Courses",
     "Created At",
@@ -50,14 +55,16 @@ export async function GET() {
       employee.user?.roles.map((role) => role.role).sort().join(", ") ?? "",
       employee.managerName ?? "",
       employee.mobileNumber ?? "",
+      employee.source === "UPLOAD" ? "Uploaded" : employee.source === "MASTER" ? "Master" : "Earlier record",
+      seenCutoff && employee.masterSeenAt && employee.masterSeenAt >= seenCutoff ? "Yes" : "No",
       employee.enrollments.length,
       employee.enrollments.filter((enrollment) => enrollment.status === "COMPLETED").length,
       employee.createdAt,
       employee.updatedAt,
     ]);
   }
-  master.getColumn(14).numFmt = "yyyy-mm-dd hh:mm";
-  master.getColumn(15).numFmt = "yyyy-mm-dd hh:mm";
+  master.getColumn(16).numFmt = "yyyy-mm-dd hh:mm";
+  master.getColumn(17).numFmt = "yyyy-mm-dd hh:mm";
   autoFit(master);
 
   const enrollments = workbook.addWorksheet("Course Enrollments");

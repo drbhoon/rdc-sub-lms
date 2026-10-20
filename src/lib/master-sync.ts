@@ -41,6 +41,8 @@ export type MasterSyncResult = {
   skippedNoEmail: number;
   duplicateEmails: number;
   conflicts: number;
+  /** Who was not synced because their address belongs to someone else here (capped), for the Employees page. */
+  clashes: string[];
   failedChunks: number;
   notes: string[];
   /** One readable sentence for a screen or a log line. */
@@ -171,10 +173,17 @@ export async function syncEmployeesFromMaster(sources: MasterSource[] = []): Pro
   let created = 0;
   let updated = 0;
   const failedCodes: string[] = [];
+  // One stamp for the whole run, so "seen in this sync" is a single moment.
+  const seenAt = new Date();
   const CHUNK = 50;
 
   for (let start = 0; start < importable.length; start += CHUNK) {
     const chunk = importable.slice(start, start + CHUNK);
+    // Counted here and added to the totals only once the batch has committed:
+    // a batch that rolls back must not be reported as created or updated, which
+    // is how a run that failed 35 of 43 batches still claimed hundreds of changes.
+    let chunkCreated = 0;
+    let chunkUpdated = 0;
     try {
       await db.$transaction(async (tx) => {
         for (const [email, person] of chunk) {
@@ -191,6 +200,9 @@ export async function syncEmployeesFromMaster(sources: MasterSource[] = []): Pro
           const update = {
             name: text(person.employee_name) || undefined,
             email,
+            // Found in the master: this record now comes from it, and when.
+            source: "MASTER",
+            masterSeenAt: seenAt,
             companyId: companyIds.get(companyName)!,
             ...(designation ? { designation } : {}),
             ...(location ? { locationPlant: location } : {}),
@@ -219,10 +231,12 @@ export async function syncEmployeesFromMaster(sources: MasterSource[] = []): Pro
               mobileNumber: mobile || null,
               personId: person.person_id,
               status: EmployeeStatus.ACTIVE,
+              source: "MASTER",
+              masterSeenAt: seenAt,
             },
           });
-          if (knownCodes.has(person.employee_code)) updated += 1;
-          else created += 1;
+          if (knownCodes.has(person.employee_code)) chunkUpdated += 1;
+          else chunkCreated += 1;
 
           // One login per employee. When the address changed, the existing
           // login is moved to it (keeping its roles and history); creating a
@@ -243,6 +257,8 @@ export async function syncEmployeesFromMaster(sources: MasterSource[] = []): Pro
           });
         }
       }, { timeout: 60_000 });
+      created += chunkCreated;
+      updated += chunkUpdated;
     } catch (error) {
       // One chunk failing must not lose the rest. Named, so HR can see who.
       const codes = chunk.map(([, person]) => person.employee_code).join(", ");
@@ -284,6 +300,7 @@ export async function syncEmployeesFromMaster(sources: MasterSource[] = []): Pro
     skippedNoEmail,
     duplicateEmails,
     conflicts: conflicts.length,
+    clashes: conflicts.slice(0, 300),
     failedChunks: failedCodes.length,
     notes,
     summary: `${created} added, ${updated} updated from the employee master`

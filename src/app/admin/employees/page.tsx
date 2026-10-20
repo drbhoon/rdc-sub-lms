@@ -41,11 +41,33 @@ function employeeSearch(query: string): Prisma.EmployeeWhereInput {
 const initialsOf = (name: string) =>
   name.split(/\s+/).filter(Boolean).slice(0, 2).map((part) => part[0]?.toUpperCase()).join("") || "?";
 
-export default async function EmployeesPage({ searchParams }: { searchParams: Promise<{ q?: string }> }) {
+/** The Source filter: who the master has, and who it does not. */
+const SOURCES = [
+  { value: "", label: "All employees" },
+  { value: "master", label: "In master" },
+  { value: "notmaster", label: "Not in master" },
+  { value: "uploaded", label: "Uploaded here" },
+] as const;
+type SourceFilter = (typeof SOURCES)[number]["value"];
+
+/** A sync stamps every person it finds with one moment; "seen" means stamped in the latest run. */
+const SEEN_WINDOW_MS = 10 * 60 * 1000;
+
+function sourceWhere(filter: SourceFilter, cutoff: Date | null): Prisma.EmployeeWhereInput {
+  if (filter === "uploaded") return { source: "UPLOAD" };
+  if (filter === "master") return cutoff ? { masterSeenAt: { gte: cutoff } } : { id: "none" };
+  if (filter === "notmaster") return cutoff ? { OR: [{ masterSeenAt: null }, { masterSeenAt: { lt: cutoff } }] } : {};
+  return {};
+}
+
+export default async function EmployeesPage({ searchParams }: { searchParams: Promise<{ q?: string; src?: string }> }) {
   const actor = await requireRole(UserRole.SUPER_ADMIN);
-  const { q } = await searchParams;
+  const { q, src } = await searchParams;
   const query = (q ?? "").trim().slice(0, 100);
-  const where = employeeSearch(query);
+  const sourceFilter: SourceFilter = SOURCES.some((item) => item.value === src) ? (src as SourceFilter) : "";
+  const lastSeen = (await db.employee.aggregate({ _max: { masterSeenAt: true } }))._max.masterSeenAt;
+  const seenCutoff = lastSeen ? new Date(lastSeen.getTime() - SEEN_WINDOW_MS) : null;
+  const where: Prisma.EmployeeWhereInput = { AND: [employeeSearch(query), sourceWhere(sourceFilter, seenCutoff)] };
   const [employees, matching, total, allocatable, activeCourses, companies] = await Promise.all([
     db.employee.findMany({
       where,
@@ -77,13 +99,20 @@ export default async function EmployeesPage({ searchParams }: { searchParams: Pr
     db.company.findMany({ orderBy: { name: "asc" } }),
   ]);
 
+  // How the two databases differ, at a glance.
+  const [inMasterCount, uploadedCount] = await Promise.all([
+    seenCutoff ? db.employee.count({ where: { masterSeenAt: { gte: seenCutoff } } }) : 0,
+    db.employee.count({ where: { source: "UPLOAD" } }),
+  ]);
+  const notInMasterCount = total - inMasterCount;
+
   // The last time LMS was brought in line with the master, by the morning job
   // or by an admin pressing Import — whichever was later.
   const lastSync = await db.auditLog.findFirst({
     where: { action: { in: ["EMPLOYEES_SYNCED_FROM_MASTER", "EMPLOYEES_IMPORTED_FROM_MASTER"] } },
     orderBy: { createdAt: "desc" },
   });
-  const lastSyncDetail = (lastSync?.metadata ?? {}) as { created?: number; updated?: number; skippedNoEmail?: number };
+  const lastSyncDetail = (lastSync?.metadata ?? {}) as { created?: number; updated?: number; skippedNoEmail?: number; clashes?: string[]; conflicts?: number; failedChunks?: number };
 
   return <main className="container">
     <AdminHero icon={Users} title="Employees" subtitle="Search people, manage their roles, and bring in or enrol learners.">
@@ -101,17 +130,26 @@ export default async function EmployeesPage({ searchParams }: { searchParams: Pr
             aria-label="Search employees"
             maxLength={100}
           />
+          <select name="src" defaultValue={sourceFilter} aria-label="Show employees by source" className="source-select">
+            {SOURCES.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}
+          </select>
           <button type="submit">Search</button>
-          {query && <a className="button secondary" href={withBase("/admin/employees")}>Clear</a>}
+          {(query || sourceFilter) && <a className="button secondary" href={withBase("/admin/employees")}>Clear</a>}
         </form>
         <p className="muted">
-          {query
-            ? `${matching} of ${total} employees match "${query}"${matching > employees.length ? ` - showing the first ${employees.length}; narrow the search to see the rest` : ""}.`
+          {query || sourceFilter
+            ? `${matching} of ${total} employees match${query ? ` "${query}"` : ""}${sourceFilter ? ` (${SOURCES.find((item) => item.value === sourceFilter)?.label.toLowerCase()})` : ""}${matching > employees.length ? ` - showing the first ${employees.length}; narrow the search to see the rest` : ""}.`
             : `${total} employees${total > employees.length ? ` - showing the first ${employees.length} alphabetically. Search to find anyone else` : ""}.`}
+        </p>
+        <p className="source-summary">
+          <span className="status-pill status-completed">{inMasterCount} in master</span>
+          <span className="status-pill">{notInMasterCount} not in master</span>
+          <span className="status-pill">{uploadedCount} uploaded here</span>
+          {!lastSeen && <span className="muted"> Press “Sync Employee Data with Master” once to compare the two.</span>}
         </p>
         <div className="table-wrap">
           <table>
-            <thead><tr><th>Employee</th><th>Company</th><th>Department</th><th>Status</th><th>Learner view</th><th>Roles</th><th>Delete</th></tr></thead>
+            <thead><tr><th>Employee</th><th>Company</th><th>Department</th><th>Status</th><th>Source</th><th>Learner view</th><th>Roles</th><th>Delete</th></tr></thead>
             <tbody>
               {employees.map((employee) => {
                 const roles = new Set(employee.user?.roles.map((role) => role.role) ?? []);
@@ -121,6 +159,9 @@ export default async function EmployeesPage({ searchParams }: { searchParams: Pr
                   <td>{employee.company.name}{employee.locationPlant && <><br /><span className="muted">{employee.locationPlant}</span></>}</td>
                   <td>{employee.department}<br /><span className="muted">{employee.designation}</span></td>
                   <td><span className={`status-pill${employee.status === "ACTIVE" ? " status-completed" : ""}`}>{employee.status === "ACTIVE" ? "Active" : "Inactive"}</span></td>
+                  <td>{seenCutoff && employee.masterSeenAt && employee.masterSeenAt >= seenCutoff
+                    ? <span className="status-pill status-completed">In master</span>
+                    : <span className="status-pill source-warn">{employee.source === "UPLOAD" ? "Uploaded" : "Not in master"}</span>}</td>
                   <td><a className="button secondary" href={withBase(`/admin/learners/${employee.id}`)}>View activity</a></td>
                   <td>
                     {employee.user && employee.status === "ACTIVE" ? <ActionForm action={updateUserRoles} submitLabel="Save roles">
@@ -140,7 +181,7 @@ export default async function EmployeesPage({ searchParams }: { searchParams: Pr
                   </td>
                 </tr>;
               })}
-              {!employees.length && <tr><td colSpan={7}>{query ? `No employee matches "${query}".` : "No employees have been imported."}</td></tr>}
+              {!employees.length && <tr><td colSpan={8}>{query || sourceFilter ? "No employee matches these choices." : "No employees have been imported."}</td></tr>}
             </tbody>
           </table>
         </div>
@@ -163,6 +204,13 @@ export default async function EmployeesPage({ searchParams }: { searchParams: Pr
             ? `Last run ${formatIst(lastSync.createdAt)}: ${lastSyncDetail.created ?? 0} added, ${lastSyncDetail.updated ?? 0} updated, ${lastSyncDetail.skippedNoEmail ?? 0} skipped with no e-mail address.`
             : "It has not run yet."}
         </p>
+        {Boolean(lastSyncDetail.clashes?.length) && <details className="sync-clashes">
+          <summary>{lastSyncDetail.conflicts ?? lastSyncDetail.clashes!.length} people the last sync could not update</summary>
+          <p className="muted">Their e-mail address belongs to a different employee code here, so nothing was changed for them. Correct or remove the older record, then sync again.</p>
+          <ul>{lastSyncDetail.clashes!.map((line) => <li key={line}>{line}</li>)}</ul>
+          {(lastSyncDetail.conflicts ?? 0) > lastSyncDetail.clashes!.length && <p className="muted">Showing the first {lastSyncDetail.clashes!.length}.</p>}
+        </details>}
+        {Boolean(lastSyncDetail.failedChunks) && <p className="message error">{lastSyncDetail.failedChunks} batches of the last sync failed. Press the button again; if it repeats, tell the developer.</p>}
         <ActionForm action={importEmployeesFromMaster} submitLabel="Sync Employee Data with Master">
           <fieldset>
             <legend>Who to import</legend>

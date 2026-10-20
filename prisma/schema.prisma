@@ -122,6 +122,14 @@ model Employee {
   status             EmployeeStatus        @default(ACTIVE)
   managerName        String?
   mobileNumber       String?
+  /// Where this person came from: MASTER (brought in or refreshed by the sync
+  /// from the employee master) or UPLOAD (added here: template, roster or the
+  /// single-employee form). Null for records that predate this column and have
+  /// not been seen by a sync since. Together with masterSeenAt it shows how the
+  /// two databases differ.
+  source             String?
+  /// When the sync last found this person in the master.
+  masterSeenAt       DateTime?
   companyId          String
   company            Company               @relation(fields: [companyId], references: [id])
   user               User?

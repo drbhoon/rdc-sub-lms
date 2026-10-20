@@ -131,6 +131,7 @@ export async function enrolRoster(course: Pick<Course, "id">, rows: CourseEnroll
               designation: row.designation || "Intern",
               status: EmployeeStatus.ACTIVE,
               personId: personIds.get(email) ?? null,
+              source: "UPLOAD",
             },
           });
           id = employee.id;

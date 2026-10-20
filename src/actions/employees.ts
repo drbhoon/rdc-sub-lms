@@ -62,6 +62,7 @@ export async function createEmployee(_: { message?: string }, formData: FormData
           managerName: input.managerName || null,
           mobileNumber: input.mobileNumber || null,
           status: EmployeeStatus.ACTIVE,
+          source: "UPLOAD",
         },
       });
       const existingUser = await tx.user.findUnique({ where: { email }, include: { roles: true } });
@@ -204,7 +205,8 @@ export async function importEmployees(_: EmployeeImportState, formData: FormData
           companyId: company.id,
           ...(personId ? { personId } : {}),
         },
-        create: { ...employeeData, companyId: company.id, personId },
+        // New here: flagged as uploaded, so records that did not come from the master can be told apart.
+        create: { ...employeeData, companyId: company.id, personId, source: "UPLOAD" },
       });
       const existingUser = await tx.user.findUnique({ where: { employeeId: employee.id } });
       const user = existingUser
@@ -322,6 +324,7 @@ export async function importEmployeesFromMaster(
     skippedNoEmail: result.skippedNoEmail,
     duplicateEmails: result.duplicateEmails,
     conflicts: result.conflicts,
+    clashes: result.clashes,
     failedChunks: result.failedChunks,
   });
   revalidatePath("/admin/employees");
