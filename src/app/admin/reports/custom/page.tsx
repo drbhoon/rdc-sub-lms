@@ -11,7 +11,8 @@ import { formatIst } from "@/lib/ist";
 import { requireRole } from "@/lib/session";
 
 const PREVIEW_ROWS = 100;
-const columnOptions = COLUMNS.map((column) => ({ value: column.key, label: column.label, group: column.group }));
+// Only the extras are a choice: the basic details are in every report.
+const columnOptions = COLUMNS.filter((column) => !column.core).map((column) => ({ value: column.key, label: column.label, group: column.group }));
 
 export default async function CustomReportPage({ searchParams }: { searchParams: Promise<Record<string, string | string[] | undefined>> }) {
   await requireRole(UserRole.SUPER_ADMIN);
@@ -32,9 +33,9 @@ export default async function CustomReportPage({ searchParams }: { searchParams:
       <Link href="/admin/reports/infographic">Infographic</Link>
     </nav>
     <form className="card" method="get">
-      <p className="muted">Tick the columns you want, then narrow the learners with any of the filters. A filter with nothing ticked means <strong>any</strong>. One row is one learner on one course.</p>
+      <p className="muted">Tick the columns you want, then narrow the learners with any of the filters. A filter with nothing ticked means <strong>any</strong>. One row is one learner on one course. Clicking the arrow again closes the drop down. The basic details (employee, company, location, designation, course, classroom, teacher and status) are always included; the columns you tick are added to them.</p>
       <div className="custom-report-form">
-        <CheckDropdown name="cols" label="Columns to show" options={columnOptions} selected={query.columns} emptyMeans="Default columns" />
+        <CheckDropdown name="cols" label="Extra columns" options={columnOptions} selected={query.extras} emptyMeans="None extra" />
         {FILTERS.map(({ key, label }) => <CheckDropdown key={key} name={`f_${key}`} label={label} options={options[key]} selected={query.filters[key]} />)}
         <label>Enrolled from<input type="date" name="from" defaultValue={query.from} /></label>
         <label>Enrolled to<input type="date" name="to" defaultValue={query.to} /></label>

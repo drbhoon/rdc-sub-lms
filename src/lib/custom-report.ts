@@ -38,8 +38,13 @@ export type Column = {
   key: string;
   label: string;
   group: ColumnGroup;
-  /** Ticked when the report is first opened. */
-  isDefault?: boolean;
+  /**
+   * Basic details that are in EVERY report, whatever else is ticked: who the
+   * learner is, which course, which classroom, who teaches it, and where they
+   * stand. A report that sometimes lacked the classroom or the teacher could not
+   * be read on its own, so these are not a choice.
+   */
+  core?: boolean;
   value: (row: ReportRow) => Cell;
 };
 
@@ -47,25 +52,25 @@ const latestAttempt = (row: ReportRow) =>
   [...row.assessmentAttempts].sort((a, b) => (b.submittedAt?.getTime() ?? 0) - (a.submittedAt?.getTime() ?? 0))[0];
 
 export const COLUMNS: Column[] = [
-  { key: "code", label: "Employee Code", group: "Learner", isDefault: true, value: (r) => r.employee.employeeCode },
-  { key: "name", label: "Name", group: "Learner", isDefault: true, value: (r) => r.employee.name },
-  { key: "email", label: "Email", group: "Learner", value: (r) => r.employee.email },
+  { key: "code", label: "Employee Code", group: "Learner", core: true, value: (r) => r.employee.employeeCode },
+  { key: "name", label: "Name", group: "Learner", core: true, value: (r) => r.employee.name },
+  { key: "email", label: "Email", group: "Learner", core: true, value: (r) => r.employee.email },
   { key: "mobile", label: "Mobile", group: "Learner", value: (r) => r.employee.mobileNumber ?? "" },
-  { key: "company", label: "Company", group: "Learner", isDefault: true, value: (r) => r.employee.company.name },
-  { key: "location", label: "Location / Plant", group: "Learner", isDefault: true, value: (r) => r.employee.locationPlant ?? "" },
+  { key: "company", label: "Company", group: "Learner", core: true, value: (r) => r.employee.company.name },
+  { key: "location", label: "Location / Plant", group: "Learner", core: true, value: (r) => r.employee.locationPlant ?? "" },
   { key: "department", label: "Department", group: "Learner", value: (r) => r.employee.department },
-  { key: "designation", label: "Designation", group: "Learner", isDefault: true, value: (r) => r.employee.designation },
+  { key: "designation", label: "Designation", group: "Learner", core: true, value: (r) => r.employee.designation },
   { key: "manager", label: "Reporting Manager", group: "Learner", value: (r) => r.employee.managerName ?? "" },
   { key: "employeeStatus", label: "Employee Status", group: "Learner", value: (r) => r.employee.status },
 
-  { key: "course", label: "Course", group: "Course", isDefault: true, value: (r) => r.course.title },
+  { key: "course", label: "Course", group: "Course", core: true, value: (r) => r.course.title },
   { key: "category", label: "Course Category", group: "Course", value: (r) => r.course.category },
-  { key: "classroom", label: "Classroom", group: "Course", value: (r) => r.classroom?.name ?? "" },
-  { key: "teacher", label: "Teacher", group: "Course", value: (r) => r.classroom?.teacher?.employee?.name ?? r.classroom?.teacher?.email ?? "" },
+  { key: "classroom", label: "Classroom", group: "Course", core: true, value: (r) => r.classroom?.name ?? "" },
+  { key: "teacher", label: "Teacher", group: "Course", core: true, value: (r) => r.classroom?.teacher?.employee?.name ?? r.classroom?.teacher?.email ?? "" },
   { key: "teacherCode", label: "Teacher Employee Code", group: "Course", value: (r) => r.classroom?.teacher?.employee?.employeeCode ?? "" },
 
-  { key: "enrolledOn", label: "Enrolled On", group: "Progress", isDefault: true, value: (r) => r.enrolledAt },
-  { key: "enrolStatus", label: "Course Status", group: "Progress", isDefault: true, value: (r) => r.status.replaceAll("_", " ") },
+  { key: "enrolledOn", label: "Enrolled On", group: "Progress", core: true, value: (r) => r.enrolledAt },
+  { key: "enrolStatus", label: "Course Status", group: "Progress", core: true, value: (r) => r.status.replaceAll("_", " ") },
   { key: "startedAt", label: "Started On", group: "Progress", value: (r) => r.startedAt },
   { key: "completedAt", label: "Completed On", group: "Progress", value: (r) => r.completedAt },
   { key: "lessonsDone", label: "Lessons Completed", group: "Progress", value: (r) => r.progress.length },
@@ -79,7 +84,7 @@ export const COLUMNS: Column[] = [
   { key: "latestSubmitted", label: "Last Assessment On", group: "Assessment", value: (r) => latestAttempt(r)?.submittedAt ?? null },
 ];
 
-export const DEFAULT_COLUMN_KEYS = COLUMNS.filter((column) => column.isDefault).map((column) => column.key);
+export const CORE_COLUMN_KEYS = COLUMNS.filter((column) => column.core).map((column) => column.key);
 
 export type FilterKey = "company" | "location" | "department" | "designation" | "employeeStatus" | "course" | "classroom" | "teacher" | "enrolStatus";
 
@@ -96,7 +101,10 @@ export const FILTERS: { key: FilterKey; label: string }[] = [
 ];
 
 export type CustomReportQuery = {
+  /** Every column the report shows: the core ones always, then whichever extras were ticked, in the usual order. */
   columns: string[];
+  /** Only the extra columns that were ticked (the core ones are not a choice). */
+  extras: string[];
   filters: Record<FilterKey, string[]>;
   /** yyyy-mm-dd, IST; "" for no limit. Applies to the date the learner was enrolled. */
   from: string;
@@ -116,21 +124,22 @@ function all(params: Params, key: string): string[] {
 const one = (params: Params, key: string) => all(params, key)[0] ?? "";
 const DATE = /^\d{4}-\d{2}-\d{2}$/;
 
-/** Read the query string. Unknown columns are dropped; no columns at all means the default set. */
+/** Read the query string. Unknown columns are dropped, the core columns are always included, and ticked extras are added. */
 export function parseCustomReport(params: Params): CustomReportQuery {
-  const known = new Set(COLUMNS.map((column) => column.key));
-  const asked = new Set(all(params, "cols").filter((key) => known.has(key)));
-  const columns = COLUMNS.filter((column) => (asked.size ? asked.has(column.key) : column.isDefault)).map((column) => column.key);
+  const optional = new Set(COLUMNS.filter((column) => !column.core).map((column) => column.key));
+  const asked = new Set(all(params, "cols").filter((key) => optional.has(key)));
+  const columns = COLUMNS.filter((column) => column.core || asked.has(column.key)).map((column) => column.key);
+  const extras = COLUMNS.filter((column) => asked.has(column.key)).map((column) => column.key);
   const filters = Object.fromEntries(FILTERS.map(({ key }) => [key, all(params, FILTER_PARAM(key))])) as Record<FilterKey, string[]>;
   const from = one(params, "from");
   const to = one(params, "to");
-  return { columns, filters, from: DATE.test(from) ? from : "", to: DATE.test(to) ? to : "" };
+  return { columns, extras, filters, from: DATE.test(from) ? from : "", to: DATE.test(to) ? to : "" };
 }
 
 /** The same query as a query string, for the Excel download link. */
 export function customReportQueryString(query: CustomReportQuery): string {
   const out = new URLSearchParams();
-  for (const key of query.columns) out.append("cols", key);
+  for (const key of query.extras) out.append("cols", key);
   for (const { key } of FILTERS) for (const value of query.filters[key]) out.append(FILTER_PARAM(key), value);
   if (query.from) out.set("from", query.from);
   if (query.to) out.set("to", query.to);
