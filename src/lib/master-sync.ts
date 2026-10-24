@@ -2,6 +2,7 @@ import { EmployeeStatus, UserRole } from "@prisma/client";
 import { db } from "@/lib/db";
 import { groupDuplicateCompanies, normaliseCompany, pickSurvivingCompany } from "@/lib/company-merge";
 import { fetchMasterEmployees, masterConfigured, type MasterSource } from "@/lib/master";
+import { archiveEmployees, REASON_LEFT, retireDuplicateEmployees } from "@/lib/employee-lifecycle";
 
 /**
  * Bring LMS's employee list in line with the shared employee master.
@@ -36,6 +37,12 @@ export type MasterSyncResult = {
   updated: number;
   /** People whose e-mail address changed to match the master. */
   emailsChanged: number;
+  /** Moved to the Archive because the master says they have left. */
+  archivedLeavers: number;
+  /** Brought back from the Archive because the master lists them as active again. */
+  restored: number;
+  /** Older records archived because a newer record of the same person exists. */
+  retiredDuplicates: number;
   /** Everyone the master returned, before LMS dropped the ones it cannot use. */
   received: number;
   skippedNoEmail: number;
@@ -59,12 +66,15 @@ export async function syncEmployeesFromMaster(sources: MasterSource[] = []): Pro
     throw new MasterUnavailableError("The employee master is not configured for this deployment.");
   }
 
-  let people;
+  let everyone;
   try {
-    people = await fetchMasterEmployees(sources);
+    everyone = await fetchMasterEmployees(sources, { includeInactive: true });
   } catch (error) {
     throw new MasterUnavailableError(error instanceof Error ? error.message : "The employee master could not be reached.");
   }
+  // Leavers are listed separately: they are archived here, never imported or refreshed.
+  const leavers = everyone.filter((person) => person.is_active === false);
+  const people = everyone.filter((person) => person.is_active !== false);
 
   // No e-mail means no login: LMS signs people in with an emailed code, so such
   // a record could never be used.
@@ -267,7 +277,26 @@ export async function syncEmployeesFromMaster(sources: MasterSource[] = []): Pro
     }
   }
 
+  // People the master says have left move to the Archive (kept, hidden, unable to
+  // sign in); anyone archived that way who is active in the master again comes back.
+  let archivedLeavers = 0;
+  if (leavers.length) {
+    const here = await db.employee.findMany({
+      where: { employeeCode: { in: leavers.map((person) => person.employee_code) }, archivedAt: null },
+      select: { id: true },
+    });
+    archivedLeavers = await archiveEmployees(here.map((row) => row.id), REASON_LEFT);
+  }
+  const restoredRows = await db.employee.updateMany({
+    where: { archiveReason: REASON_LEFT, employeeCode: { in: people.map((person) => person.employee_code) } },
+    data: { status: EmployeeStatus.ACTIVE, archivedAt: null, archiveReason: null },
+  });
+  const retired = await retireDuplicateEmployees();
+
   const notes: string[] = [];
+  if (archivedLeavers) notes.push(`${archivedLeavers} who have left moved to the Archive`);
+  if (restoredRows.count) notes.push(`${restoredRows.count} brought back from the Archive (active in the master again)`);
+  if (retired.length) notes.push(`${retired.length} older record${retired.length === 1 ? "" : "s"} of the same person archived (${retired.slice(0, 3).map((row) => `${row.archivedCode} replaced by ${row.keptCode}`).join("; ")}${retired.length > 3 ? "; and more" : ""})`);
   if (emailsChanged) notes.push(`${emailsChanged} e-mail address${emailsChanged === 1 ? "" : "es"} changed to match the master`);
   if (skippedNoEmail) notes.push(`${skippedNoEmail} skipped with no e-mail address`);
   if (duplicateEmails) notes.push(`${duplicateEmails} duplicate address${duplicateEmails === 1 ? "" : "es"} collapsed`);
@@ -296,6 +325,9 @@ export async function syncEmployeesFromMaster(sources: MasterSource[] = []): Pro
     created,
     updated,
     emailsChanged,
+    archivedLeavers,
+    restored: restoredRows.count,
+    retiredDuplicates: retired.length,
     received: people.length,
     skippedNoEmail,
     duplicateEmails,

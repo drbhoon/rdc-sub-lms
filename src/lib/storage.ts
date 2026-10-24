@@ -17,6 +17,8 @@ export interface StorageProvider {
   stream(key: string, range?: { start: number; end: number }): ReadableStream<Uint8Array>;
   /** Keys under a prefix, with when each was last written. */
   list(prefix: string): Promise<{ key: string; modifiedAt: Date }[]>;
+  /** Remove everything under a prefix (a folder), such as an unpacked SCORM package. */
+  deleteTree(prefix: string): Promise<void>;
 }
 
 class LocalStorage implements StorageProvider {
@@ -49,6 +51,7 @@ class LocalStorage implements StorageProvider {
   stream(key: string, range?: { start: number; end: number }) {
     return Readable.toWeb(createReadStream(this.resolve(key), range)) as ReadableStream<Uint8Array>;
   }
+  deleteTree(prefix: string) { return rm(this.resolve(prefix), { recursive: true, force: true }); }
   async list(prefix: string) {
     const dir = this.resolve(prefix);
     const names = await readdir(dir).catch(() => [] as string[]);

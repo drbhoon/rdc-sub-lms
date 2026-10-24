@@ -30,7 +30,8 @@ export async function deleteCourseContent(_: { message?: string }, formData: For
     include: { course: { select: { status: true } }, lessons: { select: { pageAssetKeys: true } } },
   });
   if (!content) return { message: "Course content not found." };
-  const storedKeys = new Set<string>([content.storedKey]);
+  // A YouTube module, a live session and a written lesson hold no file, and an unpacked SCORM package is a whole folder.
+  const storedKeys = new Set<string>(["YOUTUBE", "ILT", "TEXT"].includes(content.type) ? [] : [content.storedKey]);
   for (const lesson of content.lessons) {
     if (Array.isArray(lesson.pageAssetKeys)) {
       for (const key of lesson.pageAssetKeys) if (typeof key === "string") storedKeys.add(key);
@@ -69,7 +70,10 @@ export async function deleteCourseContent(_: { message?: string }, formData: For
     }
   });
   await audit(actor.id, "CONTENT_DELETED", "CourseContent", contentId, { fileName: content.originalName, wasPublished: content.isPublished });
-  await Promise.allSettled([...storedKeys].map((key) => storage.delete(key)));
+  await Promise.allSettled([
+    ...[...storedKeys].map((key) => storage.delete(key)),
+    ...(content.type === "SCORM" ? [storage.deleteTree(`scorm/${content.id}`)] : []),
+  ]);
   revalidatePath("/", "layout");
   return { message: `${content.originalName} was deleted.` };
 }

@@ -39,6 +39,7 @@ export default async function TeacherCourses() {
     <header className="home-head">
       <p className="muted">Courses you teach</p>
       <h1>Teacher</h1>
+      <p><Link className="button secondary" href="/teacher/courses/ai">Create a course with AI</Link></p>
     </header>
     <InactiveCourses count={inactive.length}>{inactive.map(card)}</InactiveCourses>
     <div className="tile-grid">

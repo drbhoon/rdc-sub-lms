@@ -1,5 +1,6 @@
 "use server";
 
+import { archiveEmployees, REASON_ADMIN, restoreEmployee as restoreFromArchive, retireDuplicateEmployees, reasonReplacedBy } from "@/lib/employee-lifecycle";
 import ExcelJS from "exceljs";
 import { parse } from "csv-parse/sync";
 import path from "node:path";
@@ -110,6 +111,52 @@ export async function deleteEmployee(_: { message?: string }, formData: FormData
   await audit(actor.id, "EMPLOYEE_DELETED", "Employee", employee.id, { employeeCode: employee.employeeCode, name: employee.name, email: employee.email });
   revalidatePath("/", "layout");
   return { message: `${employee.name} was deleted.` };
+}
+
+/** Move someone to the Archive by hand: kept and reported on, but hidden, unable to sign in, never offered for enrolment. */
+export async function archiveEmployee(_: { message?: string }, formData: FormData) {
+  const actor = await requireRole(UserRole.SUPER_ADMIN);
+  const employeeId = String(formData.get("employeeId") ?? "");
+  // When archiving the older half of a pair, the form says which record replaces it.
+  const keepCode = String(formData.get("keepCode") ?? "").trim();
+  const employee = await db.employee.findUnique({ where: { id: employeeId }, include: { user: { include: { roles: true } } } });
+  if (!employee) return { message: "Employee not found." };
+  if (actor.employeeId === employee.id) return { message: "You cannot archive your own record." };
+  const isSuperAdmin = employee.user?.roles.some((grant) => grant.role === UserRole.SUPER_ADMIN) ?? false;
+  if (isSuperAdmin) {
+    const superAdminCount = await db.userRoleGrant.count({ where: { role: UserRole.SUPER_ADMIN } });
+    if (superAdminCount <= 1) return { message: "The last Super Admin cannot be archived." };
+  }
+  const moved = await archiveEmployees([employee.id], keepCode ? reasonReplacedBy(keepCode) : REASON_ADMIN);
+  if (!moved) return { message: `${employee.name} is already archived.` };
+  await audit(actor.id, "EMPLOYEE_ARCHIVED", "Employee", employee.id, { employeeCode: employee.employeeCode, reason: keepCode ? reasonReplacedBy(keepCode) : REASON_ADMIN });
+  revalidatePath("/admin/employees");
+  return { message: `${employee.name} was moved to the Archive.` };
+}
+
+/** Bring someone back from the Archive as an active employee. */
+export async function restoreEmployee(_: { message?: string }, formData: FormData) {
+  const actor = await requireRole(UserRole.SUPER_ADMIN);
+  const employeeId = String(formData.get("employeeId") ?? "");
+  const employee = await db.employee.findUnique({ where: { id: employeeId }, select: { id: true, name: true, employeeCode: true } });
+  if (!employee) return { message: "Employee not found." };
+  if (!await restoreFromArchive(employee.id)) return { message: `${employee.name} is not in the Archive.` };
+  await audit(actor.id, "EMPLOYEE_RESTORED", "Employee", employee.id, { employeeCode: employee.employeeCode });
+  revalidatePath("/admin/employees");
+  return { message: `${employee.name} is active again.` };
+}
+
+/** Look for the same person recorded twice (same portal person id) and archive the older record. */
+export async function checkDuplicateEmployees() {
+  const actor = await requireRole(UserRole.SUPER_ADMIN);
+  const retired = await retireDuplicateEmployees();
+  if (retired.length) {
+    await audit(actor.id, "EMPLOYEES_DUPLICATES_ARCHIVED", "Employee", undefined, { count: retired.length, pairs: retired.slice(0, 50) });
+    revalidatePath("/admin/employees");
+  }
+  return { message: retired.length
+    ? `${retired.length} older record${retired.length === 1 ? "" : "s"} archived: ${retired.slice(0, 5).map((row) => `${row.archivedCode} replaced by ${row.keptCode}`).join("; ")}${retired.length > 5 ? "; and more" : ""}.`
+    : "No duplicate records found." };
 }
 
 export async function importEmployees(_: EmployeeImportState, formData: FormData): Promise<EmployeeImportState> {
@@ -223,9 +270,11 @@ export async function importEmployees(_: EmployeeImportState, formData: FormData
     }
   });
   queueTeacherRoleEmails(newTeachers);
-  await audit(actor.id, "EMPLOYEES_IMPORTED", "Employee", undefined, { count: normalized.length, fileName: file.name });
+  // A person re-uploaded under a new e-mail leaves the older record behind: tidy it away.
+  const retiredAfterImport = await retireDuplicateEmployees();
+  await audit(actor.id, "EMPLOYEES_IMPORTED", "Employee", undefined, { count: normalized.length, fileName: file.name, duplicatesArchived: retiredAfterImport.length });
   revalidatePath("/admin/employees");
-  return { message: `${normalized.length} employee records imported successfully.`, preview: false };
+  return { message: `${normalized.length} employee records imported successfully.${retiredAfterImport.length ? ` ${retiredAfterImport.length} older record${retiredAfterImport.length === 1 ? "" : "s"} of the same person moved to the Archive.` : ""}`, preview: false };
 }
 
 export async function grantTeacher(formData: FormData) {
@@ -321,6 +370,9 @@ export async function importEmployeesFromMaster(
     created: result.created,
     updated: result.updated,
     emailsChanged: result.emailsChanged,
+    archivedLeavers: result.archivedLeavers,
+    restored: result.restored,
+    retiredDuplicates: result.retiredDuplicates,
     skippedNoEmail: result.skippedNoEmail,
     duplicateEmails: result.duplicateEmails,
     conflicts: result.conflicts,

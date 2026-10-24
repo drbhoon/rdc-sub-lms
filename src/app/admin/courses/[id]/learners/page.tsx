@@ -9,6 +9,8 @@ import { db } from "@/lib/db";
 import { formatIstDate } from "@/lib/ist";
 import { requireRole } from "@/lib/session";
 import { learnersOnly } from "@/lib/teacher-preview";
+import { ScormResetButton } from "@/components/scorm-reset-button";
+import { MAX_SCORM_ATTEMPTS, outcomeOf } from "@/lib/scorm-runtime";
 
 /** More than this on one page is not a roster any more; the search narrows it. */
 const PAGE_LIMIT = 2000;
@@ -89,6 +91,20 @@ export default async function CourseLearnersPage({ params, searchParams }: {
     quizAttempts: enrollment._count.assessmentAttempts,
   }));
 
+  // A SCORM course: who has used how many of their attempts, and a way to give them more.
+  const scormLessons = await db.lesson.findMany({
+    where: { type: "SCORM", content: { courseId: id } },
+    select: { id: true, title: true },
+  });
+  const scormRows = scormLessons.length
+    ? await db.scormAttempt.findMany({
+        where: { lessonId: { in: scormLessons.map((lesson) => lesson.id) }, enrollmentId: { in: enrollments.map((enrollment) => enrollment.id) } },
+        orderBy: [{ enrollmentId: "asc" }, { attemptNumber: "asc" }],
+      })
+    : [];
+  const scormByLearner = new Map<string, typeof scormRows>();
+  for (const attempt of scormRows) scormByLearner.set(`${attempt.enrollmentId}:${attempt.lessonId}`, [...(scormByLearner.get(`${attempt.enrollmentId}:${attempt.lessonId}`) ?? []), attempt]);
+
   const filtered = Boolean(query || statusFilter);
   return <main className="container">
     <p><Link href={`/admin/courses/${course.id}`}>&larr; Back to the course</Link></p>
@@ -106,6 +122,32 @@ export default async function CourseLearnersPage({ params, searchParams }: {
       </form>
       <LearnerRoster courseId={course.id} rows={rows} />
     </section>
+
+    {scormLessons.length > 0 && <section className="card">
+      <h2>SCORM attempts</h2>
+      <p className="muted">Each learner has {MAX_SCORM_ATTEMPTS} attempts; the course&apos;s own pass or fail is final. Reset gives someone two new attempts and keeps the old ones on record.</p>
+      {scormLessons.map((lesson) => <div key={lesson.id} className="table-wrap">
+        <table>
+          <thead><tr><th>Learner</th><th>Attempts used</th><th>Best score</th><th>Result</th><th /></tr></thead>
+          <tbody>
+            {enrollments.map((enrollment) => {
+              const attempts = (scormByLearner.get(`${enrollment.id}:${lesson.id}`) ?? []).filter((attempt) => !attempt.resetAt);
+              const passed = attempts.some((attempt) => outcomeOf(attempt) === "passed");
+              const last = attempts[attempts.length - 1];
+              const best = attempts.reduce<number | null>((top, attempt) => (attempt.scoreRaw !== null && (top === null || attempt.scoreRaw > top) ? attempt.scoreRaw : top), null);
+              if (!(scormByLearner.get(`${enrollment.id}:${lesson.id}`) ?? []).length) return null;
+              return <tr key={enrollment.id}>
+                <td>{enrollment.employee.name} <span className="muted">({enrollment.employee.employeeCode})</span></td>
+                <td>{attempts.length} of {MAX_SCORM_ATTEMPTS}</td>
+                <td>{best === null ? "-" : Math.round(best)}</td>
+                <td>{passed ? "Passed" : last ? (last.finished ? "Failed" : "In progress") : "Reset"}</td>
+                <td><ScormResetButton enrollmentId={enrollment.id} lessonId={lesson.id} name={enrollment.employee.name} passed={passed} /></td>
+              </tr>;
+            })}
+          </tbody>
+        </table>
+      </div>)}
+    </section>}
 
     {previews.length > 0 && <section className="card">
       <h2>Teachers viewing this course</h2>

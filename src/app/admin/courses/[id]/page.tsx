@@ -1,3 +1,4 @@
+import { YoutubeAddForm } from "@/components/youtube-add-form";
 import { BookOpen } from "lucide-react";
 import { AdminHero } from "@/components/admin-ui";
 import Link from "next/link";
@@ -12,6 +13,8 @@ import { ClassroomLearnerPicker } from "@/components/classroom-learner-picker";
 import { CollapsibleCard } from "@/components/collapsible-card";
 import { ClassroomUploadForm } from "@/components/classroom-upload-form";
 import { ContentUploadForm } from "@/components/content-upload-form";
+import { IltPanel } from "@/components/ilt-panel";
+import { ReelsPanel } from "@/components/reels-panel";
 import { CourseEnrollmentPicker } from "@/components/course-enrollment-picker";
 import { ModuleActivities } from "@/components/module-activities";
 import { CourseGradingPanel } from "@/components/course-grading-panel";
@@ -164,15 +167,18 @@ export default async function CourseAdminPage({ params }: { params: Promise<{ id
 
     <div className="two-col">
       <section className="form">
+        {course.kind === "ILT" && <IltPanel courseId={course.id} />}
         <div className="card">
           <h2>Content</h2>
+          {course.kind === "ILT" && <p className="muted">Live sessions are added in the “Live sessions” panel above.</p>}
           {course.contents.map((content) => <div className="card" key={content.id}>
             <strong>Module {moduleNumber.get(content.id)}: {content.originalName}</strong>
-            <p><span className="badge">{content.processingStatus}</span> {content.isPublished && <span className="badge">LIVE</span>} - {(content.sizeBytes / 1048576).toFixed(1)} MB</p>
+            <p><span className="badge">{content.processingStatus}</span> {content.isPublished && <span className="badge">LIVE</span>} {content.type === "YOUTUBE" ? <span className="badge">YouTube</span> : content.type === "TEXT" ? <span className="badge">{content.aiGeneratedAt ? "AI-written lesson" : "Written lesson"}</span> : content.type === "ILT" ? <span className="badge">Live session</span> : content.type === "SCORM" ? <><span className="badge">SCORM</span> - {(content.sizeBytes / 1048576).toFixed(1)} MB</> : <>- {(content.sizeBytes / 1048576).toFixed(1)} MB</>}</p>
             {content.processingError && <p className="error">{content.processingError}</p>}
             <p>{content.lessons.length} lesson(s) {content.approvedAt ? "- Approved" : ""}</p>
+            {content.type === "SCORM" && content.lessons[0] && <p><Link className="button secondary" href={`/admin/courses/${course.id}/scorm/${content.lessons[0].id}`}>Preview this course</Link></p>}
             <div className="form-row">
-              {content.processingStatus === "FAILED" && <form action={retryContent}><input type="hidden" name="contentId" value={content.id} /><button className="secondary">Retry processing</button></form>}
+              {content.processingStatus === "FAILED" && content.type !== "TEXT" && <form action={retryContent}><input type="hidden" name="contentId" value={content.id} /><button className="secondary">Retry processing</button></form>}
               <ActionForm action={deleteCourseContent} submitLabel={content.isPublished ? "Delete published content" : "Delete content"} buttonClassName="danger">
                 <input type="hidden" name="contentId" value={content.id} />
                 <label className="checkbox"><input type="checkbox" name="confirmDelete" />Confirm permanent deletion</label>
@@ -181,11 +187,19 @@ export default async function CourseAdminPage({ params }: { params: Promise<{ id
             </div>
           </div>)}
           {!course.contents.length && <p>No content uploaded.</p>}
-          <hr />
-          <h3>Upload content</h3>
-          <ContentUploadForm courseId={course.id} maxMb={env.MAX_UPLOAD_MB} />
+          {course.kind !== "ILT" && <>
+            <hr />
+            <h3>Upload content</h3>
+            <ContentUploadForm courseId={course.id} maxMb={env.MAX_UPLOAD_MB} kind={course.kind} />
+          </>}
+          {course.kind === "STANDARD" && <>
+            <hr />
+            <h3>Or add a YouTube video</h3>
+            <YoutubeAddForm courseId={course.id} />
+          </>}
         </div>
 
+        <ReelsPanel courseId={course.id} />
         <ModuleActivities
           courseId={course.id}
           passPercentage={course.passPercentage}

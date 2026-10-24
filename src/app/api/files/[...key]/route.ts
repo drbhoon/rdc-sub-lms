@@ -10,8 +10,12 @@ export async function GET(request: NextRequest, context: { params: Promise<{ key
   if (!user) return new Response("Unauthorized", { status: 401 });
   const { key: parts } = await context.params;
   const key = parts.join("/");
+  // A reel is not course content: it has its own record, and is shown to learners the moment the course is published.
+  const reel = key.startsWith("reels/") ? await db.courseReel.findFirst({ where: { storedKey: key }, include: { course: true } }) : null;
   const generatedContentId = /^generated\/([^/]+)\//.exec(key)?.[1];
-  const content = generatedContentId
+  const content = reel
+    ? { courseId: reel.courseId, isPublished: reel.isActive, mimeType: reel.mimeType ?? "video/mp4", course: reel.course }
+    : generatedContentId
     ? await db.courseContent.findUnique({ where: { id: generatedContentId }, include: { course: true } })
     : await db.courseContent.findFirst({ where: { storedKey: key }, include: { course: true } });
   if (!content) return new Response("Not found", { status: 404 });

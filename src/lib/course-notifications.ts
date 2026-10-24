@@ -12,7 +12,7 @@ type CourseEmailInput = {
   course: Pick<Course, "id" | "title" | "durationMinutes">;
 };
 
-function isSmtpConfigured() {
+export function isSmtpConfigured() {
   return Boolean(env.SMTP_HOST && env.SMTP_USER && env.SMTP_PASSWORD);
 }
 
@@ -20,7 +20,7 @@ function courseLink(courseId: string) {
   return `${env.APP_URL.replace(/\/$/, "")}/learn/courses/${courseId}`;
 }
 
-function transport() {
+export function transport() {
   return nodemailer.createTransport({
     host: env.SMTP_HOST,
     port: env.SMTP_PORT,

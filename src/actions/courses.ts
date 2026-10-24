@@ -1,6 +1,6 @@
 "use server";
 
-import { CourseStatus, UserRole } from "@prisma/client";
+import { CourseKind, CourseStatus, UserRole } from "@prisma/client";
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { z } from "zod";
@@ -23,6 +23,7 @@ const courseSchema = z.object({
   durationMinutes: z.coerce.number().int().min(1).max(10000),
   passPercentage: z.coerce.number().int().min(1).max(100),
   aiTokenLimit: z.coerce.number().int().min(0).max(10_000_000),
+  kind: z.nativeEnum(CourseKind).default(CourseKind.STANDARD),
 });
 
 function uniqueIds(values: FormDataEntryValue[]) {
@@ -210,8 +211,11 @@ export async function editLesson(formData: FormData) {
   if (title.length < 3 || title.length > 150 || summary.length > 5000) throw new Error("Lesson title or summary is invalid");
   const lesson = await db.lesson.findFirst({ where: { id: lessonId, content: { courseId, isPublished: false } } });
   if (!lesson) throw new Error("Published lessons cannot be edited in place");
-  await db.lesson.update({ where: { id: lessonId }, data: { title, summary: summary || null, approvedAt: null } });
-  await db.courseContent.update({ where: { id: lesson.courseContentId }, data: { approvedAt: null } });
+  // A written lesson (AI-made or typed) is edited as text; the teacher is expected to correct it before approving.
+  const body = lesson.type === "TEXT" ? String(formData.get("body") ?? "").trim() : null;
+  if (body !== null && (body.length < 20 || body.length > 20_000)) throw new Error("The lesson text must be between 20 and 20,000 characters");
+  await db.lesson.update({ where: { id: lessonId }, data: { title, summary: summary || null, approvedAt: null, ...(body !== null ? { body } : {}) } });
+  await db.courseContent.update({ where: { id: lesson.courseContentId }, data: { approvedAt: null, ...(body !== null ? { extractedText: body } : {}) } });
   await db.course.update({ where: { id: courseId }, data: { hasPendingChanges: true } });
   await audit(actor.id, "LESSON_EDITED", "Lesson", lessonId);
   revalidatePath(`/teacher/courses/${courseId}`);

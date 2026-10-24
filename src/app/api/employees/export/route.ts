@@ -40,6 +40,8 @@ export async function GET() {
     "Completed Courses",
     "Created At",
     "Updated At",
+    "Archived On",
+    "Archive Reason",
   ]);
   styleHeader(master.getRow(1));
   for (const employee of employees) {
@@ -61,10 +63,13 @@ export async function GET() {
       employee.enrollments.filter((enrollment) => enrollment.status === "COMPLETED").length,
       employee.createdAt,
       employee.updatedAt,
+      employee.archivedAt,
+      employee.archiveReason ?? "",
     ]);
   }
   master.getColumn(16).numFmt = "yyyy-mm-dd hh:mm";
   master.getColumn(17).numFmt = "yyyy-mm-dd hh:mm";
+  master.getColumn(18).numFmt = "yyyy-mm-dd hh:mm";
   autoFit(master);
 
   const enrollments = workbook.addWorksheet("Course Enrollments");

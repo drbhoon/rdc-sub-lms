@@ -6,6 +6,11 @@ import { AskTeacherPanel } from "@/components/ask-teacher-panel";
 import { CourseAiAssistant } from "@/components/course-ai-assistant";
 import { FeedbackResponseForm } from "@/components/feedback-response-form";
 import { LessonPlayer } from "@/components/lesson-player";
+import type { IltInfo } from "@/components/ilt-card";
+import { ReelFeed, type ReelItem } from "@/components/reel-feed";
+import type { ScormStanding } from "@/components/scorm-player";
+import { scormStanding } from "@/lib/scorm-attempts";
+import { MAX_SCORM_ATTEMPTS, outcomeOf } from "@/lib/scorm-runtime";
 import { ProgressRing } from "@/components/progress-ring";
 import { ModuleTabs, type ModuleTab } from "@/components/module-tabs";
 import { certificateEligibility } from "@/lib/certificate-eligibility";
@@ -73,6 +78,32 @@ export default async function LearnCourse({ params }: { params: Promise<{ id: st
   if (!enrollment || enrollment.course.status !== "PUBLISHED") return <NotAvailable email={user.email} />;
 
   const progress = new Map(enrollment.progress.map((item) => [item.lessonId, item]));
+  const scormLessons = enrollment.course.contents.flatMap((content) => content.lessons).filter((lesson) => lesson.type === "SCORM");
+  const scormStandings = new Map(await Promise.all(scormLessons.map(async (lesson) => {
+    const standing = await scormStanding(enrollment.id, lesson.id);
+    const passed = standing.counting.some((attempt) => outcomeOf(attempt) === "passed");
+    return [lesson.id, {
+      next: standing.next.kind, attemptsUsed: standing.counting.length, maxAttempts: MAX_SCORM_ATTEMPTS, bestScore: standing.bestScore, passed,
+    } satisfies ScormStanding] as const;
+  })));
+  const reelRows = await db.courseReel.findMany({
+    where: { courseId: id, isActive: true },
+    include: { views: { where: { employeeId: user.employeeId } } },
+    orderBy: [{ order: "asc" }, { createdAt: "asc" }],
+  });
+  const reels: ReelItem[] = reelRows.map((reel) => ({
+    id: reel.id, title: reel.title, caption: reel.caption, watched: Boolean(reel.views[0]?.completed),
+    src: reel.storedKey ? withBase(`/api/files/${reel.storedKey}`) : undefined, youtubeId: reel.youtubeId ?? undefined,
+  }));
+  const iltLessonIds = enrollment.course.contents.flatMap((content) => content.lessons).filter((lesson) => lesson.type === "ILT").map((lesson) => lesson.id);
+  const iltSessions = iltLessonIds.length
+    ? await db.iltSession.findMany({ where: { lessonId: { in: iltLessonIds }, cancelledAt: null }, include: { attendance: { where: { enrollmentId: enrollment.id } } } })
+    : [];
+  const iltByLesson = new Map(iltSessions.map((session) => [session.lessonId, {
+    startsAtIso: session.startsAt.toISOString(), startsLabel: formatIst(session.startsAt), durationMinutes: session.durationMinutes,
+    meetUrl: session.meetUrl, instructorName: session.instructorName, notes: session.notes,
+    attendance: session.attendance[0]?.status === "PRESENT" || session.attendance[0]?.status === "ABSENT" ? session.attendance[0].status : null,
+  } satisfies IltInfo]));
   const lessons = enrollment.course.contents.flatMap((content) => content.lessons.map((lesson) => ({
     id: lesson.id,
     title: lesson.title,
@@ -80,6 +111,10 @@ export default async function LearnCourse({ params }: { params: Promise<{ id: st
     pageAssetKeys: Array.isArray(lesson.pageAssetKeys) ? lesson.pageAssetKeys as string[] : [],
     pageCount: lesson.pageCount,
     videoKey: lesson.type === "VIDEO" ? content.storedKey : undefined,
+    externalRef: lesson.externalRef ?? undefined,
+    body: lesson.body ?? undefined,
+    scorm: scormStandings.get(lesson.id),
+    ilt: iltByLesson.get(lesson.id),
     watchedSeconds: progress.get(lesson.id)?.watchedSeconds ?? 0,
     viewedPages: Array.isArray(progress.get(lesson.id)?.viewedPages) ? progress.get(lesson.id)!.viewedPages as number[] : [],
     completed: Boolean(progress.get(lesson.id)?.completedAt),
@@ -329,6 +364,7 @@ export default async function LearnCourse({ params }: { params: Promise<{ id: st
     <div className="learning-shell">
       <section className="learning-main">
         <LessonPlayer lessons={lessons} moduleCount={enrollment.course.contents.length} />
+        {reels.length > 0 && <section className="card"><ReelFeed reels={reels} /></section>}
       </section>
       {/* Below the course: learners study first, then take the module's
           assessment and give its feedback. On a phone this is the next thing

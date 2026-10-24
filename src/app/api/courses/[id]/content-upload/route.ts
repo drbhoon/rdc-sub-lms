@@ -57,6 +57,11 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
       // The first bytes carry the file signature; no need to read a whole video for them.
       const head = new Uint8Array(await new Response(storage.stream(key, { start: 0, end: 15 })).arrayBuffer());
       const validated = validateUpload(description, head);
+      // What a course takes depends on what kind of course it is.
+      if (validated.type === "SCORM" && course.kind !== "SCORM") throw new Error("A SCORM package can be uploaded to a SCORM course only. Create a course of type \"SCORM package\" for it.");
+      if (course.kind === "SCORM" && validated.type !== "SCORM") throw new Error("This is a SCORM course: upload the SCORM package (.zip).");
+      if (course.kind === "ILT") throw new Error("An instructor-led course has live sessions, not uploaded files. Add a session instead.");
+      if (course.kind === "SCORM" && await db.courseContent.count({ where: { courseId } }) > 0) throw new Error("This SCORM course already has a package. Delete it first to upload a different one.");
       await storage.move(key, validated.key);
       await recordCourseContent({
         actorId: actor.id, courseId, fileName: description.name, mimeType: description.type,

@@ -32,6 +32,22 @@ enum ContentType {
   PRESENTATION
   VIDEO
   NOTEBOOK
+  /// A YouTube link: nothing is uploaded or processed, the lesson plays it embedded.
+  YOUTUBE
+  /// An uploaded SCORM 1.2 / 2004 package, unpacked by the worker and played in the LMS.
+  SCORM
+  /// The live sessions of an instructor-led course.
+  ILT
+  /// A lesson written in the LMS (by the AI course creator, or by hand): no file behind it.
+  TEXT
+}
+
+/// What a course is made of. STANDARD: documents, videos and links. SCORM: one
+/// uploaded package with its own tests. ILT: scheduled online sessions.
+enum CourseKind {
+  STANDARD
+  SCORM
+  ILT
 }
 
 enum ProcessingStatus {
@@ -51,6 +67,9 @@ enum LessonType {
   DOCUMENT
   VIDEO
   TEXT
+  YOUTUBE
+  SCORM
+  ILT
 }
 
 enum AssessmentStatus {
@@ -85,6 +104,7 @@ enum FeedbackQuestionType {
 enum CourseEmailType {
   ENROLLMENT
   REMINDER
+  SESSION
 }
 
 enum CourseEmailStatus {
@@ -130,6 +150,14 @@ model Employee {
   source             String?
   /// When the sync last found this person in the master.
   masterSeenAt       DateTime?
+  /// Set when this person leaves the active list: they left (the master says so),
+  /// were replaced by a newer record of the same person, or an admin archived them.
+  /// Archived people keep every record and report but are hidden from the Employees
+  /// list, cannot sign in, and are never offered for enrolment. Null = current.
+  archivedAt         DateTime?
+  /// Why: "Left (master)", "Replaced by <code>", or "Archived by admin".
+  archiveReason      String?
+  reelViews          ReelView[]
   companyId          String
   company            Company               @relation(fields: [companyId], references: [id])
   user               User?
@@ -145,6 +173,7 @@ model Employee {
 
   @@index([companyId, status])
   @@index([personId])
+  @@index([archivedAt])
 }
 
 model User {
@@ -212,6 +241,8 @@ model Course {
   leaderboardEnabled   Boolean                   @default(true)
   requiredVideoPercent Int                       @default(80)
   isActive             Boolean                   @default(true)
+  /// STANDARD, SCORM (one package with built-in tests) or ILT (online sessions).
+  kind                 CourseKind                @default(STANDARD)
   status               CourseStatus              @default(DRAFT)
   hasPendingChanges    Boolean                   @default(false)
   publishedAt          DateTime?
@@ -228,6 +259,8 @@ model Course {
   questions            CourseQuestion[]
   grading              CourseGrading?
   teacherEvaluations   TeacherEvaluation[]
+  reels                CourseReel[]
+  iltSessions          IltSession[]
   createdAt            DateTime                  @default(now())
   updatedAt            DateTime                  @updatedAt
 
@@ -325,9 +358,15 @@ model Lesson {
   requiredWatchPercent Int              @default(80)
   summary              String?
   keyPoints            Json?
+  /// YOUTUBE: the video id. SCORM: the folder the package was unpacked into (relative to storage).
+  externalRef          String?
+  /// TEXT lessons (and AI-written ones): the lesson itself, in light markdown.
+  body                 String?
   approvedAt           DateTime?
   content              CourseContent    @relation(fields: [courseContentId], references: [id], onDelete: Cascade)
   progress             LessonProgress[]
+  scormAttempts        ScormAttempt[]
+  iltSession           IltSession?
   createdAt            DateTime         @default(now())
   updatedAt            DateTime         @updatedAt
 
@@ -365,6 +404,8 @@ model Enrollment {
   classroom            Classroom?          @relation(fields: [classroomId], references: [id], onDelete: SetNull)
   progress             LessonProgress[]
   assessmentAttempts   AssessmentAttempt[]
+  scormAttempts        ScormAttempt[]
+  iltAttendance        IltAttendance[]
 
   @@unique([employeeId, courseId])
   @@index([courseId, status])
@@ -738,4 +779,120 @@ model FinalAssessmentSchedule {
   /// one row by the code that writes it (actions/final-schedule.ts).
   @@unique([courseId, classroomId])
   @@index([courseId])
+}
+
+/// A short vertical video inside a course: bite-sized learning, watched in a feed.
+/// Either an uploaded mp4 (storedKey) or a YouTube Short (youtubeId).
+model CourseReel {
+  id              String     @id @default(cuid())
+  courseId        String
+  title           String
+  caption         String?
+  storedKey       String?
+  mimeType        String?
+  sizeBytes       Int        @default(0)
+  youtubeId       String?
+  durationSeconds Int?
+  order           Int        @default(0)
+  isActive        Boolean    @default(true)
+  course          Course     @relation(fields: [courseId], references: [id], onDelete: Cascade)
+  views           ReelView[]
+  createdAt       DateTime   @default(now())
+  updatedAt       DateTime   @updatedAt
+
+  @@index([courseId, order])
+}
+
+/// That a learner watched a reel. Reels are encouraged, not required, so this
+/// never gates completion; it only shows who is using them.
+model ReelView {
+  id             String     @id @default(cuid())
+  reelId         String
+  employeeId     String
+  watchedSeconds Int        @default(0)
+  completed      Boolean    @default(false)
+  firstViewedAt  DateTime   @default(now())
+  lastViewedAt   DateTime   @updatedAt
+  reel           CourseReel @relation(fields: [reelId], references: [id], onDelete: Cascade)
+  employee       Employee   @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+
+  @@unique([reelId, employeeId])
+  @@index([employeeId])
+}
+
+/// One learner's run through a SCORM package. A new row is a new attempt;
+/// an admin reset sets resetAt, which stops it counting towards the limit
+/// without deleting what happened.
+model ScormAttempt {
+  id               String     @id @default(cuid())
+  enrollmentId     String
+  lessonId         String
+  attemptNumber    Int
+  /// 2004 completion_status, or the 1.2 lesson_status mapped onto it.
+  completionStatus String     @default("not attempted")
+  /// 2004 success_status, or passed/failed from the 1.2 lesson_status.
+  successStatus    String     @default("unknown")
+  /// The raw 1.2 lesson_status, kept for reports.
+  lessonStatus     String?
+  scoreRaw         Float?
+  scoreMin         Float?
+  scoreMax         Float?
+  location         String?
+  suspendData      String?
+  totalSeconds     Int        @default(0)
+  /// The learner left without finishing (exit = suspend), so the next launch resumes.
+  suspended        Boolean    @default(false)
+  /// The package called Terminate/Finish and did not ask to resume: this attempt is over.
+  finished         Boolean    @default(false)
+  startedAt        DateTime   @default(now())
+  lastCommitAt     DateTime   @default(now())
+  resetAt          DateTime?
+  enrollment       Enrollment @relation(fields: [enrollmentId], references: [id], onDelete: Cascade)
+  lesson           Lesson     @relation(fields: [lessonId], references: [id], onDelete: Cascade)
+
+  @@unique([enrollmentId, lessonId, attemptNumber])
+  @@index([lessonId])
+}
+
+/// One online session of an instructor-led course. It belongs to a lesson of
+/// type ILT, so attending it is what completes that lesson, and the course
+/// then gates its assessment, feedback and certificate like any other.
+model IltSession {
+  id                String          @id @default(cuid())
+  courseId          String
+  lessonId          String          @unique
+  /// Null = everyone enrolled; set = only that classroom.
+  classroomId       String?
+  title             String
+  startsAt          DateTime
+  durationMinutes   Int             @default(60)
+  meetUrl           String
+  instructorName    String?
+  notes             String?
+  cancelledAt       DateTime?
+  invitationsSentAt DateTime?
+  course            Course          @relation(fields: [courseId], references: [id], onDelete: Cascade)
+  lesson            Lesson          @relation(fields: [lessonId], references: [id], onDelete: Cascade)
+  attendance        IltAttendance[]
+  createdAt         DateTime        @default(now())
+  updatedAt         DateTime        @updatedAt
+
+  @@index([courseId, startsAt])
+}
+
+/// Whether a learner attended a session, as confirmed by the instructor.
+/// joinedClickAt only records that they pressed Join: a hint, not proof.
+model IltAttendance {
+  id            String     @id @default(cuid())
+  sessionId     String
+  enrollmentId  String
+  status        String
+  joinedClickAt DateTime?
+  markedById    String?
+  markedAt      DateTime?
+  session       IltSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  enrollment    Enrollment @relation(fields: [enrollmentId], references: [id], onDelete: Cascade)
+
+  @@unique([sessionId, enrollmentId])
+  @@index([enrollmentId])
 }

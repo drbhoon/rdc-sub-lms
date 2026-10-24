@@ -1,6 +1,8 @@
 import { notFound } from "next/navigation";
 import { approveContent, editLesson, rejectContent, setCourseStatus } from "@/actions/courses";
 import { ActionForm } from "@/components/action-form";
+import { IltPanel } from "@/components/ilt-panel";
+import { ReelsPanel } from "@/components/reels-panel";
 import { ModuleActivities } from "@/components/module-activities";
 import { CollapsibleCard } from "@/components/collapsible-card";
 import { LearnerQaHistory } from "@/components/learner-qa-history";
@@ -146,6 +148,7 @@ export default async function TeacherCourse({ params }: { params: Promise<{ id: 
     </div>
     <div className={`two-col teacher-cols${awaitingApproval ? " approval-first" : ""}`}>
       <section className="form">
+        {course.kind === "ILT" && <IltPanel courseId={course.id} />}
         <CollapsibleCard title="Content approval" summary={awaitingApproval ? `${awaitingApproval} awaiting approval` : "nothing waiting"} defaultOpen={awaitingApproval > 0}>
           <ModulePicker legend="Module" initialId={(course.contents.find(needsApproval) ?? course.contents[0])?.id} options={course.contents.map((content, index) => { const questions = parseQuizQuestions(content.quizQuestions); return { id: content.id, label: moduleOptionLabel(content, index), panel: <article className="card">
             <h3>Module {index + 1}: {content.originalName}</h3>
@@ -167,6 +170,7 @@ export default async function TeacherCourse({ params }: { params: Promise<{ id: 
               <input type="hidden" name="courseId" value={course.id}/><input type="hidden" name="lessonId" value={lesson.id}/>
               <label>Lesson title<input name="title" defaultValue={lesson.title} disabled={content.isPublished}/></label>
               <label>Summary<textarea name="summary" defaultValue={lesson.summary ?? ""} disabled={content.isPublished}/></label>
+              {lesson.type === "TEXT" && <label>Lesson text <span className="muted">(# headings, - bullets, **bold**)</span><textarea name="body" rows={18} defaultValue={lesson.body ?? ""} disabled={content.isPublished}/></label>}
               {!content.isPublished && <button className="secondary">Save lesson changes</button>}
             </form>)}
             {content.processingStatus === "COMPLETED" && !content.approvedAt && !content.rejectedAt && <div className="form-row">
@@ -205,6 +209,7 @@ export default async function TeacherCourse({ params }: { params: Promise<{ id: 
         <CollapsibleCard title="Learner Q&A History (AI & Teacher)" summary={`${aiLearners.length} asked the AI · ${teacherLearners.length} asked you`}>
           <LearnerQaHistory courseId={course.id} aiLearners={aiLearners} teacherLearners={teacherLearners} />
         </CollapsibleCard>
+        <ReelsPanel courseId={course.id} />
         <ModuleActivities
           courseId={course.id}
           passPercentage={course.passPercentage}

@@ -29,6 +29,13 @@ export interface MasterEmployee {
   source: string | null;
   /** Joined in by the portal, so an import needs no second call per person. */
   person_id: string | null;
+  /**
+   * False for someone who has left. Only present when leavers were asked for
+   * (include_inactive); an older portal that ignores that returns active people
+   * only and omits this, so "missing" means active.
+   */
+  is_active?: boolean;
+  date_of_leaving?: string | null;
 }
 
 export function masterConfigured(): boolean {
@@ -42,14 +49,17 @@ export function masterConfigured(): boolean {
  * there is no sensible way to half-import a list, and the caller is an HR
  * action with a human watching who needs to be told what went wrong.
  */
-export async function fetchMasterEmployees(sources: MasterSource[] = []): Promise<MasterEmployee[]> {
+export async function fetchMasterEmployees(sources: MasterSource[] = [], options: { includeInactive?: boolean } = {}): Promise<MasterEmployee[]> {
   if (!masterConfigured()) {
     throw new Error(
       "The employee master is not configured for this deployment (MASTER_API_URL / MASTER_API_KEY).",
     );
   }
 
-  const query = sources.map((s) => `source=${encodeURIComponent(s)}`).join("&");
+  const query = [
+    ...sources.map((s) => `source=${encodeURIComponent(s)}`),
+    ...(options.includeInactive ? ["include_inactive=1"] : []),
+  ].join("&");
   const url = `${MASTER_API_URL}/api/master/employees${query ? `?${query}` : ""}`;
 
   const res = await fetch(url, {

@@ -2,9 +2,13 @@
 import { useRef, useState, useTransition } from "react";
 import Image from "next/image";
 import { recordProgress } from "@/actions/progress";
+import { LessonText } from "@/components/lesson-text";
+import { IltCard, type IltInfo } from "@/components/ilt-card";
+import { ScormPlayer, type ScormStanding } from "@/components/scorm-player";
+import { YoutubePlayer } from "@/components/youtube-player";
 import { withBase } from "@/lib/base-path";
 
-type Lesson = { id:string; title:string; type:"DOCUMENT"|"VIDEO"|"TEXT"; pageAssetKeys:string[]; pageCount:number; videoKey?:string; watchedSeconds:number; viewedPages:number[]; completed:boolean };
+type Lesson = { id:string; title:string; type:"DOCUMENT"|"VIDEO"|"TEXT"|"YOUTUBE"|"SCORM"|"ILT"; pageAssetKeys:string[]; pageCount:number; videoKey?:string; externalRef?:string; body?:string; scorm?:ScormStanding; ilt?:IltInfo; watchedSeconds:number; viewedPages:number[]; completed:boolean };
 
 export function LessonPlayer({ lessons, moduleCount }: {
   lessons: Lesson[];
@@ -21,11 +25,12 @@ export function LessonPlayer({ lessons, moduleCount }: {
   const unsavedWatch = useRef(0);
   const lesson = lessons[lessonIndex];
   if (!lesson) return <div className="card">No approved lessons are available.</div>;
-  function save(data: { page?:number; watchedDelta?:number }) {
+  function save(data: { page?:number; watchedDelta?:number; ended?:boolean }) {
     const form = new FormData();
     form.set("lessonId", lesson.id);
     if (data.page) form.set("page", String(data.page));
     if (data.watchedDelta !== undefined) form.set("watchedDelta", String(data.watchedDelta));
+    if (data.ended) form.set("ended", "1");
     startTransition(async () => { await recordProgress(form); });
   }
   function trackVideo(currentTime: number, flush = false) {
@@ -82,6 +87,42 @@ export function LessonPlayer({ lessons, moduleCount }: {
         </p>}
         {page === lesson.pageCount && finishNote && <p className="message" role="status">{finishNote}</p>}
       </>}
+      {lesson.type === "TEXT" && <>
+        <LessonText body={lesson.body ?? ""} />
+        <div className="lesson-controls">
+          <span />
+          <span>{lesson.completed ? "Read" : ""}</span>
+          <button disabled={pending} onClick={finish}>{lesson.completed ? "Read again" : "Mark as read"}</button>
+        </div>
+        {lesson.completed && <p className="message success" role="status">
+          You have completed this {unit}. Please take the assessment and give your feedback below to get the certificate, if you are eligible.
+        </p>}
+        {finishNote && <p className="message" role="status">{finishNote}</p>}
+      </>}
+      {lesson.type === "YOUTUBE" && lesson.externalRef && <>
+        <YoutubePlayer
+          key={lesson.id}
+          videoId={lesson.externalRef}
+          startAt={lesson.completed ? 0 : lesson.watchedSeconds}
+          onTick={(currentTime, flush) => trackVideo(currentTime, flush)}
+          onEnded={() => save({ watchedDelta: 0, ended: true })}
+        />
+        <p className="muted youtube-note">
+          This video plays from YouTube, so it needs YouTube to be reachable from your device. If it does not load, check your
+          internet connection or ask your trainer. YouTube may show an advertisement; your progress is counted only while the video plays.
+        </p>
+        {lesson.completed && <p className="message success" role="status">
+          You have completed this {unit}. Please take the assessment and give your feedback below to get the certificate, if you are eligible.
+        </p>}
+      </>}
+      {lesson.type === "SCORM" && lesson.scorm && <ScormPlayer key={lesson.id} lessonId={lesson.id} title={lesson.title} standing={lesson.scorm} />}
+      {lesson.type === "SCORM" && lesson.completed && <p className="message success" role="status">
+        You have completed this {unit}. Please take the assessment and give your feedback below to get the certificate, if you are eligible.
+      </p>}
+      {lesson.type === "ILT" && lesson.ilt && <IltCard key={lesson.id} lessonId={lesson.id} info={lesson.ilt} />}
+      {lesson.type === "ILT" && lesson.completed && <p className="message success" role="status">
+        You have completed this {unit}. Please take the assessment and give your feedback below to get the certificate, if you are eligible.
+      </p>}
       {lesson.type === "VIDEO" && lesson.videoKey && <video className="video" controls preload="metadata" src={withBase(`/api/files/${lesson.videoKey}`)} onPlay={(e) => { lastVideoTime.current = e.currentTarget.currentTime; }} onSeeking={(e) => { lastVideoTime.current = e.currentTarget.currentTime; }} onTimeUpdate={(e) => trackVideo(e.currentTarget.currentTime)} onPause={(e) => trackVideo(e.currentTarget.currentTime, true)} onEnded={(e) => trackVideo(e.currentTarget.currentTime, true)} />}
     </section>
     <aside className="card lesson-list-card">

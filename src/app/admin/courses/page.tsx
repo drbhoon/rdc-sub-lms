@@ -65,8 +65,20 @@ export default async function CoursesPage() {
       </section>
 
       <aside>
+        <div className="card">
+          <h2>Create with AI</h2>
+          <p className="muted">Describe a course in English or Hindi and the AI drafts it: modules, quiz questions and all, for a teacher to review.</p>
+          <p><Link className="button" href="/teacher/courses/ai">Create a course with AI</Link></p>
+        </div>
         <CollapsibleCard title="Create course" summary="add a draft course">
         {!companies.length ? <p>Import employees first so companies are available.</p> : <ActionForm action={createCourse} submitLabel="Create draft course">
+          <label>Type of course
+            <select name="kind" defaultValue="STANDARD">
+              <option value="STANDARD">Standard — documents, videos, YouTube links</option>
+              <option value="SCORM">SCORM package — a ready-made course with its own test</option>
+              <option value="ILT">Instructor-led — live online sessions</option>
+            </select>
+          </label>
           <label>Course title<input name="title" required /></label>
           <label>Category<input name="category" required /></label>
           <label>Description<textarea name="description" required /></label>

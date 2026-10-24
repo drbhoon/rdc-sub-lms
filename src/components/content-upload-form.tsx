@@ -20,7 +20,7 @@ async function post(url: string, body: BodyInit, contentType: string): Promise<{
  * progress. A piece that fails is retried, and after a dropped connection the
  * upload resumes from what the server already holds rather than starting over.
  */
-export function ContentUploadForm({ courseId, maxMb }: { courseId: string; maxMb: number }) {
+export function ContentUploadForm({ courseId, maxMb, kind = "STANDARD" }: { courseId: string; maxMb: number; kind?: "STANDARD" | "SCORM" | "ILT" }) {
   const inputId = useId();
   const inputRef = useRef<HTMLInputElement>(null);
   const router = useRouter();
@@ -97,8 +97,10 @@ export function ContentUploadForm({ courseId, maxMb }: { courseId: string; maxMb
         selectFile(event.dataTransfer.files[0]);
       }}
     >
-      <span className="dropzone-title">Drag and drop course content here</span>
-      <span className="muted">PDF, PowerPoint, or MP4, up to {maxMb} MB. Click to browse.</span>
+      <span className="dropzone-title">{kind === "SCORM" ? "Drag and drop the SCORM package here" : "Drag and drop course content here"}</span>
+      <span className="muted">{kind === "SCORM"
+        ? `A SCORM 1.2 or 2004 .zip, up to ${maxMb} MB. For Articulate, upload SCORM_Package.zip, not the whole delivery folder. Click to browse.`
+        : `PDF, PowerPoint, or MP4, up to ${maxMb} MB. Click to browse.`}</span>
       <span className="selected-file">{fileName || "No file selected"}</span>
       <input
         ref={inputRef}
@@ -106,7 +108,7 @@ export function ContentUploadForm({ courseId, maxMb }: { courseId: string; maxMb
         className="visually-hidden"
         type="file"
         name="file"
-        accept=".pdf,.ppt,.pptx,.mp4"
+        accept={kind === "SCORM" ? ".zip" : ".pdf,.ppt,.pptx,.mp4"}
         required
         disabled={uploading}
         onChange={(event) => setFileName(event.currentTarget.files?.[0]?.name ?? "")}

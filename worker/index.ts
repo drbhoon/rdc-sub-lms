@@ -12,6 +12,7 @@ import { env } from "../src/lib/env";
 import { masterConfigured } from "../src/lib/master";
 import { syncEmployeesFromMaster } from "../src/lib/master-sync";
 import { runCourseReminders } from "../src/lib/reminder-run";
+import { unpackScormZip } from "../src/lib/scorm-package";
 import { storage } from "../src/lib/storage";
 
 const db = new PrismaClient();
@@ -126,6 +127,33 @@ async function processVideo(content: NonNullable<Awaited<ReturnType<typeof nextC
   });
 }
 
+/**
+ * A SCORM package: check it, unpack it into storage, and make its one lesson.
+ * The unpacked folder is what learners are served from; the uploaded zip is
+ * then no longer needed, and is removed to save the space.
+ */
+async function processScorm(content: NonNullable<Awaited<ReturnType<typeof nextContent>>>, temp: string) {
+  const zipPath = path.join(temp, "package.zip");
+  await writeFile(zipPath, await storage.get(content.storedKey));
+  const folder = `scorm/${content.id}`;
+  await storage.deleteTree(folder); // a retry starts clean
+  const result = await unpackScormZip(zipPath, folder, storage);
+  const { manifest } = result;
+  await db.courseContent.update({
+    where: { id: content.id },
+    data: {
+      originalName: manifest.title,
+      summary: `SCORM ${manifest.version} package, ${result.files} files${result.unwrapped ? " (the package inside the vendor's delivery zip was used)" : ""}.`,
+    },
+  });
+  await db.lesson.upsert({
+    where: { courseContentId_order: { courseContentId: content.id, order: 1 } },
+    update: { title: manifest.title, type: LessonType.SCORM, externalRef: folder, keyPoints: { scormVersion: manifest.version, launchPath: manifest.launchPath, masteryScore: manifest.masteryScore } },
+    create: { courseContentId: content.id, title: manifest.title, type: LessonType.SCORM, order: 1, externalRef: folder, keyPoints: { scormVersion: manifest.version, launchPath: manifest.launchPath, masteryScore: manifest.masteryScore } },
+  });
+  await storage.delete(content.storedKey);
+}
+
 async function nextContent() {
   const job = await db.processingJob.findFirst({ where: { status: ProcessingStatus.QUEUED }, orderBy: { createdAt: "asc" }, include: { content: { include: { course: true } } } });
   if (!job) return null;
@@ -142,6 +170,7 @@ async function processOne() {
   const temp = await mkdtemp(path.join(os.tmpdir(), "rdc-lms-"));
   try {
     if (content.type === "VIDEO") await processVideo(content, temp);
+    else if (content.type === "SCORM") await processScorm(content, temp);
     else await processDocument(content, temp);
     await db.$transaction([
       db.courseContent.update({ where: { id: content.id }, data: { processingStatus: ProcessingStatus.COMPLETED, processingError: null } }),

@@ -1,14 +1,17 @@
+import Link from "next/link";
 import { Users } from "lucide-react";
 import { AdminHero } from "@/components/admin-ui";
 import { coverFor } from "@/lib/course-cover";
 import { withBase } from "@/lib/base-path";
 import { Prisma, UserRole } from "@prisma/client";
-import { createEmployee, deleteEmployee, updateUserRoles, importEmployeesFromMaster } from "@/actions/employees";
+import { archiveEmployee, checkDuplicateEmployees, createEmployee, deleteEmployee, importEmployeesFromMaster, restoreEmployee, updateUserRoles } from "@/actions/employees";
 import { ActionForm } from "@/components/action-form";
 import { CollapsibleCard } from "@/components/collapsible-card";
 import { EmployeeCourseEnrollmentForm } from "@/components/employee-course-enrollment-form";
 import { EmployeeImportForm } from "@/components/employee-import-form";
 import { db } from "@/lib/db";
+import { chooseKeeper } from "@/lib/employee-duplicates";
+import { findPossibleDuplicates } from "@/lib/employee-lifecycle";
 import { formatIst } from "@/lib/ist";
 import { requireRole } from "@/lib/session";
 
@@ -60,14 +63,17 @@ function sourceWhere(filter: SourceFilter, cutoff: Date | null): Prisma.Employee
   return {};
 }
 
-export default async function EmployeesPage({ searchParams }: { searchParams: Promise<{ q?: string; src?: string }> }) {
+export default async function EmployeesPage({ searchParams }: { searchParams: Promise<{ q?: string; src?: string; view?: string }> }) {
   const actor = await requireRole(UserRole.SUPER_ADMIN);
-  const { q, src } = await searchParams;
+  const { q, src, view } = await searchParams;
   const query = (q ?? "").trim().slice(0, 100);
-  const sourceFilter: SourceFilter = SOURCES.some((item) => item.value === src) ? (src as SourceFilter) : "";
+  // The Archive holds people who left or were replaced; the main list holds everyone current.
+  const archiveView = view === "archive";
+  const currentOnly: Prisma.EmployeeWhereInput = { archivedAt: null };
+  const sourceFilter: SourceFilter = !archiveView && SOURCES.some((item) => item.value === src) ? (src as SourceFilter) : "";
   const lastSeen = (await db.employee.aggregate({ _max: { masterSeenAt: true } }))._max.masterSeenAt;
   const seenCutoff = lastSeen ? new Date(lastSeen.getTime() - SEEN_WINDOW_MS) : null;
-  const where: Prisma.EmployeeWhereInput = { AND: [employeeSearch(query), sourceWhere(sourceFilter, seenCutoff)] };
+  const where: Prisma.EmployeeWhereInput = { AND: [archiveView ? { archivedAt: { not: null } } : currentOnly, employeeSearch(query), sourceWhere(sourceFilter, seenCutoff)] };
   const [employees, matching, total, allocatable, activeCourses, companies] = await Promise.all([
     db.employee.findMany({
       where,
@@ -76,12 +82,12 @@ export default async function EmployeesPage({ searchParams }: { searchParams: Pr
       take: PAGE_LIMIT,
     }),
     db.employee.count({ where }),
-    db.employee.count(),
+    db.employee.count({ where: archiveView ? { archivedAt: { not: null } } : currentOnly }),
     // The course-allocation picker has its own search box and must be able to
     // reach every active employee, whatever the master table is filtered to.
     // It used to reuse the table's rows, so it silently stopped at 1,000 too.
     db.employee.findMany({
-      where: { status: "ACTIVE" },
+      where: { status: "ACTIVE", archivedAt: null },
       select: {
         id: true, name: true, employeeCode: true, email: true, companyId: true,
         company: { select: { name: true } },
@@ -100,11 +106,14 @@ export default async function EmployeesPage({ searchParams }: { searchParams: Pr
   ]);
 
   // How the two databases differ, at a glance.
-  const [inMasterCount, uploadedCount] = await Promise.all([
-    seenCutoff ? db.employee.count({ where: { masterSeenAt: { gte: seenCutoff } } }) : 0,
-    db.employee.count({ where: { source: "UPLOAD" } }),
+  const [inMasterCount, uploadedCount, archivedCount, currentCount, possibleDuplicates] = await Promise.all([
+    seenCutoff ? db.employee.count({ where: { archivedAt: null, masterSeenAt: { gte: seenCutoff } } }) : 0,
+    db.employee.count({ where: { archivedAt: null, source: "UPLOAD" } }),
+    db.employee.count({ where: { archivedAt: { not: null } } }),
+    db.employee.count({ where: currentOnly }),
+    archiveView ? [] : findPossibleDuplicates(),
   ]);
-  const notInMasterCount = total - inMasterCount;
+  const notInMasterCount = currentCount - inMasterCount;
 
   // The last time LMS was brought in line with the master, by the morning job
   // or by an admin pressing Import — whichever was later.
@@ -112,15 +121,20 @@ export default async function EmployeesPage({ searchParams }: { searchParams: Pr
     where: { action: { in: ["EMPLOYEES_SYNCED_FROM_MASTER", "EMPLOYEES_IMPORTED_FROM_MASTER"] } },
     orderBy: { createdAt: "desc" },
   });
-  const lastSyncDetail = (lastSync?.metadata ?? {}) as { created?: number; updated?: number; skippedNoEmail?: number; clashes?: string[]; conflicts?: number; failedChunks?: number };
+  const lastSyncDetail = (lastSync?.metadata ?? {}) as { created?: number; updated?: number; skippedNoEmail?: number; clashes?: string[]; conflicts?: number; failedChunks?: number; archivedLeavers?: number; restored?: number; retiredDuplicates?: number };
 
   return <main className="container">
     <AdminHero icon={Users} title="Employees" subtitle="Search people, manage their roles, and bring in or enrol learners.">
       <a className="button hero-button" href={withBase("/api/employees/export")}>Download employee data Excel</a>
     </AdminHero>
+    <nav className="report-tabs" aria-label="Employee lists">
+      <Link className={archiveView ? undefined : "active"} href="/admin/employees">Current employees ({currentCount})</Link>
+      <Link className={archiveView ? "active" : undefined} href="/admin/employees?view=archive">Archive ({archivedCount})</Link>
+    </nav>
     <div className="employees-layout">
       <section className="card">
-        <h2>Employee master</h2>
+        <h2>{archiveView ? "Archive" : "Employee master"}</h2>
+        {archiveView && <p className="muted">People who have left, or whose record was replaced by a newer one, or who an admin archived. Nothing here is deleted: their courses, results and certificates are kept and still appear in reports. They cannot sign in and are not offered for enrolment. Restore brings someone back.</p>}
         <form className="employee-search" method="get" role="search">
           <input
             type="search"
@@ -130,24 +144,41 @@ export default async function EmployeesPage({ searchParams }: { searchParams: Pr
             aria-label="Search employees"
             maxLength={100}
           />
-          <select name="src" defaultValue={sourceFilter} aria-label="Show employees by source" className="source-select">
+          {archiveView && <input type="hidden" name="view" value="archive" />}
+          {!archiveView && <select name="src" defaultValue={sourceFilter} aria-label="Show employees by source" className="source-select">
             {SOURCES.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}
-          </select>
+          </select>}
           <button type="submit">Search</button>
-          {(query || sourceFilter) && <a className="button secondary" href={withBase("/admin/employees")}>Clear</a>}
+          {(query || sourceFilter) && <a className="button secondary" href={withBase(archiveView ? "/admin/employees?view=archive" : "/admin/employees")}>Clear</a>}
         </form>
         <p className="muted">
           {query || sourceFilter
             ? `${matching} of ${total} employees match${query ? ` "${query}"` : ""}${sourceFilter ? ` (${SOURCES.find((item) => item.value === sourceFilter)?.label.toLowerCase()})` : ""}${matching > employees.length ? ` - showing the first ${employees.length}; narrow the search to see the rest` : ""}.`
             : `${total} employees${total > employees.length ? ` - showing the first ${employees.length} alphabetically. Search to find anyone else` : ""}.`}
         </p>
-        <p className="source-summary">
+        {!archiveView && <p className="source-summary">
           <span className="status-pill status-completed">{inMasterCount} in master</span>
           <span className="status-pill">{notInMasterCount} not in master</span>
           <span className="status-pill">{uploadedCount} uploaded here</span>
           {!lastSeen && <span className="muted"> Press “Sync Employee Data with Master” once to compare the two.</span>}
-        </p>
-        <div className="table-wrap">
+        </p>}
+        {archiveView && <div className="table-wrap">
+          <table>
+            <thead><tr><th>Employee</th><th>Company</th><th>Archived</th><th>Why</th><th>History</th><th>Restore</th></tr></thead>
+            <tbody>
+              {employees.map((employee) => <tr key={employee.id}>
+                <td><div className="person"><span className="avatar" style={{ background: coverFor(employee.name) }} aria-hidden="true">{initialsOf(employee.name)}</span><div><strong>{employee.name}</strong><br /><span className="muted">{employee.employeeCode} - {employee.email}</span></div></div></td>
+                <td>{employee.company.name}{employee.locationPlant && <><br /><span className="muted">{employee.locationPlant}</span></>}</td>
+                <td>{employee.archivedAt ? formatIst(employee.archivedAt) : ""}</td>
+                <td><span className="status-pill">{employee.archiveReason ?? "Archived"}</span></td>
+                <td><a className="button secondary" href={withBase(`/admin/learners/${employee.id}`)}>View activity</a></td>
+                <td><ActionForm action={restoreEmployee} submitLabel="Restore"><input type="hidden" name="employeeId" value={employee.id} /></ActionForm></td>
+              </tr>)}
+              {!employees.length && <tr><td colSpan={6}>{query ? "No archived employee matches this search." : "Nobody is archived."}</td></tr>}
+            </tbody>
+          </table>
+        </div>}
+        {!archiveView && <div className="table-wrap">
           <table>
             <thead><tr><th>Employee</th><th>Company</th><th>Department</th><th>Status</th><th>Source</th><th>Learner view</th><th>Roles</th><th>Delete</th></tr></thead>
             <tbody>
@@ -173,7 +204,13 @@ export default async function EmployeesPage({ searchParams }: { searchParams: Pr
                     </ActionForm> : <span className="muted">Inactive</span>}
                   </td>
                   <td>
-                    {actor.employeeId === employee.id ? <span className="muted">Current login cannot be deleted.</span> : <details className="row-danger"><summary>Delete…</summary><ActionForm action={deleteEmployee} submitLabel="Delete employee" buttonClassName="danger">
+                    {actor.employeeId === employee.id ? <span className="muted">Current login cannot be deleted.</span> : <details className="row-danger"><summary>Archive / delete…</summary>
+                      <ActionForm action={archiveEmployee} submitLabel="Move to Archive">
+                        <input type="hidden" name="employeeId" value={employee.id} />
+                        <span className="muted">Keeps all their history, hides them from this list and stops sign-in. You can restore them.</span>
+                      </ActionForm>
+                      <hr className="row-rule" />
+                      <ActionForm action={deleteEmployee} submitLabel="Delete employee" buttonClassName="danger">
                       <input type="hidden" name="employeeId" value={employee.id} />
                       <label className="checkbox"><input type="checkbox" name="confirmDelete" />Confirm permanent deletion</label>
                       <span className="muted">Removes enrollments, progress, assessments, feedback and AI history.</span>
@@ -184,7 +221,7 @@ export default async function EmployeesPage({ searchParams }: { searchParams: Pr
               {!employees.length && <tr><td colSpan={8}>{query || sourceFilter ? "No employee matches these choices." : "No employees have been imported."}</td></tr>}
             </tbody>
           </table>
-        </div>
+        </div>}
       </section>
 
       <CollapsibleCard title="Sync Employee Data with Master" summary="update from ZingHR and Truein">
@@ -201,7 +238,7 @@ export default async function EmployeesPage({ searchParams }: { searchParams: Pr
         <p className="message">
           This runs only when you press the button.{" "}
           {lastSync
-            ? `Last run ${formatIst(lastSync.createdAt)}: ${lastSyncDetail.created ?? 0} added, ${lastSyncDetail.updated ?? 0} updated, ${lastSyncDetail.skippedNoEmail ?? 0} skipped with no e-mail address.`
+            ? `Last run ${formatIst(lastSync.createdAt)}: ${lastSyncDetail.created ?? 0} added, ${lastSyncDetail.updated ?? 0} updated, ${lastSyncDetail.skippedNoEmail ?? 0} skipped with no e-mail address${lastSyncDetail.archivedLeavers ? `, ${lastSyncDetail.archivedLeavers} moved to the Archive` : ""}.`
             : "It has not run yet."}
         </p>
         {Boolean(lastSyncDetail.clashes?.length) && <details className="sync-clashes">
@@ -219,6 +256,30 @@ export default async function EmployeesPage({ searchParams }: { searchParams: Pr
             <span className="muted">Leave both ticked for everyone.</span>
           </fieldset>
         </ActionForm>
+      </CollapsibleCard>
+
+      <CollapsibleCard title="Duplicate records" summary={possibleDuplicates.length ? `${possibleDuplicates.length} possible` : "none found"}>
+        <p className="muted">
+          When a person&apos;s e-mail changes and a new record is added, the old one can be left active. Records the
+          employee master knows are the same person are archived automatically after every sync and upload; this checks on demand.
+          Records below have the same name and mobile number but the master does not link them, so you decide.
+        </p>
+        <ActionForm action={checkDuplicateEmployees} submitLabel="Check for duplicates now"><span className="muted">Archives the older record of anyone the master links.</span></ActionForm>
+        {possibleDuplicates.map((group) => {
+          const keeper = chooseKeeper(group);
+          return <div className="dup-group" key={group[0].id}>
+            {group.map((row) => <div className="dup-row" key={row.id}>
+              <div><strong>{row.name}</strong><br /><span className="muted">{row.employeeCode} · {row.email} · {row.mobileNumber}</span></div>
+              {row.id === keeper.id
+                ? <span className="status-pill status-completed">Keep</span>
+                : <ActionForm action={archiveEmployee} submitLabel="Archive this one">
+                  <input type="hidden" name="employeeId" value={row.id} />
+                  <input type="hidden" name="keepCode" value={keeper.employeeCode} />
+                </ActionForm>}
+            </div>)}
+          </div>;
+        })}
+        {!possibleDuplicates.length && <p className="muted">No possible duplicates by name and mobile number.</p>}
       </CollapsibleCard>
 
       <CollapsibleCard title="Add one employee" summary="single addition">
