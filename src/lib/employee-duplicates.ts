@@ -75,3 +75,50 @@ export function possibleDuplicateGroups<T extends PersonRecord>(rows: T[]): T[][
     return !allLinked;
   });
 }
+
+/**
+ * An employee code with the differences that are not real differences taken
+ * out: case, spaces and punctuation, and zeros padded in front of the number
+ * ("rdc-0123", "RDC 123" and "RDC123" are one code). An upload that spells the
+ * code another way must find the person, not make a second one.
+ */
+export function normalizeEmployeeCode(value: string): string {
+  return value.toUpperCase().replace(/[^A-Z0-9]/g, "").replace(/(^|[A-Z])0+(?=[0-9])/g, "$1");
+}
+
+export type NamedRecord = PersonRecord & { inMaster: boolean };
+
+/**
+ * People who share a name but not an e-mail address, where at least one of the
+ * records did not come from the master: the shape an upload leaves behind when
+ * it adds someone who was already here. A group where every record is in the
+ * master is left out, since the master keeps two genuine people apart (there
+ * are two Rameshes). A group the portal already links is the automatic rule's.
+ */
+export function sameNameGroups<T extends NamedRecord>(rows: T[]): T[][] {
+  const byName = new Map<string, T[]>();
+  for (const row of rows) {
+    const key = normalizeName(row.name);
+    if (!key) continue;
+    byName.set(key, [...(byName.get(key) ?? []), row]);
+  }
+  return [...byName.values()].filter((group) => {
+    if (group.length < 2) return false;
+    if (group.every((row) => row.inMaster)) return false;
+    const ids = new Set(group.map((row) => row.personId).filter(Boolean));
+    return !(group.every((row) => row.personId) && ids.size === 1);
+  });
+}
+
+/**
+ * Which record of a same-name group to keep: the one the master knows; failing
+ * that the one with the most learning on it; failing that the oldest.
+ */
+export function suggestKeeper<T extends { inMaster: boolean; activity: number; createdAt: Date; employeeCode: string }>(group: T[]): T {
+  return [...group].sort((a, b) => {
+    if (a.inMaster !== b.inMaster) return a.inMaster ? -1 : 1;
+    if (a.activity !== b.activity) return b.activity - a.activity;
+    const created = a.createdAt.getTime() - b.createdAt.getTime();
+    return created || a.employeeCode.localeCompare(b.employeeCode);
+  })[0];
+}

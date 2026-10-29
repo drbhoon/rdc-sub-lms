@@ -573,3 +573,6 @@ option.option-live { color:#166534; background:#ecfdf3; font-weight:700; }
 .reel-stage .youtube-frame { max-height:100%; }
 .reel-caption { width:100%; max-width:420px; text-align:left; }
 .reel-caption p { margin:.25rem 0 0; opacity:.85; }
+.reel-course { display:block; font-size:.78rem; opacity:.75; text-transform:uppercase; letter-spacing:.04em; margin-bottom:.15rem; }
+.reels-page .reel-feed { height:min(80vh,760px); }
+.bulk-bar { display:grid; gap:.5rem; margin:.5rem 0; }

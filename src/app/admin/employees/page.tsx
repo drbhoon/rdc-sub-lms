@@ -4,14 +4,15 @@ import { AdminHero } from "@/components/admin-ui";
 import { coverFor } from "@/lib/course-cover";
 import { withBase } from "@/lib/base-path";
 import { Prisma, UserRole } from "@prisma/client";
-import { archiveEmployee, checkDuplicateEmployees, createEmployee, deleteEmployee, importEmployeesFromMaster, restoreEmployee, updateUserRoles } from "@/actions/employees";
+import { archiveEmployee, archiveNotInMaster, checkDuplicateEmployees, createEmployee, deleteEmployee, importEmployeesFromMaster, removeSameNameDuplicates, restoreEmployee, updateUserRoles } from "@/actions/employees";
+import { BulkArchive } from "@/components/bulk-archive";
 import { ActionForm } from "@/components/action-form";
 import { CollapsibleCard } from "@/components/collapsible-card";
 import { EmployeeCourseEnrollmentForm } from "@/components/employee-course-enrollment-form";
 import { EmployeeImportForm } from "@/components/employee-import-form";
 import { db } from "@/lib/db";
 import { chooseKeeper } from "@/lib/employee-duplicates";
-import { findPossibleDuplicates } from "@/lib/employee-lifecycle";
+import { findPossibleDuplicates, findSameNameRecords } from "@/lib/employee-lifecycle";
 import { formatIst } from "@/lib/ist";
 import { requireRole } from "@/lib/session";
 
@@ -106,12 +107,13 @@ export default async function EmployeesPage({ searchParams }: { searchParams: Pr
   ]);
 
   // How the two databases differ, at a glance.
-  const [inMasterCount, uploadedCount, archivedCount, currentCount, possibleDuplicates] = await Promise.all([
+  const [inMasterCount, uploadedCount, archivedCount, currentCount, possibleDuplicates, sameName] = await Promise.all([
     seenCutoff ? db.employee.count({ where: { archivedAt: null, masterSeenAt: { gte: seenCutoff } } }) : 0,
     db.employee.count({ where: { archivedAt: null, source: "UPLOAD" } }),
     db.employee.count({ where: { archivedAt: { not: null } } }),
     db.employee.count({ where: currentOnly }),
     archiveView ? [] : findPossibleDuplicates(),
+    archiveView ? [] : findSameNameRecords(seenCutoff),
   ]);
   const notInMasterCount = currentCount - inMasterCount;
 
@@ -178,14 +180,29 @@ export default async function EmployeesPage({ searchParams }: { searchParams: Pr
             </tbody>
           </table>
         </div>}
+        {!archiveView && <>
+          <p className="muted">
+            To clear out people who are not in the master: choose “Not in master” in the list above and press Search, tick the people,
+            or use Select all, and archive them together. Teachers, Super Admins and you are never ticked.
+          </p>
+          <BulkArchive action={archiveNotInMaster} canRun={Boolean(seenCutoff)}
+            eligible={employees.filter((employee) => {
+              const heldRoles = employee.user?.roles.map((role) => role.role) ?? [];
+              return Boolean(seenCutoff) && !(employee.masterSeenAt && employee.masterSeenAt >= seenCutoff!) && actor.employeeId !== employee.id && !heldRoles.includes(UserRole.SUPER_ADMIN) && !heldRoles.includes(UserRole.TEACHER);
+            }).length} />
+        </>}
         {!archiveView && <div className="table-wrap">
           <table>
-            <thead><tr><th>Employee</th><th>Company</th><th>Department</th><th>Status</th><th>Source</th><th>Learner view</th><th>Roles</th><th>Delete</th></tr></thead>
+            <thead><tr><th>Select</th><th>Employee</th><th>Company</th><th>Department</th><th>Status</th><th>Source</th><th>Learner view</th><th>Roles</th><th>Delete</th></tr></thead>
             <tbody>
               {employees.map((employee) => {
                 const roles = new Set(employee.user?.roles.map((role) => role.role) ?? []);
                 const taughtCount = employee.user?.coursesTaught.length ?? 0;
+                const inMaster = Boolean(seenCutoff && employee.masterSeenAt && employee.masterSeenAt >= seenCutoff);
+                // Only people the master does not know, who hold no Teacher or Super Admin role, and not you.
+                const tickable = Boolean(seenCutoff) && !inMaster && actor.employeeId !== employee.id && !roles.has(UserRole.SUPER_ADMIN) && !roles.has(UserRole.TEACHER);
                 return <tr key={employee.id}>
+                  <td>{tickable ? <input type="checkbox" name="employeeIds" value={employee.id} form="bulk-archive" aria-label={`Select ${employee.name}`} /> : null}</td>
                   <td><div className="person"><span className="avatar" style={{ background: coverFor(employee.name) }} aria-hidden="true">{initialsOf(employee.name)}</span><div><strong>{employee.name}</strong><br /><span className="muted">{employee.employeeCode} - {employee.email}</span></div></div></td>
                   <td>{employee.company.name}{employee.locationPlant && <><br /><span className="muted">{employee.locationPlant}</span></>}</td>
                   <td>{employee.department}<br /><span className="muted">{employee.designation}</span></td>
@@ -218,7 +235,7 @@ export default async function EmployeesPage({ searchParams }: { searchParams: Pr
                   </td>
                 </tr>;
               })}
-              {!employees.length && <tr><td colSpan={8}>{query || sourceFilter ? "No employee matches these choices." : "No employees have been imported."}</td></tr>}
+              {!employees.length && <tr><td colSpan={9}>{query || sourceFilter ? "No employee matches these choices." : "No employees have been imported."}</td></tr>}
             </tbody>
           </table>
         </div>}
@@ -258,13 +275,35 @@ export default async function EmployeesPage({ searchParams }: { searchParams: Pr
         </ActionForm>
       </CollapsibleCard>
 
-      <CollapsibleCard title="Duplicate records" summary={possibleDuplicates.length ? `${possibleDuplicates.length} possible` : "none found"}>
+      <CollapsibleCard title="Duplicate records" summary={possibleDuplicates.length + sameName.length ? `${sameName.length} same-name, ${possibleDuplicates.length} same mobile` : "none found"}>
         <p className="muted">
           When a person&apos;s e-mail changes and a new record is added, the old one can be left active. Records the
           employee master knows are the same person are archived automatically after every sync and upload; this checks on demand.
           Records below have the same name and mobile number but the master does not link them, so you decide.
         </p>
         <ActionForm action={checkDuplicateEmployees} submitLabel="Check for duplicates now"><span className="muted">Archives the older record of anyone the master links.</span></ActionForm>
+        <h3>Same name, different e-mail</h3>
+        <p className="muted">
+          People who share a name where at least one record did not come from the master, usually an upload that added someone who was already here.
+          The record kept is suggested (the master&apos;s, else the one with most learning, else the oldest) and the others are ticked.
+          A record with no learning on it is deleted; one with learning is archived instead. Course enrolments are carried over to the record kept.
+          Two genuinely different people with the same name will also appear here: untick them.
+        </p>
+        {sameName.length > 0 && <ActionForm action={removeSameNameDuplicates} submitLabel="Remove the ticked records" buttonClassName="danger">
+          {sameName.map((group) => <div className="dup-group" key={group.keeperId}>
+            {group.records.map((row) => <div className="dup-row" key={row.id}>
+              <div>
+                <strong>{row.name}</strong> <span className="muted">{row.employeeCode} · {row.email}</span><br />
+                <span className="muted">{row.company} · {row.designation} · {row.inMaster ? "in master" : row.source === "UPLOAD" ? "uploaded" : "not in master"} · {row.activity > 0 ? `${row.activity} learning record${row.activity === 1 ? "" : "s"}` : "no learning on it"}{row.enrollments ? ` · ${row.enrollments} course${row.enrollments === 1 ? "" : "s"}` : ""}</span>
+              </div>
+              {row.id === group.keeperId
+                ? <span className="status-pill status-completed">Keep</span>
+                : <label className="checkbox"><input type="checkbox" name="remove" value={`${row.id}:${group.keeperId}`} defaultChecked />Remove</label>}
+            </div>)}
+          </div>)}
+        </ActionForm>}
+        {!sameName.length && <p className="muted">No same-name records found{seenCutoff ? "" : " (run the master sync first so records the master knows can be told apart)"}.</p>}
+        <h3>Same name and mobile</h3>
         {possibleDuplicates.map((group) => {
           const keeper = chooseKeeper(group);
           return <div className="dup-group" key={group[0].id}>

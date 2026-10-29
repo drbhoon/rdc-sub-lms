@@ -30,7 +30,10 @@ export default async function RootLayout({ children }: Readonly<{ children: Reac
     );
   }
   if (user && hasRole(user, "TEACHER")) navItems.push({ href: "/teacher/courses", label: "Teacher" });
-  if (user && hasRole(user, "LEARNER")) navItems.push({ href: "/learn/courses", label: "My courses" });
+  if (user && hasRole(user, "LEARNER")) {
+    navItems.push({ href: "/learn/courses", label: "My courses" });
+    navItems.push({ href: "/learn/reels", label: "Reels" });
+  }
   const signOut = <form action={logout}><button type="submit" className="signout">Sign out</button></form>;
   return <html lang="en" className={inter.variable}><body><div className={`shell${user ? " has-nav" : ""}`}>
     {user && <AppNav items={navItems} name={user.employee?.name ?? user.email} email={user.email} signOut={signOut} />}

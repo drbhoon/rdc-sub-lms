@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
-  chooseKeeper, normalizeMobile, possibleDuplicateGroups, samePersonGroups, type PersonRecord,
+  chooseKeeper, normalizeEmployeeCode, normalizeMobile, possibleDuplicateGroups, sameNameGroups, samePersonGroups, suggestKeeper, type PersonRecord,
 } from "./employee-duplicates";
 
 const day = (n: number) => new Date(`2026-10-${String(n).padStart(2, "0")}T00:00:00Z`);
@@ -64,5 +64,44 @@ describe("possibleDuplicateGroups", () => {
   });
   it("needs a mobile number to suggest a match", () => {
     expect(possibleDuplicateGroups([person("A", { mobileNumber: null }), person("B", { mobileNumber: null })])).toEqual([]);
+  });
+});
+
+describe("normalizeEmployeeCode", () => {
+  it("treats case, spacing, punctuation and padding zeros as no difference", () => {
+    expect(normalizeEmployeeCode("rdc-0123")).toBe("RDC123");
+    expect(normalizeEmployeeCode(" RDC 123 ")).toBe("RDC123");
+    expect(normalizeEmployeeCode("00123")).toBe("123");
+    expect(normalizeEmployeeCode("123")).toBe("123");
+  });
+  it("keeps real differences", () => {
+    expect(normalizeEmployeeCode("RDC123")).not.toBe(normalizeEmployeeCode("RDC1230"));
+    expect(normalizeEmployeeCode("R100")).toBe("R100");
+    expect(normalizeEmployeeCode("123")).not.toBe(normalizeEmployeeCode("RDC123"));
+  });
+});
+
+describe("sameNameGroups", () => {
+  const named = (code: string, inMaster: boolean, extra: Partial<PersonRecord> = {}) => ({ ...person(code, { mobileNumber: null, ...extra }), inMaster });
+  it("lists a name shared by an uploaded record and a master one", () => {
+    expect(sameNameGroups([named("A", true), named("B", false), named("C", true, { name: "Someone Else" })])).toHaveLength(1);
+  });
+  it("ignores two genuine people who are both in the master", () => {
+    expect(sameNameGroups([named("A", true, { personId: "p1" }), named("B", true, { personId: "p2" })])).toHaveLength(0);
+  });
+  it("leaves pairs the portal already links to the automatic rule", () => {
+    expect(sameNameGroups([named("A", false, { personId: "p1" }), named("B", false, { personId: "p1" })])).toHaveLength(0);
+  });
+  it("matches names loosely", () => {
+    expect(sameNameGroups([named("A", true, { name: "Anil  Kumar" }), named("B", false, { name: "anil kumar." })])).toHaveLength(1);
+  });
+});
+
+describe("suggestKeeper", () => {
+  const row = (code: string, extra: object = {}) => ({ employeeCode: code, inMaster: false, activity: 0, createdAt: day(1), ...extra });
+  it("prefers the master's record, then the one with learning, then the oldest", () => {
+    expect(suggestKeeper([row("A", { activity: 9 }), row("B", { inMaster: true })]).employeeCode).toBe("B");
+    expect(suggestKeeper([row("A"), row("B", { activity: 3 })]).employeeCode).toBe("B");
+    expect(suggestKeeper([row("A", { createdAt: day(5) }), row("B", { createdAt: day(2) })]).employeeCode).toBe("B");
   });
 });

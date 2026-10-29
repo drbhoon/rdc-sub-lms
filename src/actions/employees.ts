@@ -1,6 +1,7 @@
 "use server";
 
-import { archiveEmployees, REASON_ADMIN, restoreEmployee as restoreFromArchive, retireDuplicateEmployees, reasonReplacedBy } from "@/lib/employee-lifecycle";
+import { archiveEmployees, masterSeenCutoff, notInMasterArchivable, REASON_ADMIN, REASON_NOT_IN_MASTER, removeDuplicateRecords, restoreEmployee as restoreFromArchive, retireDuplicateEmployees, reasonReplacedBy } from "@/lib/employee-lifecycle";
+import { normalizeEmployeeCode } from "@/lib/employee-duplicates";
 import ExcelJS from "exceljs";
 import { parse } from "csv-parse/sync";
 import path from "node:path";
@@ -196,6 +197,15 @@ export async function importEmployees(_: EmployeeImportState, formData: FormData
     if (!record.employeeCode || !record.name || !record.email.includes("@") || !record.company || !record.designation || !record.statusIsValid || !record.roleIsValid) errors.push(`Row ${index + 2} has invalid required values, status, or role.`);
     return record;
   });
+  // The code spelled another way ("rdc-0123" for "RDC123") is the same person, not a new one:
+  // use the code already held, so the row updates that record instead of adding a second.
+  const held = await db.employee.findMany({ select: { employeeCode: true } });
+  const heldByNormalized = new Map(held.map((row) => [normalizeEmployeeCode(row.employeeCode), row.employeeCode]));
+  let respelled = 0;
+  for (const row of normalized) {
+    const existing = heldByNormalized.get(normalizeEmployeeCode(row.employeeCode));
+    if (existing && existing !== row.employeeCode) { row.employeeCode = existing; respelled += 1; }
+  }
   const duplicateCodes = normalized.filter((row, index) => normalized.findIndex((candidate) => candidate.employeeCode === row.employeeCode) !== index);
   const duplicateEmails = normalized.filter((row, index) => normalized.findIndex((candidate) => candidate.email === row.email) !== index);
   if (duplicateCodes.length) errors.push("The file contains duplicate employee codes.");
@@ -272,9 +282,9 @@ export async function importEmployees(_: EmployeeImportState, formData: FormData
   queueTeacherRoleEmails(newTeachers);
   // A person re-uploaded under a new e-mail leaves the older record behind: tidy it away.
   const retiredAfterImport = await retireDuplicateEmployees();
-  await audit(actor.id, "EMPLOYEES_IMPORTED", "Employee", undefined, { count: normalized.length, fileName: file.name, duplicatesArchived: retiredAfterImport.length });
+  await audit(actor.id, "EMPLOYEES_IMPORTED", "Employee", undefined, { count: normalized.length, fileName: file.name, duplicatesArchived: retiredAfterImport.length, codesRespelled: respelled });
   revalidatePath("/admin/employees");
-  return { message: `${normalized.length} employee records imported successfully.${retiredAfterImport.length ? ` ${retiredAfterImport.length} older record${retiredAfterImport.length === 1 ? "" : "s"} of the same person moved to the Archive.` : ""}`, preview: false };
+  return { message: `${normalized.length} employee records imported successfully.${retiredAfterImport.length ? ` ${retiredAfterImport.length} older record${retiredAfterImport.length === 1 ? "" : "s"} of the same person moved to the Archive.` : ""}${respelled ? ` ${respelled} row${respelled === 1 ? "" : "s"} used an employee code spelled differently from the one held, and updated that person instead of adding a new one.` : ""}`, preview: false };
 }
 
 export async function grantTeacher(formData: FormData) {
@@ -383,4 +393,43 @@ export async function importEmployeesFromMaster(
   revalidatePath("/admin/courses");
 
   return { message: result.summary, preview: false };
+}
+
+/**
+ * Remove the extra record of people who are here twice (same name, different
+ * e-mail). Each ticked row is "<record to remove>:<record to keep>".
+ */
+export async function removeSameNameDuplicates(_: { message?: string }, formData: FormData) {
+  const actor = await requireRole(UserRole.SUPER_ADMIN);
+  const pairs = formData.getAll("remove").map(String).map((value) => value.split(":")).filter((parts) => parts.length === 2 && parts[0] && parts[1])
+    .map(([id, keepId]) => ({ id, keepId }));
+  if (!pairs.length) return { message: "Tick the records to remove." };
+  if (pairs.length > 200) return { message: "Remove at most 200 at a time." };
+  const outcome = await removeDuplicateRecords(pairs, actor.employeeId);
+  await audit(actor.id, "EMPLOYEES_DUPLICATES_REMOVED", "Employee", undefined, { ...outcome, pairs: pairs.slice(0, 50) });
+  revalidatePath("/admin/employees");
+  const parts = [
+    outcome.deleted ? `${outcome.deleted} deleted (nothing was recorded on them)` : "",
+    outcome.archived ? `${outcome.archived} archived instead, because they had learning on record` : "",
+    outcome.enrollmentsCarried ? `${outcome.enrollmentsCarried} course enrolment${outcome.enrollmentsCarried === 1 ? "" : "s"} carried over to the record kept` : "",
+  ].filter(Boolean);
+  return { message: `${parts.join("; ") || "Nothing was changed."}.${outcome.skipped.length ? ` Not touched: ${outcome.skipped.join("; ")}.` : ""}` };
+}
+
+/** Move many people the master does not know to the Archive at once. Teachers, Super Admins and yourself are never moved. */
+export async function archiveNotInMaster(_: { message?: string }, formData: FormData) {
+  const actor = await requireRole(UserRole.SUPER_ADMIN);
+  const ids = [...new Set(formData.getAll("employeeIds").map(String).filter(Boolean))];
+  if (!ids.length) return { message: "Tick the people to archive first." };
+  if (ids.length > 2000) return { message: "Archive at most 2,000 at a time." };
+  const cutoff = await masterSeenCutoff();
+  // Until a sync has run, nobody is known to be "not in master": refuse rather than archive everyone.
+  if (!cutoff) return { message: "Run “Sync Employee Data with Master” first, so it is known who is in the master." };
+  // Checked again here, not trusted from the page: only people still not in the master, and never staff with roles.
+  const allowed = await notInMasterArchivable(cutoff, ids, actor.employeeId);
+  const moved = await archiveEmployees(allowed, REASON_NOT_IN_MASTER);
+  await audit(actor.id, "EMPLOYEES_BULK_ARCHIVED", "Employee", undefined, { asked: ids.length, archived: moved });
+  revalidatePath("/admin/employees");
+  const left = ids.length - allowed.length;
+  return { message: `${moved} moved to the Archive.${left ? ` ${left} left alone (in the master now, or a Teacher / Super Admin, or you).` : ""} You can restore anyone from the Archive tab.` };
 }

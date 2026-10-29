@@ -1,7 +1,7 @@
 "use client";
 
 import {
-  BarChart3, BookOpen, ChevronsLeft, ChevronsRight, GraduationCap, LayoutDashboard, MoreHorizontal, Presentation, Users, X, type LucideIcon,
+  BarChart3, BookOpen, ChevronsLeft, ChevronsRight, Film, GraduationCap, LayoutDashboard, MoreHorizontal, Presentation, Users, X, type LucideIcon,
 } from "lucide-react";
 import Image from "next/image";
 import Link from "next/link";
@@ -18,6 +18,7 @@ const ICONS: Record<string, LucideIcon> = {
   "/admin/courses": BookOpen,
   "/teacher/courses": Presentation,
   "/learn/courses": GraduationCap,
+  "/learn/reels": Film,
 };
 
 /** Tabs shown along the bottom of a phone before the rest go behind "More". */

@@ -12,6 +12,8 @@ export type ReelItem = {
   src?: string;
   youtubeId?: string;
   watched: boolean;
+  /** The course it belongs to, shown when reels from several courses are mixed (the Reels page). */
+  course?: string;
 };
 
 /**
@@ -19,8 +21,8 @@ export type ReelItem = {
  * plays (muted until the learner turns sound on, which phones require) and the
  * others pause. What was watched is saved quietly; nothing here is required.
  */
-export function ReelFeed({ reels }: { reels: ReelItem[] }) {
-  const [open, setOpen] = useState(false);
+export function ReelFeed({ reels, startOpen = false }: { reels: ReelItem[]; startOpen?: boolean }) {
+  const [open, setOpen] = useState(startOpen);
   const [sound, setSound] = useState(false);
   const [seen, setSeen] = useState(() => new Set(reels.filter((reel) => reel.watched).map((reel) => reel.id)));
   const feed = useRef<HTMLDivElement>(null);
@@ -93,6 +95,7 @@ export function ReelFeed({ reels }: { reels: ReelItem[] }) {
             />}
           </div>
           <div className="reel-caption">
+            {reel.course && <span className="reel-course">{reel.course}</span>}
             <strong>{seen.has(reel.id) ? "✓ " : ""}{reel.title}</strong>
             {reel.caption && <p>{reel.caption}</p>}
           </div>
