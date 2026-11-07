@@ -6,7 +6,7 @@ import { z } from "zod";
 import { audit } from "@/lib/audit";
 import { classroomScope } from "@/lib/classroom-scope";
 import { requireCourseManager } from "@/lib/course-access";
-import { buildFinalBank, checkGradingScheme, normaliseScheme, type GradingScheme } from "@/lib/course-grading";
+import { buildFinalBank, checkGradingScheme, DEFAULT_COMPONENT_PASS, DEFAULT_OVERALL_PASS, normaliseScheme, passMarkFor, type GradingScheme } from "@/lib/course-grading";
 import { courseModules, schemeFromRow } from "@/lib/course-grades";
 import { db } from "@/lib/db";
 import { requireRole } from "@/lib/session";
@@ -55,6 +55,12 @@ export async function saveGradingScheme(_: ActionState, formData: FormData): Pro
     teacherWeight: weight(formData.get("teacherWeight")),
     finalWeight: weight(formData.get("finalWeight")),
     moduleWeights,
+    overallPassPercent: Number(String(formData.get("overallPassPercent") ?? "").trim() || DEFAULT_OVERALL_PASS),
+    // A blank pass mark box means the usual 70, not "no minimum"; type 0 for that.
+    passMarks: Object.fromEntries([...modules.map((courseModule) => `module:${courseModule.id}`), "teacher", "final"].map((key) => {
+      const text = String(formData.get(`pass:${key}`) ?? "").trim();
+      return [key, text === "" ? DEFAULT_COMPONENT_PASS : Number(text)];
+    })),
   };
   const hasFinal = (await db.assessment.count({ where: { courseId, kind: AssessmentKind.FINAL, status: AssessmentStatus.ACTIVE } })) > 0;
   const check = checkGradingScheme(input, modules.map((module) => ({ ...module, hasAssessment: withQuiz.has(module.id) })), hasFinal);
@@ -66,9 +72,19 @@ export async function saveGradingScheme(_: ActionState, formData: FormData): Pro
     update: { ...scheme, updatedByUserId: actor.id },
     create: { courseId, ...scheme, updatedByUserId: actor.id },
   });
+  // The quizzes themselves pass at the same marks, so the "Passed / Not passed yet" a learner sees
+  // beside each quiz agrees with the conditions for the certificate.
+  for (const courseModule of modules) {
+    const mark = passMarkFor(scheme, `module:${courseModule.id}`);
+    if (mark >= 1 && (scheme.moduleWeights[courseModule.id] ?? 0) > 0) {
+      await db.assessment.updateMany({ where: { courseId, status: AssessmentStatus.ACTIVE, kind: AssessmentKind.MODULE, courseContentId: courseModule.id }, data: { passPercentage: mark } });
+    }
+  }
+  const finalMark = passMarkFor(scheme, "final");
+  if (finalMark >= 1) await db.assessment.updateMany({ where: { courseId, status: AssessmentStatus.ACTIVE, kind: AssessmentKind.FINAL }, data: { passPercentage: finalMark } });
   await audit(actor.id, "COURSE_GRADING_SAVED", "Course", courseId, scheme);
   revalidateCourse(courseId);
-  return { message: ["Assessment weights saved. They total 100.", ...check.warnings].join(" ") };
+  return { message: [`Saved. The weights total 100; to get the certificate a learner needs ${scheme.overallPassPercent}% overall and each part at its own pass mark.`, ...check.warnings].join(" ") };
 }
 
 const finalSchema = z.object({

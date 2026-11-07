@@ -154,3 +154,64 @@ describe("final assessment bank", () => {
     expect(finalIsStale(["quiz1"], ["quiz1", "quiz2"])).toBe(true);
   });
 });
+
+describe("conditions for passing the course", () => {
+  const mods = modules.map(({ id, label }) => ({ id, label }));
+  // m1..m4 at 10 each, teacher 20, final 40; every part needs 70, the total 75.
+  const grade = (moduleScores: Record<string, number | null>, teacher: number | null, final: number | null, scheme: GradingScheme = hrExample) =>
+    computeCourseGrade({ scheme, modules: mods, moduleScores, teacherScore: teacher, finalScore: final });
+  const all80 = { m1: 80, m2: 80, m3: 80, m4: 80 };
+
+  it("passes when every part is at 70 and the total reaches 75", () => {
+    const result = grade(all80, 80, 80);
+    expect(result.total).toBe(80);
+    expect(result.passed).toBe(true);
+    expect(result.shortfalls).toEqual([]);
+    expect(result.overallPassMark).toBe(75);
+  });
+
+  it("does not pass with a high total if one part is below its own pass mark", () => {
+    const result = grade({ ...all80, m2: 60 }, 100, 100);
+    expect(result.total).toBeGreaterThanOrEqual(75);
+    expect(result.passed).toBe(false);
+    expect(result.shortfalls).toEqual(["Module 2: you scored 60%, and 70% is needed."]);
+  });
+
+  it("does not pass with every part at 70 but a total under 75", () => {
+    const result = grade({ m1: 70, m2: 70, m3: 70, m4: 70 }, 70, 70);
+    expect(result.total).toBe(70);
+    expect(result.passed).toBe(false);
+    expect(result.shortfalls).toEqual(["Course result: 70 out of 100 so far, and 75 is needed."]);
+  });
+
+  it("is not passed while something is still to do", () => {
+    const result = grade(all80, null, null);
+    expect(result.passed).toBe(false);
+    expect(result.shortfalls).toContain("Teacher assessment: not done yet.");
+    expect(result.shortfalls).toContain("Final assessment: not done yet.");
+  });
+
+  it("uses the admin's own pass marks, and 0 means no minimum", () => {
+    const scheme: GradingScheme = { ...hrExample, overallPassPercent: 60, passMarks: { "module:m1": 50, final: 80, teacher: 0 } };
+    const result = grade({ m1: 55, m2: 80, m3: 80, m4: 80 }, 10, 85, scheme);
+    const marks = Object.fromEntries(result.components.map((component) => [component.key, component.passMark]));
+    expect(marks).toMatchObject({ "module:m1": 50, "module:m2": 70, teacher: 0, final: 80 });
+    expect(result.components.find((component) => component.key === "teacher")?.passed).toBe(true);
+    expect(result.overallPassMark).toBe(60);
+    // 5.5 + 24 + 2 + 34 = 65.5
+    expect(result.total).toBe(65.5);
+    expect(result.passed).toBe(true);
+  });
+
+  it("a part with no weight is not a condition", () => {
+    const scheme: GradingScheme = { ...hrExample, moduleWeights: { m1: 30, m2: 10, m3: 0, m4: 0 }, teacherWeight: 20, finalWeight: 40 };
+    const result = grade({ m1: 90, m2: 90, m3: 10, m4: 10 }, 90, 90, scheme);
+    expect(result.passed).toBe(true);
+  });
+
+  it("checks the pass marks when saving", () => {
+    expect(checkGradingScheme({ ...hrExample, overallPassPercent: 0 }, modules, true).errors.join(" ")).toMatch(/overall pass mark/);
+    expect(checkGradingScheme({ ...hrExample, passMarks: { final: 101 } }, modules, true).errors.join(" ")).toMatch(/Each pass mark/);
+    expect(checkGradingScheme({ ...hrExample, passMarks: { final: 70 }, overallPassPercent: 75 }, modules, true).errors).toEqual([]);
+  });
+});

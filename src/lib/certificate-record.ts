@@ -1,5 +1,6 @@
 import "server-only";
 import { certificateEligibility } from "@/lib/certificate-eligibility";
+import { loadCourseGrades } from "@/lib/course-grades";
 import { allFeedbackAnswered } from "@/lib/feedback-rules";
 import { supersededQuizIds } from "@/lib/superseded-quizzes";
 import { db } from "@/lib/db";
@@ -78,6 +79,9 @@ export async function getCertificateRecord(employeeId: string, courseId: string)
   const hasActiveAssessment = requiredAssessments.length > 0;
   const hasPassedAssessment = hasActiveAssessment && requiredAssessments.every((assessment) => assessment.attempts.length > 0);
 
+  // The course's own conditions, when an admin has set them: each part at its pass mark, and the total.
+  const grade = (await loadCourseGrades(courseId, [employeeId]))?.byEmployee.get(employeeId)?.grade ?? null;
+
   const eligibility = certificateEligibility({
     certificateEnabled: enrollment.course.certificateEnabled,
     totalLessons: lessonIds.size,
@@ -87,6 +91,7 @@ export async function getCertificateRecord(employeeId: string, courseId: string)
     hasPassedAssessment,
     hasActiveFeedbackForm,
     hasSubmittedFeedback,
+    grade: grade ? { passed: grade.passed, shortfalls: grade.shortfalls } : null,
   });
 
   if (!eligibility.ready) return null;

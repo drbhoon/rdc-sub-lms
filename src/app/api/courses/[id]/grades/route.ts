@@ -42,8 +42,8 @@ export async function GET(request: Request, context: { params: Promise<{ id: str
   const sheet = workbook.addWorksheet("Course Results");
   sheet.addRow([
     "Course", "Employee Code", "Learner", "Email", "Company", "Classroom", "Teacher Name", "Teacher Employee Code",
-    ...components.map((component) => `${component.label} (weight ${component.weight})`),
-    "Course Result /100", "Complete", "Pending", "Teacher Comments",
+    ...components.map((component) => `${component.label} (weight ${component.weight}, pass ${component.passMark}%)`),
+    "Course Result /100", "Complete", "Pending", "Certificate conditions", "What is missing", "Teacher Comments",
   ]);
   styleHeader(sheet.getRow(1));
   for (const enrollment of enrollments) {
@@ -65,6 +65,8 @@ export async function GET(request: Request, context: { params: Promise<{ id: str
       row.grade.total,
       row.grade.complete ? "Yes" : "No",
       row.grade.pending.join(", "),
+      row.grade.passed ? "Passed" : "Not met",
+      row.grade.passed ? "" : row.grade.shortfalls.join(" "),
       row.teacherEvaluation?.comments ?? "",
     ]);
   }

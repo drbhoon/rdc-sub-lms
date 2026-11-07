@@ -65,6 +65,8 @@ export async function CourseGradingPanel({ courseId }: { courseId: string }) {
       scores: row.grade.components.map((component) => component.score),
       total: row.grade.total,
       pending: row.grade.complete ? 0 : row.grade.pending.length,
+      passed: row.grade.passed,
+      partPassed: row.grade.components.map((component) => component.passed),
     }];
   });
 
@@ -74,7 +76,8 @@ export async function CourseGradingPanel({ courseId }: { courseId: string }) {
       <p className="muted">
         How this course&apos;s result out of 100 is made up. Give each module&apos;s quiz a weight, tick the
         teacher assessment if teachers should score their learners too, and weight the final assessment.
-        The weights must total exactly 100.
+        The weights must total exactly 100. Set the pass mark for each part and the overall pass mark: these are the
+        conditions for the certificate.
       </p>
       {check && check.warnings.length > 0 && <ul className="requirement-list">{check.warnings.map((warning) => <li key={warning}>{warning}</li>)}</ul>}
       <GradingSchemeForm courseId={courseId} modules={schemeModules} initial={scheme} />
@@ -113,7 +116,7 @@ export async function CourseGradingPanel({ courseId }: { courseId: string }) {
                 <input name="questionsPerAttempt" type="number" min={1} max={Math.min(200, availableBank)} step={1}
                   defaultValue={Math.min(activeFinal?.questionsPerAttempt ?? 20, availableBank)} required />
               </label>
-              <label>Pass mark (%)<input name="passPercentage" type="number" min={1} max={100} defaultValue={activeFinal?.passPercentage ?? 70} required /></label>
+              <label>Pass mark (%)<input name="passPercentage" type="number" min={1} max={100} defaultValue={activeFinal?.passPercentage ?? (scheme?.passMarks?.final || 70)} required /></label>
               <label>Time limit (minutes)<input name="timeLimitMinutes" type="number" min={1} max={480} defaultValue={activeFinal ? Math.round(activeFinal.timeLimitSeconds / 60) : 30} required /></label>
             </div>
             <label className="checkbox"><input type="checkbox" name="showLeaderboard" defaultChecked={activeFinal?.showLeaderboard ?? true} />Include in the leaderboard</label>
@@ -124,7 +127,7 @@ export async function CourseGradingPanel({ courseId }: { courseId: string }) {
     <div className="card" id="course-results">
       <h2>Course results</h2>
       {!grades ? <p className="muted">Save the assessment weights above to see each learner&apos;s course result.</p> : <>
-        <CourseResultsTable courseId={courseId} columns={columns.map((column) => ({ key: column.key, label: column.label, weight: column.weight }))} rows={resultRows} />
+        <CourseResultsTable courseId={courseId} columns={columns.map((column) => ({ key: column.key, label: column.label, weight: column.weight, passMark: column.passMark }))} rows={resultRows} />
       </>}
     </div>
   </>;

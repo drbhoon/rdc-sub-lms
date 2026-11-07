@@ -200,6 +200,9 @@ export default async function LearnCourse({ params }: { params: Promise<{ id: st
     answeredAt: row.answeredAt ? `Answered ${formatIst(row.answeredAt)}` : null,
   }));
 
+  // The weighted course result, when an admin has set the course's conditions. It also decides the certificate.
+  const courseGrade = (await loadCourseGrades(id, [user.employeeId]))?.byEmployee.get(user.employeeId)?.grade ?? null;
+
   const certificate = certificateEligibility({
     certificateEnabled: enrollment.course.certificateEnabled,
     totalLessons: lessons.length,
@@ -209,6 +212,7 @@ export default async function LearnCourse({ params }: { params: Promise<{ id: st
     hasPassedAssessment,
     hasActiveFeedbackForm,
     hasSubmittedFeedback,
+    grade: courseGrade ? { passed: courseGrade.passed, shortfalls: courseGrade.shortfalls } : null,
   });
 
   // One tab per module, holding that module's quiz AND its feedback side by
@@ -347,9 +351,6 @@ export default async function LearnCourse({ params }: { params: Promise<{ id: st
   // Open on the first module with something still to do.
   const firstOpenTab = moduleTabs.find((tab) => tab.status === "todo")?.id;
 
-  // The weighted course result, when an admin has set the weights.
-  const courseGrade = (await loadCourseGrades(id, [user.employeeId]))?.byEmployee.get(user.employeeId)?.grade ?? null;
-
   return <main className="container learn-container">
     <section className="course-hero">
       <ProgressRing percent={percent} size={72} stroke={8} label={`${completed} of ${lessons.length} lessons complete`} />
@@ -379,10 +380,13 @@ export default async function LearnCourse({ params }: { params: Promise<{ id: st
         {courseGrade && <div className="card course-result">
           <h2>Course result</h2>
           <p className="course-result-total"><strong>{courseGrade.total}</strong> / 100</p>
+          <p className={courseGrade.passed ? "result-pass" : "muted"}>
+            {courseGrade.passed ? `Passed: every part is at its pass mark and the total is above ${courseGrade.overallPassMark}.` : `To pass: ${courseGrade.overallPassMark} overall, and each part at its own pass mark.`}
+          </p>
           <table className="course-result-table"><tbody>
             {courseGrade.components.map((component) => <tr key={component.key}>
-              <td>{component.label}<br /><small className="muted">weight {component.weight}</small></td>
-              <td>{component.score === null ? <span className="muted">not yet</span> : `${component.score}%`}</td>
+              <td>{component.label}<br /><small className="muted">weight {component.weight} · pass mark {component.passMark}%</small></td>
+              <td>{component.score === null ? <span className="muted">not yet</span> : <span className={component.passed ? "result-pass" : "result-fail"}>{component.score}%</span>}</td>
               <td><strong>{component.contribution}</strong></td>
             </tr>)}
           </tbody></table>

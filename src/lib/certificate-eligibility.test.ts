@@ -39,3 +39,25 @@ describe("certificateEligibility", () => {
     expect(result.ready).toBe(true);
   });
 });
+
+describe("certificate with the course's conditions", () => {
+  it("is held back by the conditions, whatever the old quiz rule says", () => {
+    const result = certificateEligibility({
+      ...completeInput,
+      hasActiveAssessment: true, hasPassedAssessment: true,
+      grade: { passed: false, shortfalls: ["Final assessment: you scored 60%, and 70% is needed."] },
+    });
+    expect(result.ready).toBe(false);
+    expect(result.missing).toEqual(["Final assessment: you scored 60%, and 70% is needed."]);
+  });
+
+  it("is ready when the conditions are met, even if a quiz was not 'passed' by its old mark", () => {
+    const result = certificateEligibility({ ...completeInput, hasActiveAssessment: true, hasPassedAssessment: false, grade: { passed: true, shortfalls: [] } });
+    expect(result.ready).toBe(true);
+  });
+
+  it("still needs the lessons and the feedback", () => {
+    const result = certificateEligibility({ ...completeInput, hasSubmittedFeedback: false, hasActiveFeedbackForm: true, grade: { passed: true, shortfalls: [] } });
+    expect(result.missing).toEqual(["Submit course feedback."]);
+  });
+});

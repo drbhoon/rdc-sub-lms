@@ -6,7 +6,7 @@ import {
   NONE, matchesFilter, noFilter, reconcile, resultFilterQuery, rowsForChoices, type FilterField, type ResultFilter,
 } from "@/lib/results-filter";
 
-export type ResultColumn = { key: string; label: string; weight: number };
+export type ResultColumn = { key: string; label: string; weight: number; passMark?: number };
 
 export type ResultRow = {
   id: string;
@@ -22,6 +22,10 @@ export type ResultRow = {
   scores: (number | null)[];
   total: number;
   pending: number;
+  /** Meets every pass mark and the overall pass mark: what the certificate needs. */
+  passed: boolean;
+  /** Per column: whether the part reached its pass mark (null = not scored). */
+  partPassed?: (boolean | null)[];
 };
 
 const scoreText = (score: number | null) => (score === null ? "-" : `${Math.round(score * 10) / 10}`);
@@ -81,8 +85,8 @@ export function CourseResultsTable({ courseId, columns, rows }: { courseId: stri
         <thead>
           <tr>
             <th>Learner</th><th>Classroom</th><th>Teacher</th>
-            {columns.map((column) => <th key={column.key}>{column.label}<br /><span className="muted">weight {column.weight}</span></th>)}
-            <th>Course result /100</th>
+            {columns.map((column) => <th key={column.key}>{column.label}<br /><span className="muted">weight {column.weight}{column.passMark !== undefined ? ` · pass ${column.passMark}%` : ""}</span></th>)}
+            <th>Course result /100</th><th>Certificate</th>
           </tr>
           <tr className="filter-row">
             <td>
@@ -105,7 +109,7 @@ export function CourseResultsTable({ courseId, columns, rows }: { courseId: stri
                 {options.noTeacher && <option value={NONE}>No teacher</option>}
               </select>
             </td>
-            <td colSpan={columns.length + 1} className="muted">Showing {visible.length} of {rows.length} learner{rows.length === 1 ? "" : "s"}</td>
+            <td colSpan={columns.length + 2} className="muted">Showing {visible.length} of {rows.length} learner{rows.length === 1 ? "" : "s"}</td>
           </tr>
         </thead>
         <tbody>
@@ -113,11 +117,12 @@ export function CourseResultsTable({ courseId, columns, rows }: { courseId: stri
             <td><strong>{row.name}</strong><br /><span className="muted">{row.code}</span></td>
             <td>{row.classroomName ?? <span className="muted">-</span>}</td>
             <td>{row.teacherName ? <><strong>{row.teacherName}</strong>{row.teacherCode && <><br /><span className="muted">{row.teacherCode}</span></>}</> : <span className="muted">-</span>}</td>
-            {row.scores.map((score, index) => <td key={columns[index]?.key ?? index}>{scoreText(score)}</td>)}
+            {row.scores.map((score, index) => <td key={columns[index]?.key ?? index} className={row.partPassed?.[index] === false ? "result-fail" : undefined}>{scoreText(score)}</td>)}
             <td><strong>{row.total}</strong>{row.pending > 0 && <><br /><span className="muted">{row.pending} pending</span></>}</td>
+            <td>{row.passed ? <span className="result-pass">Passed</span> : <span className="muted">{row.pending > 0 ? "Not yet" : "Not passed"}</span>}</td>
           </tr>)}
-          {!rows.length && <tr><td colSpan={columns.length + 4}>No learners are enrolled yet.</td></tr>}
-          {rows.length > 0 && !visible.length && <tr><td colSpan={columns.length + 4}>No learner matches these choices.</td></tr>}
+          {!rows.length && <tr><td colSpan={columns.length + 5}>No learners are enrolled yet.</td></tr>}
+          {rows.length > 0 && !visible.length && <tr><td colSpan={columns.length + 5}>No learner matches these choices.</td></tr>}
         </tbody>
       </table>
     </div>

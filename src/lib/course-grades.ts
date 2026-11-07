@@ -10,18 +10,23 @@ import { computeCourseGrade, type CourseGrade, type GradingScheme } from "./cour
 
 export type CourseModule = { id: string; label: string };
 
-export function schemeFromRow(row: Pick<CourseGrading, "teacherAssessmentEnabled" | "teacherWeight" | "finalWeight" | "moduleWeights"> | null): GradingScheme | null {
+export function schemeFromRow(row: Pick<CourseGrading, "teacherAssessmentEnabled" | "teacherWeight" | "finalWeight" | "moduleWeights" | "overallPassPercent" | "passMarks"> | null): GradingScheme | null {
   if (!row) return null;
   const raw = row.moduleWeights && typeof row.moduleWeights === "object" && !Array.isArray(row.moduleWeights)
     ? row.moduleWeights as Record<string, unknown>
     : {};
   const moduleWeights: Record<string, number> = {};
   for (const [id, weight] of Object.entries(raw)) moduleWeights[id] = Number(weight) || 0;
+  const marks = row.passMarks && typeof row.passMarks === "object" && !Array.isArray(row.passMarks) ? row.passMarks as Record<string, unknown> : {};
+  const passMarks: Record<string, number> = {};
+  for (const [key, mark] of Object.entries(marks)) passMarks[key] = Number(mark);
   return {
     teacherAssessmentEnabled: row.teacherAssessmentEnabled,
     teacherWeight: row.teacherWeight,
     finalWeight: row.finalWeight,
     moduleWeights,
+    overallPassPercent: row.overallPassPercent,
+    passMarks,
   };
 }
 

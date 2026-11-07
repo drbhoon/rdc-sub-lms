@@ -714,6 +714,11 @@ model CourseGrading {
   /// { "<courseContentId>": weight } for each module that counts. A module
   /// missing from the map weighs nothing.
   moduleWeights            Json     @default("{}")
+  /// The weighted course result needed to pass (the certificate needs it).
+  overallPassPercent       Int      @default(75)
+  /// { "module:<courseContentId>" | "teacher" | "final": minimum score } each
+  /// part must reach on its own. A part not listed needs 70; 0 = no minimum.
+  passMarks                Json     @default("{}")
   updatedByUserId          String?
   course                   Course   @relation(fields: [courseId], references: [id], onDelete: Cascade)
   createdAt                DateTime @default(now())
