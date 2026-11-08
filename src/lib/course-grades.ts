@@ -1,4 +1,7 @@
 import { AssessmentKind, AssessmentStatus, type CourseGrading } from "@prisma/client";
+
+/** Every version of a quiz that learners have sat: the live one and the ones it replaced. Never a draft. */
+const SAT_VERSIONS = { in: [AssessmentStatus.ACTIVE, AssessmentStatus.INACTIVE] };
 import { db } from "@/lib/db";
 import { computeCourseGrade, type CourseGrade, type GradingScheme } from "./course-grading";
 
@@ -61,9 +64,11 @@ export type CourseGrades = {
  * Every listed learner's course result, or null when the course has no
  * weighted scheme yet.
  *
- * Scores are each learner's BEST submitted attempt on the ACTIVE quiz — the
- * same rule the certificate uses — so a result and a certificate never tell a
- * learner two different things.
+ * Scores are each learner's BEST submitted attempt on a module's quiz (or on
+ * the final), across EVERY version of it. Uploading a new version of a quiz
+ * retires the old one, but what learners scored on it is still theirs: a result
+ * that dropped it would show blanks for people who had passed. The certificate
+ * uses the same figures, so a result and a certificate never disagree.
  */
 export async function loadCourseGrades(courseId: string, employeeIds: string[]): Promise<CourseGrades | null> {
   const grading = await db.courseGrading.findUnique({ where: { courseId } });
@@ -73,7 +78,7 @@ export async function loadCourseGrades(courseId: string, employeeIds: string[]):
   const [modules, assessments, bestAttempts, evaluations] = await Promise.all([
     courseModules(courseId),
     db.assessment.findMany({
-      where: { courseId, status: AssessmentStatus.ACTIVE },
+      where: { courseId, status: SAT_VERSIONS },
       select: { id: true, kind: true, courseContentId: true },
     }),
     employeeIds.length
@@ -82,7 +87,7 @@ export async function loadCourseGrades(courseId: string, employeeIds: string[]):
         where: {
           status: "SUBMITTED",
           employeeId: { in: employeeIds },
-          assessment: { courseId, status: AssessmentStatus.ACTIVE },
+          assessment: { courseId, status: SAT_VERSIONS },
         },
         _max: { scorePercent: true },
       })
