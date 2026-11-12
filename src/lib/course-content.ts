@@ -39,14 +39,17 @@ export async function recordCourseContent(input: {
   sizeBytes: number;
   storedKey: string;
   type: ContentType;
+  /** Reference material for the AI assistant only: not a lesson, never shown to learners. */
+  aiOnly?: boolean;
 }) {
   const course = await db.course.findUniqueOrThrow({ where: { id: input.courseId } });
   const content = await createContentWithNextVersion({
     courseId: input.courseId, originalName: input.fileName, storedKey: input.storedKey,
-    mimeType: input.mimeType, sizeBytes: input.sizeBytes, type: input.type, jobs: { create: {} },
+    mimeType: input.mimeType, sizeBytes: input.sizeBytes, type: input.type, aiOnly: input.aiOnly ?? false, jobs: { create: {} },
   });
-  await db.course.update({ where: { id: input.courseId }, data: { status: course.status === "PUBLISHED" ? "PUBLISHED" : "CONTENT_UPLOADED", hasPendingChanges: true } });
-  await audit(input.actorId, "CONTENT_UPLOADED", "CourseContent", content.id, { fileName: input.fileName, size: input.sizeBytes });
+  // Reference material waits for no one's approval and changes nothing learners see, so it leaves the course as it is.
+  if (!input.aiOnly) await db.course.update({ where: { id: input.courseId }, data: { status: course.status === "PUBLISHED" ? "PUBLISHED" : "CONTENT_UPLOADED", hasPendingChanges: true } });
+  await audit(input.actorId, "CONTENT_UPLOADED", "CourseContent", content.id, { fileName: input.fileName, size: input.sizeBytes, aiOnly: input.aiOnly ?? false });
   revalidatePath(`/admin/courses/${input.courseId}`);
   return content;
 }

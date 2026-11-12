@@ -76,16 +76,18 @@ async function processDocument(content: Awaited<ReturnType<typeof nextContent>>,
     pdf = path.join(temp, "input.pdf");
   }
   const prefix = path.join(temp, "page");
-  await command("pdftoppm", ["-png", "-r", "120", pdf, prefix]);
   const { stdout } = await command("pdftotext", [pdf, "-"]);
-  const files = numberedPngs(await readdir(temp), "page");
+  // Reference material for the AI is only read, never shown, so its pages are not rendered or stored.
   const keys: string[] = [];
-  for (const file of files) {
-    const key = `generated/${content.id}/${file}`;
-    await storage.put(key, await readFile(path.join(temp, file)));
-    keys.push(key);
+  if (!content.aiOnly) {
+    await command("pdftoppm", ["-png", "-r", "120", pdf, prefix]);
+    for (const file of numberedPngs(await readdir(temp), "page")) {
+      const key = `generated/${content.id}/${file}`;
+      await storage.put(key, await readFile(path.join(temp, file)));
+      keys.push(key);
+    }
+    if (!keys.length) throw new Error("No pages were produced from the document");
   }
-  if (!keys.length) throw new Error("No pages were produced from the document");
   const sourceText = await courseTextWithOcr(stdout, async () => {
     console.log(`[worker] No selectable text in ${content.originalName}; running OCR.`);
     return ocrDocument(pdf, temp);
@@ -107,6 +109,7 @@ async function processDocument(content: Awaited<ReturnType<typeof nextContent>>,
       aiGeneratedAt: new Date(),
     },
   });
+  if (content.aiOnly) return;
   await db.lesson.upsert({
     where: { courseContentId_order: { courseContentId: content.id, order: 1 } },
     update: { title: content.originalName.replace(/\.[^.]+$/, ""), type: LessonType.DOCUMENT, pageAssetKeys: keys, pageCount: keys.length },
@@ -160,7 +163,7 @@ async function nextContent() {
   const claimed = await db.processingJob.updateMany({ where: { id: job.id, status: ProcessingStatus.QUEUED }, data: { status: ProcessingStatus.PROCESSING, lockedAt: new Date(), attempts: { increment: 1 } } });
   if (!claimed.count) return null;
   await db.courseContent.update({ where: { id: job.contentId }, data: { processingStatus: ProcessingStatus.PROCESSING } });
-  if (job.content.course.status !== "PUBLISHED") await db.course.update({ where: { id: job.content.courseId }, data: { status: "AI_PROCESSING" } });
+  if (!job.content.aiOnly && job.content.course.status !== "PUBLISHED") await db.course.update({ where: { id: job.content.courseId }, data: { status: "AI_PROCESSING" } });
   return { ...job.content, jobId: job.id };
 }
 
@@ -172,10 +175,12 @@ async function processOne() {
     if (content.type === "VIDEO") await processVideo(content, temp);
     else if (content.type === "SCORM") await processScorm(content, temp);
     else await processDocument(content, temp);
+    // Reference material for the AI is approved as it is read: there is nothing for a teacher to review
+    // and nothing for learners to see, so the course is left exactly as it was.
     await db.$transaction([
-      db.courseContent.update({ where: { id: content.id }, data: { processingStatus: ProcessingStatus.COMPLETED, processingError: null } }),
+      db.courseContent.update({ where: { id: content.id }, data: { processingStatus: ProcessingStatus.COMPLETED, processingError: null, ...(content.aiOnly ? { approvedAt: new Date() } : {}) } }),
       db.processingJob.update({ where: { id: content.jobId }, data: { status: ProcessingStatus.COMPLETED, error: null } }),
-      db.course.update({ where: { id: content.courseId }, data: { status: content.course.status === "PUBLISHED" ? "PUBLISHED" : "PENDING_TEACHER_APPROVAL", hasPendingChanges: true } }),
+      ...(content.aiOnly ? [] : [db.course.update({ where: { id: content.courseId }, data: { status: content.course.status === "PUBLISHED" ? "PUBLISHED" : "PENDING_TEACHER_APPROVAL", hasPendingChanges: true } })]),
     ]);
   } catch (error) {
     const message = error instanceof Error ? error.message.slice(0, 1000) : "Unknown processing error";

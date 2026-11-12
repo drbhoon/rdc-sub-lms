@@ -89,7 +89,9 @@ export default async function CourseAdminPage({ params }: { params: Promise<{ id
   // is still called "version" in the database, which is only the order they
   // were uploaded in; the page lists newest first but numbers oldest first, the
   // same as the learner and teacher pages do.
-  const moduleNumber = new Map([...course.contents].sort((x, y) => x.version - y.version).map((content, index) => [content.id, index + 1]));
+  // Reference material for the AI is not a module: it is not numbered and no quiz or feedback hangs on it.
+  const moduleContents = course.contents.filter((content) => !content.aiOnly);
+  const moduleNumber = new Map([...moduleContents].sort((x, y) => x.version - y.version).map((content, index) => [content.id, index + 1]));
   const selectedCompanyIds = new Set(course.companies.map((company) => company.companyId));
   const selectedTeacherIds = new Set(course.teachers.map((teacher) => teacher.userId));
   const totalLessons = course.contents
@@ -172,8 +174,8 @@ export default async function CourseAdminPage({ params }: { params: Promise<{ id
           <h2>Content</h2>
           {course.kind === "ILT" && <p className="muted">Live sessions are added in the “Live sessions” panel above.</p>}
           {course.contents.map((content) => <div className="card" key={content.id}>
-            <strong>Module {moduleNumber.get(content.id)}: {content.originalName}</strong>
-            <p><span className="badge">{content.processingStatus}</span> {content.isPublished && <span className="badge">LIVE</span>} {content.type === "YOUTUBE" ? <span className="badge">YouTube</span> : content.type === "TEXT" ? <span className="badge">{content.aiGeneratedAt ? "AI-written lesson" : "Written lesson"}</span> : content.type === "ILT" ? <span className="badge">Live session</span> : content.type === "SCORM" ? <><span className="badge">SCORM</span> - {(content.sizeBytes / 1048576).toFixed(1)} MB</> : <>- {(content.sizeBytes / 1048576).toFixed(1)} MB</>}</p>
+            <strong>{content.aiOnly ? "AI reference" : `Module ${moduleNumber.get(content.id)}`}: {content.originalName}</strong>
+            <p><span className="badge">{content.processingStatus}</span> {content.isPublished && <span className="badge">LIVE</span>} {content.aiOnly ? <span className="badge">For the AI assistant only - hidden from learners</span> : content.type === "YOUTUBE" ? <span className="badge">YouTube</span> : content.type === "TEXT" ? <span className="badge">{content.aiGeneratedAt ? "AI-written lesson" : "Written lesson"}</span> : content.type === "ILT" ? <span className="badge">Live session</span> : content.type === "SCORM" ? <><span className="badge">SCORM</span> - {(content.sizeBytes / 1048576).toFixed(1)} MB</> : <>- {(content.sizeBytes / 1048576).toFixed(1)} MB</>}</p>
             {content.processingError && <p className="error">{content.processingError}</p>}
             <p>{content.lessons.length} lesson(s) {content.approvedAt ? "- Approved" : ""}</p>
             {content.type === "SCORM" && content.lessons[0] && <p><Link className="button secondary" href={`/admin/courses/${course.id}/scorm/${content.lessons[0].id}`}>Preview this course</Link></p>}
@@ -203,7 +205,7 @@ export default async function CourseAdminPage({ params }: { params: Promise<{ id
         <ModuleActivities
           courseId={course.id}
           passPercentage={course.passPercentage}
-          modules={course.contents}
+          modules={moduleContents}
           // The final assessment has no module and is managed in its own card
           // below; left in, it would be listed as an "older upload".
           assessments={course.assessments.filter((assessment) => assessment.kind !== "FINAL")}

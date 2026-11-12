@@ -28,7 +28,7 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
       course: {
         include: {
           contents: {
-            where: { isPublished: true },
+            where: { OR: [{ isPublished: true }, { aiOnly: true, processingStatus: "COMPLETED" }] },
             select: { originalName: true, extractedText: true, summary: true, keyPoints: true, glossary: true },
           },
         },

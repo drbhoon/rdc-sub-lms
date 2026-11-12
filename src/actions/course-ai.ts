@@ -65,7 +65,7 @@ export async function askCourseAi(_: CourseAiState, formData: FormData): Promise
       course: {
         include: {
           contents: {
-            where: { isPublished: true },
+            where: { OR: [{ isPublished: true }, { aiOnly: true, processingStatus: "COMPLETED" }] },
             select: { originalName: true, extractedText: true, summary: true, keyPoints: true, glossary: true },
           },
         },
@@ -96,7 +96,7 @@ export async function askCourseAi(_: CourseAiState, formData: FormData): Promise
 
   let response: Response;
   try {
-    response = await fetch("https://api.openai.com/v1/responses", {
+    response = await fetch(`${(process.env.OPENAI_BASE_URL || "https://api.openai.com/v1").replace(/\/$/, "")}/responses`, {
       method: "POST",
       headers: { "Content-Type": "application/json", Authorization: `Bearer ${apiKey}` },
       body: JSON.stringify({

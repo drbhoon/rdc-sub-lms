@@ -136,7 +136,9 @@ export default async function TeacherCourse({ params }: { params: Promise<{ id: 
   })), 5);
 
   const unansweredQuestions = learnerQuestions.filter((item) => !item.answer).length;
-  const awaitingApproval = course.contents.filter(needsApproval).length;
+  // Reference material for the AI assistant is not a module: nothing to approve, no quiz or feedback on it.
+  const moduleContents = course.contents.filter((content) => !content.aiOnly);
+  const awaitingApproval = moduleContents.filter(needsApproval).length;
 
   return <main className="container">
     <div className="badge-row"><span className="badge">{course.status.replaceAll("_", " ")}</span>{!course.isActive && <span className="badge badge-muted">Inactive</span>}</div>
@@ -150,7 +152,7 @@ export default async function TeacherCourse({ params }: { params: Promise<{ id: 
       <section className="form">
         {course.kind === "ILT" && <IltPanel courseId={course.id} />}
         <CollapsibleCard title="Content approval" summary={awaitingApproval ? `${awaitingApproval} awaiting approval` : "nothing waiting"} defaultOpen={awaitingApproval > 0}>
-          <ModulePicker legend="Module" initialId={(course.contents.find(needsApproval) ?? course.contents[0])?.id} options={course.contents.map((content, index) => { const questions = parseQuizQuestions(content.quizQuestions); return { id: content.id, label: moduleOptionLabel(content, index), panel: <article className="card">
+          <ModulePicker legend="Module" initialId={(moduleContents.find(needsApproval) ?? moduleContents[0])?.id} options={moduleContents.map((content, index) => { const questions = parseQuizQuestions(content.quizQuestions); return { id: content.id, label: moduleOptionLabel(content, index), panel: <article className="card">
             <h3>Module {index + 1}: {content.originalName}</h3>
             <p><span className="badge">{content.processingStatus}</span> {content.isPublished && <span className="badge">LIVE</span>} {content.rejectedAt && <span className="badge">REJECTED</span>}</p>
             {content.summary && <><strong>{content.aiGeneratedAt ? "AI-generated summary" : "Extracted summary"}</strong><p>{content.summary}</p></>}
@@ -213,7 +215,7 @@ export default async function TeacherCourse({ params }: { params: Promise<{ id: 
         <ModuleActivities
           courseId={course.id}
           passPercentage={course.passPercentage}
-          modules={course.contents}
+          modules={moduleContents}
           assessments={course.assessments.filter((assessment) => assessment.kind !== "FINAL")}
           feedbackForms={course.feedbackForms}
           hasFinalAssessment={course.assessments.some((assessment) => assessment.kind === "FINAL" && assessment.status === "ACTIVE")}

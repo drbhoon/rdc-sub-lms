@@ -46,7 +46,7 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
   if (params.get("complete") === "1") {
     const course = await db.course.findUnique({ where: { id: courseId } });
     if (!course || course.status === "ARCHIVED") return json({ message: "Course is unavailable." }, 404);
-    const body = await request.json().catch(() => null) as { fileName?: unknown; fileType?: unknown; fileSize?: unknown } | null;
+    const body = await request.json().catch(() => null) as { fileName?: unknown; fileType?: unknown; fileSize?: unknown; aiOnly?: unknown } | null;
     const description = { name: String(body?.fileName ?? ""), type: String(body?.fileType ?? ""), size: Number(body?.fileSize ?? 0) };
     const stored = await storage.size(key);
     if (stored === null) return json({ message: "Nothing was received for this upload. Please upload the file again." }, 400);
@@ -62,10 +62,14 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
       if (course.kind === "SCORM" && validated.type !== "SCORM") throw new Error("This is a SCORM course: upload the SCORM package (.zip).");
       if (course.kind === "ILT") throw new Error("An instructor-led course has live sessions, not uploaded files. Add a session instead.");
       if (course.kind === "SCORM" && await db.courseContent.count({ where: { courseId } }) > 0) throw new Error("This SCORM course already has a package. Delete it first to upload a different one.");
+      // Reference material for the AI assistant: slides or a PDF standing in for what a video says. Documents only.
+      const aiOnly = body?.aiOnly === true;
+      if (aiOnly && validated.type !== "PDF" && validated.type !== "PRESENTATION") throw new Error("Only a PDF or PowerPoint can be added for the AI assistant alone.");
+      if (aiOnly && course.kind !== "STANDARD") throw new Error("Reference material for the AI can be added to standard courses only.");
       await storage.move(key, validated.key);
       await recordCourseContent({
         actorId: actor.id, courseId, fileName: description.name, mimeType: description.type,
-        sizeBytes: description.size, storedKey: validated.key, type: validated.type,
+        sizeBytes: description.size, storedKey: validated.key, type: validated.type, aiOnly,
       });
       return json({ message: "Upload queued for processing." });
     } catch (error) {

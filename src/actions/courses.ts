@@ -164,7 +164,7 @@ export async function setCourseStatus(formData: FormData) {
   }
   await db.$transaction(async (tx) => {
     await tx.course.update({ where: { id: courseId }, data: { status, hasPendingChanges: status === CourseStatus.PUBLISHED ? false : course.hasPendingChanges, publishedAt: status === CourseStatus.PUBLISHED ? new Date() : course.publishedAt } });
-    if (status === CourseStatus.PUBLISHED) await tx.courseContent.updateMany({ where: { courseId, approvedAt: { not: null }, rejectedAt: null }, data: { isPublished: true } });
+    if (status === CourseStatus.PUBLISHED) await tx.courseContent.updateMany({ where: { courseId, approvedAt: { not: null }, rejectedAt: null, aiOnly: false }, data: { isPublished: true } });
   });
   await audit(actor.id, `COURSE_${status}`, "Course", courseId);
   revalidatePath(`/admin/courses/${courseId}`);

@@ -28,6 +28,7 @@ export function ContentUploadForm({ courseId, maxMb, kind = "STANDARD" }: { cour
   const [dragging, setDragging] = useState(false);
   const [progress, setProgress] = useState<number | null>(null);
   const [message, setMessage] = useState("");
+  const [aiOnly, setAiOnly] = useState(false);
 
   function selectFile(file: File | undefined) {
     if (!file || !inputRef.current) return;
@@ -71,10 +72,11 @@ export function ContentUploadForm({ courseId, maxMb, kind = "STANDARD" }: { cour
         }
         setProgress(Math.round(offset / file.size * 100));
       }
-      const done = await post(`${base}&complete=1`, JSON.stringify({ fileName: file.name, fileType: file.type, fileSize: file.size }), "application/json");
+      const done = await post(`${base}&complete=1`, JSON.stringify({ fileName: file.name, fileType: file.type, fileSize: file.size, aiOnly: aiOnly && /\.(pdf|pptx?)$/i.test(file.name) }), "application/json");
       if (done.status !== 200) throw new Error(done.reply.message ?? "Upload failed.");
       setMessage(done.reply.message ?? "Upload queued for processing.");
       setFileName("");
+      setAiOnly(false);
       if (inputRef.current) inputRef.current.value = "";
       router.refresh();
     } catch (error) {
@@ -114,6 +116,10 @@ export function ContentUploadForm({ courseId, maxMb, kind = "STANDARD" }: { cour
         onChange={(event) => setFileName(event.currentTarget.files?.[0]?.name ?? "")}
       />
     </label>
+    {kind === "STANDARD" && <label className="checkbox">
+      <input type="checkbox" checked={aiOnly} onChange={(event) => setAiOnly(event.target.checked)} disabled={uploading} />
+      <span>For the AI assistant only (PDF or PowerPoint): learners do not see it. Use it where a course is only a video, so the AI can answer from the slides.</span>
+    </label>}
     {uploading && <div className="progress" role="progressbar" aria-valuenow={progress} aria-valuemin={0} aria-valuemax={100}><span style={{ width: `${progress}%` }} /></div>}
     {message && <p className="message">{message}</p>}
     <button disabled={uploading}>{uploading ? `Uploading… ${progress}%` : "Upload and queue"}</button>

@@ -333,6 +333,10 @@ model CourseContent {
   rejectedAt        DateTime?
   rejectionReason   String?
   isPublished       Boolean            @default(false)
+  /// Reference material for the AI assistant only (e.g. a slide deck standing in for a
+  /// course that is only a video). Read and summarised like any document, but it makes no
+  /// lesson, is never published to learners and counts for nothing in completion or results.
+  aiOnly            Boolean            @default(false)
   course            Course             @relation(fields: [courseId], references: [id], onDelete: Cascade)
   lessons           Lesson[]
   jobs              ProcessingJob[]
