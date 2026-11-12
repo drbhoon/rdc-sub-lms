@@ -24,6 +24,8 @@ export type ResultRow = {
   pending: number;
   /** Meets every pass mark and the overall pass mark: what the certificate needs. */
   passed: boolean;
+  /** Has finished the course, so a certificate can be downloaded once passed. */
+  completed?: boolean;
   /** Per column: whether the part reached its pass mark (null = not scored). */
   partPassed?: (boolean | null)[];
 };
@@ -119,7 +121,7 @@ export function CourseResultsTable({ courseId, columns, rows }: { courseId: stri
             <td>{row.teacherName ? <><strong>{row.teacherName}</strong>{row.teacherCode && <><br /><span className="muted">{row.teacherCode}</span></>}</> : <span className="muted">-</span>}</td>
             {row.scores.map((score, index) => <td key={columns[index]?.key ?? index} className={row.partPassed?.[index] === false ? "result-fail" : undefined}>{scoreText(score)}</td>)}
             <td><strong>{row.total}</strong>{row.pending > 0 && <><br /><span className="muted">{row.pending} pending</span></>}</td>
-            <td>{row.passed ? <span className="result-pass">Passed</span> : <span className="muted">{row.pending > 0 ? "Not yet" : "Not passed"}</span>}</td>
+            <td>{row.passed ? <><span className="result-pass">Passed</span>{row.completed && <><br /><a href={withBase(`/api/courses/${courseId}/certificate?employee=${row.employeeId}`)}>Download certificate</a></>}</> : <span className="muted">{row.pending > 0 ? "Not yet" : "Not passed"}</span>}</td>
           </tr>)}
           {!rows.length && <tr><td colSpan={columns.length + 5}>No learners are enrolled yet.</td></tr>}
           {rows.length > 0 && !visible.length && <tr><td colSpan={columns.length + 5}>No learner matches these choices.</td></tr>}

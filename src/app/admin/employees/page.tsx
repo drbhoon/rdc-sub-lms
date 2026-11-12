@@ -173,7 +173,7 @@ export default async function EmployeesPage({ searchParams }: { searchParams: Pr
                 <td>{employee.company.name}{employee.locationPlant && <><br /><span className="muted">{employee.locationPlant}</span></>}</td>
                 <td>{employee.archivedAt ? formatIst(employee.archivedAt) : ""}</td>
                 <td><span className="status-pill">{employee.archiveReason ?? "Archived"}</span></td>
-                <td><a className="button secondary" href={withBase(`/admin/learners/${employee.id}`)}>View activity</a></td>
+                <td><a className="button secondary" href={withBase(`/admin/learners/${employee.id}`)}>View activity</a> <a className="button secondary" href={withBase(`/api/view-as/start?employee=${employee.id}`)}>View as learner</a></td>
                 <td><ActionForm action={restoreEmployee} submitLabel="Restore"><input type="hidden" name="employeeId" value={employee.id} /></ActionForm></td>
               </tr>)}
               {!employees.length && <tr><td colSpan={6}>{query ? "No archived employee matches this search." : "Nobody is archived."}</td></tr>}
@@ -210,7 +210,7 @@ export default async function EmployeesPage({ searchParams }: { searchParams: Pr
                   <td>{seenCutoff && employee.masterSeenAt && employee.masterSeenAt >= seenCutoff
                     ? <span className="status-pill status-completed">In master</span>
                     : <span className="status-pill source-warn">{employee.source === "UPLOAD" ? "Uploaded" : "Not in master"}</span>}</td>
-                  <td><a className="button secondary" href={withBase(`/admin/learners/${employee.id}`)}>View activity</a></td>
+                  <td><a className="button secondary" href={withBase(`/admin/learners/${employee.id}`)}>View activity</a> <a className="button secondary" href={withBase(`/api/view-as/start?employee=${employee.id}`)}>View as learner</a></td>
                   <td>
                     {employee.user && employee.status === "ACTIVE" ? <ActionForm action={updateUserRoles} submitLabel="Save roles">
                       <input type="hidden" name="userId" value={employee.user.id} />

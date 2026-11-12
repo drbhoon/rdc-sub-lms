@@ -51,7 +51,8 @@ export function LessonPlayer({ lessons, moduleCount }: {
     setFinishNote("");
     startTransition(async () => {
       const result = await recordProgress(form);
-      if (!result?.lessonCompleted) setFinishNote("Some pages of this " + unit.toLowerCase() + " have not been viewed yet. Use Previous to go back through them, then press Finish again.");
+      if (result?.viewOnly) setFinishNote("View-only: nothing is saved while you are looking at this learner's account.");
+      else if (!result?.lessonCompleted) setFinishNote("Some pages of this " + unit.toLowerCase() + " have not been viewed yet. Use Previous to go back through them, then press Finish again.");
     });
   }
   function showPage(next:number) {

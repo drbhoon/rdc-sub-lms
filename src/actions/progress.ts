@@ -8,6 +8,8 @@ import { documentIsComplete, videoIsComplete } from "@/lib/progress";
 
 export async function recordProgress(formData: FormData) {
   const user = await requireUser();
+  // An administrator looking at this learner's account: the page keeps reporting as it always does; none of it is saved.
+  if (user.viewingAs) return { lessonCompleted: false, viewOnly: true };
   if (!user.employeeId) throw new Error("Learner profile required");
   const lessonId = String(formData.get("lessonId"));
   const page = Number(formData.get("page") ?? 0);
@@ -41,5 +43,5 @@ export async function recordProgress(formData: FormData) {
   });
   revalidatePath(`/learn/courses/${lesson.content.courseId}`);
   // What the lesson player needs to tell the learner they have finished.
-  return { lessonCompleted: lessonDone };
+  return { lessonCompleted: lessonDone, viewOnly: false };
 }

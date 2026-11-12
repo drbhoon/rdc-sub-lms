@@ -3,6 +3,7 @@ import { AdminHero, StatTile, toneAt } from "@/components/admin-ui";
 import { notFound } from "next/navigation";
 import { UserRole } from "@prisma/client";
 import { audit } from "@/lib/audit";
+import { getCertificateRecord } from "@/lib/certificate-record";
 import { withBase } from "@/lib/base-path";
 import { db } from "@/lib/db";
 import { requireRole } from "@/lib/session";
@@ -42,11 +43,20 @@ export default async function LearnerActivityPage({ params }: { params: Promise<
     },
   });
   if (!employee) notFound();
+  // Which finished courses have a certificate to download, by the same rules the learner faces.
+  const certificateCourses = new Set<string>();
+  for (const enrollment of employee.enrollments) {
+    if (enrollment.completedAt && await getCertificateRecord(employee.id, enrollment.courseId)) certificateCourses.add(enrollment.courseId);
+  }
   await audit(actor.id, "LEARNER_ACTIVITY_VIEWED", "Employee", employee.id, { employeeCode: employee.employeeCode });
 
   return <main className="container">
     <div className="view-only-banner"><strong>View-only learner activity</strong><span>You are viewing recorded activity as an administrator. No learner data can be changed from this page.</span></div>
-    <p><a className="button secondary" href={withBase("/admin/employees")}>Back to employees</a></p>
+    <p>
+      <a className="button secondary" href={withBase("/admin/employees")}>Back to employees</a>{" "}
+      <a className="button" href={withBase(`/api/view-as/start?employee=${employee.id}`)}>View as this learner</a>
+      <span className="muted"> The portal exactly as they see it, read-only.</span>
+    </p>
     <AdminHero icon={UserRound} title={employee.name} subtitle={`${employee.employeeCode} · ${employee.email} · ${employee.company.name} · ${employee.designation}`} />
     <div className="stat-grid">
       <StatTile icon={Library} value={employee.enrollments.length} label="Course enrolments" tone={toneAt(0)} />
@@ -55,9 +65,9 @@ export default async function LearnerActivityPage({ params }: { params: Promise<
       <StatTile icon={Bot} value={employee.aiInteractions.length} label="AI questions in retained history" tone={toneAt(3)} />
     </div>
 
-    <section className="card dashboard-row"><h2>Courses and progress</h2><div className="table-wrap"><table><thead><tr><th>Course</th><th>Status</th><th>Enrolled</th><th>Started</th><th>Completed</th><th>Lessons touched</th><th>Lessons completed</th></tr></thead><tbody>
-      {employee.enrollments.map((enrollment) => <tr key={enrollment.id}><td>{enrollment.course.title}</td><td>{enrollment.status.replaceAll("_", " ")}</td><td>{formatIst(enrollment.enrolledAt)}</td><td>{formatIst(enrollment.startedAt)}</td><td>{formatIst(enrollment.completedAt)}</td><td>{enrollment.progress.length}</td><td>{enrollment.progress.filter((item) => item.completedAt).length}</td></tr>)}
-      {!employee.enrollments.length && <tr><td colSpan={7}>No course enrolments.</td></tr>}
+    <section className="card dashboard-row"><h2>Courses and progress</h2><div className="table-wrap"><table><thead><tr><th>Course</th><th>Status</th><th>Enrolled</th><th>Started</th><th>Completed</th><th>Lessons touched</th><th>Lessons completed</th><th>Certificate</th></tr></thead><tbody>
+      {employee.enrollments.map((enrollment) => <tr key={enrollment.id}><td>{enrollment.course.title}</td><td>{enrollment.status.replaceAll("_", " ")}</td><td>{formatIst(enrollment.enrolledAt)}</td><td>{formatIst(enrollment.startedAt)}</td><td>{formatIst(enrollment.completedAt)}</td><td>{enrollment.progress.length}</td><td>{enrollment.progress.filter((item) => item.completedAt).length}</td><td>{certificateCourses.has(enrollment.courseId) ? <a href={withBase(`/api/courses/${enrollment.courseId}/certificate?employee=${employee.id}`)}>Download certificate</a> : <span className="muted">{enrollment.completedAt ? "Conditions not met" : "-"}</span>}</td></tr>)}
+      {!employee.enrollments.length && <tr><td colSpan={8}>No course enrolments.</td></tr>}
     </tbody></table></div></section>
 
     <section className="card"><h2>Lesson activity</h2><div className="table-wrap"><table><thead><tr><th>Course</th><th>Lesson</th><th>Pages viewed</th><th>Watched seconds</th><th>Completed</th><th>Last activity</th></tr></thead><tbody>

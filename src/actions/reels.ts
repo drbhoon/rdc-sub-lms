@@ -65,7 +65,7 @@ export async function deleteReel(formData: FormData): Promise<void> {
 /** A learner's watching of a reel. Kept per learner, never required. */
 export async function recordReelView(reelId: string, watchedSeconds: number, ended: boolean): Promise<void> {
   const user = await requireUser();
-  if (!user.employeeId) return;
+  if (!user.employeeId || user.viewingAs) return;
   const reel = await db.courseReel.findUnique({ where: { id: reelId }, include: { course: true } });
   if (!reel || !reel.isActive || reel.course.status !== "PUBLISHED") return;
   const enrolled = await db.enrollment.findUnique({ where: { employeeId_courseId: { employeeId: user.employeeId, courseId: reel.courseId } } });

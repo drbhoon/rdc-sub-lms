@@ -2,9 +2,11 @@
 
 import { startTransition, useActionState, useMemo, useState } from "react";
 import { unenrolLearners } from "@/actions/enrollments";
+import { withBase } from "@/lib/base-path";
 
 export type RosterRow = {
   enrollmentId: string;
+  employeeId: string;
   name: string;
   employeeCode: string;
   email: string;
@@ -57,7 +59,7 @@ export function LearnerRoster({ courseId, rows }: { courseId: string; rows: Rost
       <thead><tr>
         <th><input type="checkbox" aria-label="Select everyone shown" checked={allTicked}
           onChange={() => setPicked(allTicked ? new Set() : new Set(rows.map((row) => row.enrollmentId)))} /></th>
-        <th>Learner</th><th>E-mail</th><th>Company</th><th>Classroom</th><th>Enrolled on</th><th>Status</th><th>Progress</th>
+        <th>Learner</th><th>E-mail</th><th>Company</th><th>Classroom</th><th>Enrolled on</th><th>Status</th><th>Progress</th><th>Admin</th>
       </tr></thead>
       <tbody>
         {rows.map((row) => <tr key={row.enrollmentId}>
@@ -70,8 +72,12 @@ export function LearnerRoster({ courseId, rows }: { courseId: string; rows: Rost
           <td>{row.enrolledOn}</td>
           <td><span className="badge">{row.status.replaceAll("_", " ")}</span></td>
           <td>{row.lessonsDone}/{row.totalLessons} lessons{row.quizAttempts > 0 ? <><br /><span className="muted">{row.quizAttempts} quiz attempt{row.quizAttempts === 1 ? "" : "s"}</span></> : null}</td>
+          <td className="roster-links">
+            <a href={withBase(`/api/view-as/start?employee=${row.employeeId}`)}>View as learner</a>
+            {row.status === "COMPLETED" && <><br /><a href={withBase(`/api/courses/${courseId}/certificate?employee=${row.employeeId}`)}>Download certificate</a></>}
+          </td>
         </tr>)}
-        {!rows.length && <tr><td colSpan={8}>No learners match.</td></tr>}
+        {!rows.length && <tr><td colSpan={9}>No learners match.</td></tr>}
       </tbody>
     </table></div>
 

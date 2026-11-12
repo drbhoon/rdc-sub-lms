@@ -66,6 +66,7 @@ export async function CourseGradingPanel({ courseId }: { courseId: string }) {
       total: row.grade.total,
       pending: row.grade.complete ? 0 : row.grade.pending.length,
       passed: row.grade.passed,
+      completed: Boolean(enrollment.completedAt),
       partPassed: row.grade.components.map((component) => component.passed),
     }];
   });

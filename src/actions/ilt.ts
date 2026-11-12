@@ -176,6 +176,7 @@ export async function markIltAttendance(formData: FormData): Promise<void> {
 /** A learner pressing Join. Recorded as a hint for the instructor, never as attendance. */
 export async function recordIltJoin(lessonId: string): Promise<{ meetUrl?: string; error?: string }> {
   const user = await requireUser();
+  if (user.viewingAs) return {};
   if (!user.employeeId) return { error: "Learner profile required." };
   const session = await db.iltSession.findUnique({ where: { lessonId } });
   if (!session) return { error: "Session not found." };

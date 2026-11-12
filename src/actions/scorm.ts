@@ -16,6 +16,7 @@ async function isManager(user: Awaited<ReturnType<typeof requireUser>>, courseId
 /** Start, resume, retry or review a SCORM lesson. Managers get a preview that records nothing. */
 export async function launchScorm(lessonId: string): Promise<ScormLaunch | { locked: true } | { error: string }> {
   const user = await requireUser();
+  if (user.viewingAs) return { error: "A SCORM course cannot be opened in view-only mode, because opening it records an attempt for the learner. Their attempts and scores are on the learner's activity page." };
   const lesson = await db.lesson.findUnique({ where: { id: lessonId }, include: { content: { include: { course: true } } } });
   if (!lesson || lesson.type !== "SCORM") return { error: "This lesson is not a SCORM course." };
   const courseId = lesson.content.courseId;

@@ -79,6 +79,7 @@ export default async function CourseLearnersPage({ params, searchParams }: {
 
   const rows: RosterRow[] = enrollments.map((enrollment) => ({
     enrollmentId: enrollment.id,
+    employeeId: enrollment.employeeId,
     name: enrollment.employee.name,
     employeeCode: enrollment.employee.employeeCode,
     email: enrollment.employee.email,

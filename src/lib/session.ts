@@ -6,6 +6,7 @@ import { env } from "@/lib/env";
 import { loginUrl } from "@/lib/next-path";
 import { hasAnyEffectiveRole, hasEffectiveRole } from "@/lib/roles";
 import { randomToken, tokenHash } from "@/lib/security";
+import { VIEW_AS_COOKIE, readViewAsValue } from "@/lib/view-as";
 
 export async function createSession(userId: string) {
   const token = randomToken();
@@ -28,7 +29,11 @@ export async function destroySession() {
   jar.delete(env.SESSION_COOKIE_NAME);
 }
 
-export async function currentUser() {
+/** Who an administrator is looking at, while they view a learner's account (see lib/view-as.ts). */
+export type ViewingAs = { adminUserId: string; adminName: string; employeeId: string };
+
+/** The person who actually signed in, with the token of their session, ignoring any view-as. */
+export async function signedInUser() {
   const jar = await cookies();
   const token = jar.get(env.SESSION_COOKIE_NAME)?.value;
   if (!token) return null;
@@ -37,7 +42,27 @@ export async function currentUser() {
     include: { user: { include: { roles: true, employee: { include: { company: true } } } } },
   });
   if (!session || session.expiresAt <= new Date() || session.user.employee?.status === "INACTIVE") return null;
-  return session.user;
+  return { user: session.user, token, jar };
+}
+
+export async function currentUser() {
+  const signedIn = await signedInUser();
+  if (!signedIn) return null;
+  const { user: real, token, jar } = signedIn;
+
+  // An administrator looking at a learner's account: everything that asks who is signed in sees that
+  // learner, but only while the signed cookie from /api/view-as/start says so, and only for an
+  // administrator. They get the learner's own roles, so they see what the learner sees and nothing
+  // more. Nothing can be written meanwhile (lib/db.ts).
+  const target = hasEffectiveRole(real, "SUPER_ADMIN") ? readViewAsValue(jar.get(VIEW_AS_COOKIE)?.value, token, real.id) : null;
+  if (target) {
+    const learner = await db.user.findUnique({ where: { employeeId: target }, include: { roles: true, employee: { include: { company: true } } } });
+    if (learner) {
+      const viewingAs: ViewingAs = { adminUserId: real.id, adminName: real.employee?.name ?? real.email, employeeId: target };
+      return { ...learner, viewingAs: viewingAs as ViewingAs | null };
+    }
+  }
+  return { ...real, viewingAs: null as ViewingAs | null };
 }
 
 export async function requireUser() {

@@ -581,3 +581,9 @@ option.option-live { color:#166534; background:#ecfdf3; font-weight:700; }
 .course-result-table .passmark { display:block; font-size:.75rem; }
 .result-pass { color:var(--success); font-weight:700; }
 .result-fail { color:var(--danger); font-weight:700; }
+
+/* An administrator viewing a learner's account: a bar that stays in view, and anything that would save something is greyed out. */
+.view-as-banner { position:sticky; top:0; z-index:20; display:flex; justify-content:space-between; align-items:center; gap:1rem; background:#fff3c4; border-bottom:2px solid #d9a400; padding:.7rem 1rem; color:#4d3b00; }
+.view-as-banner .button { flex:none; }
+.view-only .app-main form:not([method="get"]) { opacity:.55; pointer-events:none; }
+@media (max-width:760px) { .view-as-banner { display:grid; } }
