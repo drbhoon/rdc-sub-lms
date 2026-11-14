@@ -143,7 +143,7 @@ export async function removeDuplicateRecords(pairs: { id: string; keepId: string
     const label = `${duplicate.name} (${duplicate.employeeCode})`;
     if (duplicate.id === actorEmployeeId) { outcome.skipped.push(`${label}: your own record`); continue; }
     if (keeper.archivedAt || normalizeName(keeper.name) !== normalizeName(duplicate.name)) { outcome.skipped.push(`${label}: the record to keep is not a current record of the same name`); continue; }
-    if (duplicate.user?.roles.some((grant) => grant.role === UserRole.SUPER_ADMIN || grant.role === UserRole.TEACHER)) {
+    if (duplicate.user?.roles.some((grant) => grant.role === UserRole.SUPER_ADMIN || grant.role === UserRole.ADMIN || grant.role === UserRole.TEACHER)) {
       outcome.skipped.push(`${label}: holds a Teacher or Super Admin role; move the role to the other record first`);
       continue;
     }
@@ -178,7 +178,7 @@ export async function notInMasterArchivable(seenCutoff: Date, ids: string[], act
       id: { in: ids, ...(actorEmployeeId ? { not: actorEmployeeId } : {}) },
       archivedAt: null,
       OR: [{ masterSeenAt: null }, { masterSeenAt: { lt: seenCutoff } }],
-      NOT: { user: { roles: { some: { role: { in: [UserRole.SUPER_ADMIN, UserRole.TEACHER] } } } } },
+      NOT: { user: { roles: { some: { role: { in: [UserRole.SUPER_ADMIN, UserRole.ADMIN, UserRole.TEACHER] } } } } },
     },
     select: { id: true },
   });

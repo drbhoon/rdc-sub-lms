@@ -15,7 +15,7 @@ const PREVIEW_ROWS = 100;
 const columnOptions = COLUMNS.filter((column) => !column.core).map((column) => ({ value: column.key, label: column.label, group: column.group }));
 
 export default async function CustomReportPage({ searchParams }: { searchParams: Promise<Record<string, string | string[] | undefined>> }) {
-  await requireRole(UserRole.SUPER_ADMIN);
+  await requireRole(UserRole.ADMIN);
   const params = await searchParams;
   const query = parseCustomReport(params);
   const [options, report] = await Promise.all([loadFilterOptions(), loadCustomReport(query, PREVIEW_ROWS)]);

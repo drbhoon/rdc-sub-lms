@@ -23,11 +23,12 @@ export const viewport: Viewport = { themeColor: "#12233f", viewportFit: "cover" 
 export default async function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
   const user = await currentUser();
   const navItems: NavItem[] = [];
-  if (user && hasRole(user, "SUPER_ADMIN")) {
+  if (user && hasRole(user, "ADMIN")) {
+    // An Admin has no employee master (that is the Super Admin's); they get a page to assign courses instead.
     navItems.push(
       { href: "/admin", label: "Dashboard" },
       { href: "/admin/reports", label: "Reports" },
-      { href: "/admin/employees", label: "Employees" },
+      hasRole(user, "SUPER_ADMIN") ? { href: "/admin/employees", label: "Employees" } : { href: "/admin/assign", label: "Assign courses" },
       { href: "/admin/courses", label: "Courses" },
     );
   }

@@ -4,6 +4,7 @@ import { normaliseCompany } from "@/lib/company-merge";
 import { type CourseEnrollmentRow, internEmployeeCode, nameFromEmail } from "@/lib/course-enrollment-import";
 import { sendEnrollmentEmail } from "@/lib/course-notifications";
 import { db } from "@/lib/db";
+import { shareSessions } from "@/lib/ilt-mail";
 import { resolvePersonId } from "@/lib/identity";
 
 export type RosterEnrolmentResult = {
@@ -187,5 +188,7 @@ export function queueEnrollmentEmails(employees: Pick<Employee, "id" | "name" | 
           console.error(`[enrolment-email] ${employee.email}:`, error instanceof Error ? error.message : error);
         })));
     }
+    // An instructor-led course: their link to each live session follows the enrolment (nothing happens for other courses).
+    await shareSessions(course.id, employees).catch((error) => console.error(`[ilt-invite] ${course.id}:`, error instanceof Error ? error.message : error));
   });
 }

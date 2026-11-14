@@ -1,11 +1,10 @@
 import { UserRole } from "@prisma/client";
 import { recordCourseContent } from "@/lib/course-content";
 import { db } from "@/lib/db";
-import { env } from "@/lib/env";
 import { routeUserWithRole } from "@/lib/route-auth";
 import { storage } from "@/lib/storage";
 import { UPLOAD_CHUNK_BYTES, incomingKey, isUploadId } from "@/lib/upload-chunks";
-import { validateUpload } from "@/lib/uploads";
+import { maxUploadMb, validateUpload } from "@/lib/uploads";
 
 const STALE_AFTER_MS = 24 * 60 * 60 * 1000;
 
@@ -34,14 +33,13 @@ async function sweepStaleUploads() {
  * type and file signature exactly as a single upload always did.
  */
 export async function POST(request: Request, context: { params: Promise<{ id: string }> }) {
-  const actor = await routeUserWithRole(UserRole.SUPER_ADMIN);
+  const actor = await routeUserWithRole(UserRole.ADMIN);
   if (!actor) return json({ message: "Only an admin can upload course content." }, 403);
   const { id: courseId } = await context.params;
   const params = new URL(request.url).searchParams;
   const uploadId = params.get("uploadId") ?? "";
   if (!isUploadId(uploadId)) return json({ message: "Invalid upload id." }, 400);
   const key = incomingKey(uploadId);
-  const maxBytes = env.MAX_UPLOAD_MB * 1024 * 1024;
 
   if (params.get("complete") === "1") {
     const course = await db.course.findUnique({ where: { id: courseId } });
@@ -78,6 +76,10 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
     }
   }
 
+  // A SCORM course takes a package, which is allowed to be much bigger than a video or document.
+  const kind = (await db.course.findUnique({ where: { id: courseId }, select: { kind: true } }))?.kind;
+  const limitMb = maxUploadMb(kind === "SCORM");
+  const maxBytes = limitMb * 1024 * 1024;
   const offset = Number(params.get("offset"));
   if (!Number.isInteger(offset) || offset < 0) return json({ message: "Invalid offset." }, 400);
   const bytes = new Uint8Array(await request.arrayBuffer());
@@ -87,7 +89,7 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
   if (offset !== stored) return json({ message: "Out of order.", received: stored }, 409);
   if (stored + bytes.length > maxBytes) {
     await storage.delete(key);
-    return json({ message: `File must be under ${env.MAX_UPLOAD_MB} MB` }, 413);
+    return json({ message: `File must be under ${limitMb} MB` }, 413);
   }
   await storage.append(key, bytes);
   return json({ received: stored + bytes.length });

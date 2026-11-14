@@ -1,7 +1,7 @@
 "use client";
 
 import {
-  BarChart3, BookOpen, ChevronsLeft, ChevronsRight, Film, GraduationCap, LayoutDashboard, MoreHorizontal, Presentation, Users, X, type LucideIcon,
+  BarChart3, BookOpen, ChevronsLeft, ClipboardList, ChevronsRight, Film, GraduationCap, LayoutDashboard, MoreHorizontal, Presentation, Users, X, type LucideIcon,
 } from "lucide-react";
 import Image from "next/image";
 import Link from "next/link";
@@ -15,6 +15,7 @@ const ICONS: Record<string, LucideIcon> = {
   "/admin": LayoutDashboard,
   "/admin/reports": BarChart3,
   "/admin/employees": Users,
+  "/admin/assign": ClipboardList,
   "/admin/courses": BookOpen,
   "/teacher/courses": Presentation,
   "/learn/courses": GraduationCap,

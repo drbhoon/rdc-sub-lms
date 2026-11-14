@@ -4,7 +4,7 @@ import { loadCourseGrades } from "@/lib/course-grades";
 import { db } from "@/lib/db";
 import { autoFit, styleHeader, workbookResponse } from "@/lib/excel-response";
 import { classroomTeacher } from "@/lib/classroom-teacher";
-import { routeCourseManager } from "@/lib/route-auth";
+import { routeCourseBuilder } from "@/lib/route-auth";
 import { resultFilterFromParams, resultFilterWhere } from "@/lib/results-filter";
 import { learnersOnly } from "@/lib/teacher-preview";
 
@@ -15,7 +15,7 @@ import { learnersOnly } from "@/lib/teacher-preview";
  */
 export async function GET(request: Request, context: { params: Promise<{ id: string }> }) {
   const { id } = await context.params;
-  const viewer = await routeCourseManager(id);
+  const viewer = await routeCourseBuilder(id);
   if (!viewer) return new Response("Forbidden", { status: 403 });
   const course = await db.course.findUnique({ where: { id }, select: { title: true } });
   if (!course) return new Response("Not found", { status: 404 });

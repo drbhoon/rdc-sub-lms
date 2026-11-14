@@ -13,7 +13,7 @@ import { eligibleTeacherWhere } from "@/lib/teacher-eligibility";
 import { learnersOnly } from "@/lib/teacher-preview";
 
 export default async function CoursesPage() {
-  await requireRole(UserRole.SUPER_ADMIN);
+  await requireRole(UserRole.ADMIN);
   const [courses, companies, teachers] = await Promise.all([
     db.course.findMany({
       include: {

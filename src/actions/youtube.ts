@@ -37,7 +37,7 @@ async function checkWithYoutube(videoId: string): Promise<{ ok: boolean; title?:
 
 /** Add a YouTube video to a course as a module. Needs no upload and no processing. */
 export async function addYoutubeContent(_: State, formData: FormData): Promise<State> {
-  const actor = await requireRole(UserRole.SUPER_ADMIN);
+  const actor = await requireRole(UserRole.ADMIN);
   const courseId = String(formData.get("courseId") ?? "");
   const videoId = parseYoutubeUrl(String(formData.get("url") ?? ""));
   if (!videoId) return { message: "Paste a YouTube link, for example https://www.youtube.com/watch?v=… or https://youtu.be/…" };

@@ -19,7 +19,7 @@ export async function GET(request: Request, context: { params: Promise<{ id: str
   // Not while viewing a learner's account: there you are that learner, not the administrator.
   const requested = new URL(request.url).searchParams.get("employee");
   const forOther = Boolean(requested && requested !== user.employeeId);
-  if (forOther && (user.viewingAs || !hasEffectiveRole(user, "SUPER_ADMIN"))) return new Response("Forbidden", { status: 403 });
+  if (forOther && (user.viewingAs || !hasEffectiveRole(user, "ADMIN"))) return new Response("Forbidden", { status: 403 });
   const employeeId = forOther ? requested : user.employeeId;
   if (!employeeId) return new Response("Certificate not available", { status: 404 });
 

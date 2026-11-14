@@ -28,7 +28,7 @@ const scopes = (formData: FormData) => [...new Set(formData.getAll("scope").map(
  * learners who have not been placed in a classroom.
  */
 export async function scheduleFinal(_: ActionState, formData: FormData): Promise<ActionState> {
-  const actor = await requireRole(UserRole.SUPER_ADMIN);
+  const actor = await requireRole(UserRole.ADMIN);
   const courseId = String(formData.get("courseId") ?? "");
   const picked = scopes(formData);
   if (!picked.length) return { message: "Tick at least one classroom to schedule." };
@@ -74,7 +74,7 @@ export async function scheduleFinal(_: ActionState, formData: FormData): Promise
 
 /** Take the schedule off the classrooms ticked: the final closes to them again. */
 export async function clearFinalSchedule(_: ActionState, formData: FormData): Promise<ActionState> {
-  const actor = await requireRole(UserRole.SUPER_ADMIN);
+  const actor = await requireRole(UserRole.ADMIN);
   const courseId = String(formData.get("courseId") ?? "");
   const picked = scopes(formData);
   if (!picked.length) return { message: "Tick at least one classroom to clear." };
@@ -102,7 +102,7 @@ export async function clearFinalSchedule(_: ActionState, formData: FormData): Pr
  * it is started, so this is the only way past "one attempt".
  */
 export async function allowFinalAttempt(formData: FormData): Promise<void> {
-  const actor = await requireRole(UserRole.SUPER_ADMIN);
+  const actor = await requireRole(UserRole.ADMIN);
   const enrollmentId = String(formData.get("enrollmentId") ?? "");
   const enrollment = await db.enrollment.findUnique({
     where: { id: enrollmentId },

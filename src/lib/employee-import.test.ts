@@ -23,8 +23,13 @@ describe("employee import", () => {
     expect(normalizeEmployeeImportRow(row)).toMatchObject({ roleIsValid: true, roles: [UserRole.LEARNER, UserRole.TEACHER] });
   });
 
-  it("treats admin role as super admin and teacher", () => {
+  it("gives the Admin role for ADMIN, and only the Admin role", () => {
     const row = { EMP_CODE: "RDC-4", EMP_NAME: "Admin User", EMAIL: "admin@rdc.in", COMPANY: "RDC", DESIGNATION: "Admin", ROLE: "Admin" };
-    expect(normalizeEmployeeImportRow(row).roles).toEqual([UserRole.LEARNER, UserRole.SUPER_ADMIN, UserRole.TEACHER]);
+    expect(normalizeEmployeeImportRow(row).roles).toEqual([UserRole.LEARNER, UserRole.ADMIN]);
+  });
+
+  it("gives Super Admin (with Admin and Teacher) only when it is asked for by name", () => {
+    const row = { EMP_CODE: "RDC-5", EMP_NAME: "Super User", EMAIL: "super@rdc.in", COMPANY: "RDC", DESIGNATION: "Head", ROLE: "Super Admin" };
+    expect(normalizeEmployeeImportRow(row).roles).toEqual([UserRole.LEARNER, UserRole.SUPER_ADMIN, UserRole.ADMIN, UserRole.TEACHER]);
   });
 });

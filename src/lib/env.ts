@@ -22,6 +22,8 @@ const schema = z.object({
   STORAGE_PROVIDER: z.enum(["local"]).default("local"),
   STORAGE_ROOT: z.string().default("./storage"),
   MAX_UPLOAD_MB: z.coerce.number().positive().default(150),
+  // A SCORM package is a whole course with its own video and audio, so it may be much bigger than a lesson file.
+  MAX_SCORM_UPLOAD_MB: z.coerce.number().positive().default(600),
   SMTP_HOST: z.string().optional(),
   SMTP_PORT: z.coerce.number().int().default(587),
   SMTP_SECURE: z.string().transform((v) => v === "true").default(false),

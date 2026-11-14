@@ -2,7 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { audit } from "@/lib/audit";
-import { requireCourseManager } from "@/lib/course-access";
+import { requireCourseBuilder } from "@/lib/course-access";
 import { db } from "@/lib/db";
 import { MAX_REELS_PER_COURSE, reelSeconds, reelWatched } from "@/lib/reels";
 import { requireUser } from "@/lib/session";
@@ -20,7 +20,7 @@ function revalidateCourse(courseId: string) {
 /** A YouTube Short (or any short YouTube video) as a reel. It plays from YouTube, so the learner note about that applies. */
 export async function addYoutubeReel(_: State, formData: FormData): Promise<State> {
   const courseId = String(formData.get("courseId") ?? "");
-  const actor = await requireCourseManager(courseId);
+  const actor = await requireCourseBuilder(courseId);
   const videoId = parseYoutubeUrl(String(formData.get("url") ?? ""));
   if (!videoId) return { message: "Paste a YouTube link, for example https://www.youtube.com/shorts/… or https://youtu.be/…" };
   const title = String(formData.get("title") ?? "").trim().slice(0, 150);
@@ -41,7 +41,7 @@ export async function addYoutubeReel(_: State, formData: FormData): Promise<Stat
 async function reelForManager(reelId: string) {
   const reel = await db.courseReel.findUnique({ where: { id: reelId } });
   if (!reel) return null;
-  const actor = await requireCourseManager(reel.courseId);
+  const actor = await requireCourseBuilder(reel.courseId);
   return { reel, actor };
 }
 

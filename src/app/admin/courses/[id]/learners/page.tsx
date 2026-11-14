@@ -32,7 +32,7 @@ export default async function CourseLearnersPage({ params, searchParams }: {
   params: Promise<{ id: string }>;
   searchParams: Promise<{ q?: string; status?: string }>;
 }) {
-  await requireRole(UserRole.SUPER_ADMIN);
+  const viewer = await requireRole(UserRole.ADMIN);
   const { id } = await params;
   const { q, status } = await searchParams;
   const query = (q ?? "").trim().slice(0, 100);
@@ -121,7 +121,7 @@ export default async function CourseLearnersPage({ params, searchParams }: {
         <button type="submit">Search</button>
         {filtered && <a className="button secondary" href={withBase(`/admin/courses/${course.id}/learners`)}>Clear</a>}
       </form>
-      <LearnerRoster courseId={course.id} rows={rows} />
+      <LearnerRoster courseId={course.id} rows={rows} canViewAs={viewer.roles.some((grant) => grant.role === UserRole.SUPER_ADMIN)} />
     </section>
 
     {scormLessons.length > 0 && <section className="card">

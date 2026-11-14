@@ -6,7 +6,7 @@ import { z } from "zod";
 import { audit } from "@/lib/audit";
 import { queueTeacherRoleEmails } from "@/lib/course-notifications";
 import { classroomKey, hasClassroomColumns, planClassrooms } from "@/lib/classroom-import";
-import { requireCourseManager } from "@/lib/course-access";
+import { requireCourseBuilder } from "@/lib/course-access";
 import { db } from "@/lib/db";
 import { enrolTeachersAsPreview } from "@/lib/teacher-preview";
 import { enrolRoster, MAX_ROSTER_ROWS, queueEnrollmentEmails } from "@/lib/roster-enrolment";
@@ -27,7 +27,7 @@ function revalidateCourse(courseId: string) {
 /**
  * Assigning a teacher to a classroom must also grant them CourseTeacher.
  *
- * CourseTeacher is what requireCourseManager checks — without a row there, a
+ * CourseTeacher is what requireCourseBuilder checks — without a row there, a
  * classroom teacher cannot open the course at all and their own classroom is
  * unreachable. The two are deliberately separate concepts (manage the course
  * vs teach a room), so this bridges them rather than merging them.
@@ -49,7 +49,7 @@ async function assertEligibleTeacher(userId: string) {
 
 export async function createClassroom(_: ActionState, formData: FormData): Promise<ActionState> {
   const courseId = String(formData.get("courseId") ?? "");
-  const actor = await requireCourseManager(courseId);
+  const actor = await requireCourseBuilder(courseId);
   const parsed = nameSchema.safeParse(formData.get("name"));
   if (!parsed.success) return { message: parsed.error.issues[0].message };
   const name = parsed.data;
@@ -76,7 +76,7 @@ export async function updateClassroom(_: ActionState, formData: FormData): Promi
   const classroomId = String(formData.get("classroomId") ?? "");
   const classroom = await db.classroom.findUnique({ where: { id: classroomId } });
   if (!classroom) return { message: "Classroom not found." };
-  const actor = await requireCourseManager(classroom.courseId);
+  const actor = await requireCourseBuilder(classroom.courseId);
 
   const parsed = nameSchema.safeParse(formData.get("name"));
   if (!parsed.success) return { message: parsed.error.issues[0].message };
@@ -114,7 +114,7 @@ export async function deleteClassroom(_: ActionState, formData: FormData): Promi
     include: { _count: { select: { enrollments: true } } },
   });
   if (!classroom) return { message: "Classroom not found." };
-  const actor = await requireCourseManager(classroom.courseId);
+  const actor = await requireCourseBuilder(classroom.courseId);
   if (classroom._count.enrollments > 0) {
     return { message: `"${classroom.name}" still has ${classroom._count.enrollments} learner(s). Move them out first.` };
   }
@@ -131,7 +131,7 @@ export async function deleteClassroom(_: ActionState, formData: FormData): Promi
  */
 export async function assignLearnersToClassroom(_: ActionState, formData: FormData): Promise<ActionState> {
   const courseId = String(formData.get("courseId") ?? "");
-  const actor = await requireCourseManager(courseId);
+  const actor = await requireCourseBuilder(courseId);
   const classroomId = String(formData.get("classroomId") ?? "").trim() || null;
   const enrollmentIds = formData.getAll("enrollmentIds").map(String).filter(Boolean);
   if (!enrollmentIds.length) return { message: "Select at least one learner." };
@@ -186,7 +186,7 @@ function refused(summary: string, problems: string[]): ClassroomImportState {
  */
 export async function importClassrooms(_: ClassroomImportState, formData: FormData): Promise<ClassroomImportState> {
   const courseId = String(formData.get("courseId") ?? "");
-  const actor = await requireRole(UserRole.SUPER_ADMIN);
+  const actor = await requireRole(UserRole.ADMIN);
   const course = await db.course.findUnique({ where: { id: courseId } });
   if (!course) return { message: "Course not found." };
 

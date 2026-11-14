@@ -19,7 +19,7 @@ export async function GET(request: NextRequest, context: { params: Promise<{ key
     ? await db.courseContent.findUnique({ where: { id: generatedContentId }, include: { course: true } })
     : await db.courseContent.findFirst({ where: { storedKey: key }, include: { course: true } });
   if (!content) return new Response("Not found", { status: 404 });
-  const elevated = user.roles.some((r) => r.role === UserRole.SUPER_ADMIN) || Boolean(await db.courseTeacher.findUnique({ where: { courseId_userId: { courseId: content.courseId, userId: user.id } } }));
+  const elevated = user.roles.some((r) => r.role === UserRole.SUPER_ADMIN || r.role === UserRole.ADMIN) || Boolean(await db.courseTeacher.findUnique({ where: { courseId_userId: { courseId: content.courseId, userId: user.id } } }));
   const enrolled = user.employeeId ? Boolean(await db.enrollment.findUnique({ where: { employeeId_courseId: { employeeId: user.employeeId, courseId: content.courseId } } })) : false;
   if (!elevated && (!enrolled || !content.isPublished || content.course.status !== "PUBLISHED")) return new Response("Forbidden", { status: 403 });
   const type = key.endsWith(".png") ? "image/png" : content.mimeType;

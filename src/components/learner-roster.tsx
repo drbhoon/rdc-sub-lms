@@ -24,7 +24,7 @@ export type RosterRow = {
  * take the ticked ones off. Several at a time, because a class that has left
  * is dozens, not one.
  */
-export function LearnerRoster({ courseId, rows }: { courseId: string; rows: RosterRow[] }) {
+export function LearnerRoster({ courseId, rows, canViewAs = false }: { courseId: string; rows: RosterRow[]; /** Looking into a learner's account is a Super Admin's alone. */ canViewAs?: boolean }) {
   const [picked, setPicked] = useState<Set<string>>(new Set());
   const [confirmed, setConfirmed] = useState(false);
   // Done: nothing is left ticked, and the next removal has to be confirmed afresh.
@@ -73,8 +73,8 @@ export function LearnerRoster({ courseId, rows }: { courseId: string; rows: Rost
           <td><span className="badge">{row.status.replaceAll("_", " ")}</span></td>
           <td>{row.lessonsDone}/{row.totalLessons} lessons{row.quizAttempts > 0 ? <><br /><span className="muted">{row.quizAttempts} quiz attempt{row.quizAttempts === 1 ? "" : "s"}</span></> : null}</td>
           <td className="roster-links">
-            <a href={withBase(`/api/view-as/start?employee=${row.employeeId}`)}>View as learner</a>
-            {row.status === "COMPLETED" && <><br /><a href={withBase(`/api/courses/${courseId}/certificate?employee=${row.employeeId}`)}>Download certificate</a></>}
+            {canViewAs && <a href={withBase(`/api/view-as/start?employee=${row.employeeId}`)}>View as learner</a>}
+            {row.status === "COMPLETED" && <>{canViewAs && <br />}<a href={withBase(`/api/courses/${courseId}/certificate?employee=${row.employeeId}`)}>Download certificate</a></>}
           </td>
         </tr>)}
         {!rows.length && <tr><td colSpan={9}>No learners match.</td></tr>}

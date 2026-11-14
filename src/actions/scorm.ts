@@ -9,7 +9,7 @@ import { hasAnyEffectiveRole } from "@/lib/roles";
 import { openScormAttempt, resetScormAttempts, type ScormLaunch } from "@/lib/scorm-attempts";
 
 async function isManager(user: Awaited<ReturnType<typeof requireUser>>, courseId: string) {
-  if (user.roles.some((grant) => grant.role === UserRole.SUPER_ADMIN)) return true;
+  if (user.roles.some((grant) => grant.role === UserRole.SUPER_ADMIN || grant.role === UserRole.ADMIN)) return true;
   return Boolean(await db.courseTeacher.findUnique({ where: { courseId_userId: { courseId, userId: user.id } } }));
 }
 
@@ -41,7 +41,7 @@ export async function launchScorm(lessonId: string): Promise<ScormLaunch | { loc
 export async function resetScormForLearner(enrollmentId: string, lessonId: string) {
   const user = await requireUser();
   const enrollment = await db.enrollment.findUniqueOrThrow({ where: { id: enrollmentId }, include: { employee: true } });
-  if (!hasAnyEffectiveRole(user, [UserRole.SUPER_ADMIN]) && !(await isManager(user, enrollment.courseId))) throw new Error("Not allowed");
+  if (!hasAnyEffectiveRole(user, [UserRole.ADMIN]) && !(await isManager(user, enrollment.courseId))) throw new Error("Not allowed");
   const count = await resetScormAttempts(enrollmentId, lessonId);
   await audit(user.id, "SCORM_ATTEMPTS_RESET", "Enrollment", enrollmentId, { lessonId, employee: enrollment.employee.employeeCode, attempts: count });
   revalidatePath(`/admin/courses/${enrollment.courseId}`);

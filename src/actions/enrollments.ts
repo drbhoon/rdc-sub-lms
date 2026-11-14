@@ -25,7 +25,7 @@ type ActionState = { message?: string; ok?: boolean };
  * are gone that is the only record of who was on the course.
  */
 export async function unenrolLearners(_: ActionState, formData: FormData): Promise<ActionState> {
-  const actor = await requireRole(UserRole.SUPER_ADMIN);
+  const actor = await requireRole(UserRole.ADMIN);
   const courseId = String(formData.get("courseId") ?? "");
   const enrollmentIds = [...new Set(formData.getAll("enrollmentId").map(String).filter(Boolean))];
   if (!enrollmentIds.length) return { message: "Tick at least one learner to remove." };

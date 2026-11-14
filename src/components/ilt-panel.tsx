@@ -2,20 +2,23 @@ import { cancelIltSession, createIltSession, sendIltInvitations, updateIltSessio
 import { KeepForm } from "@/components/keep-form";
 import { IltAttendanceSheet } from "@/components/ilt-attendance-sheet";
 import { db } from "@/lib/db";
+import { meetConfig } from "@/lib/google-meet";
 import { sessionPhase } from "@/lib/ilt";
 import { formatIst, toIstLocalInput } from "@/lib/ist";
 import { learnersOnly } from "@/lib/teacher-preview";
 
 const PHASE_LABEL = { cancelled: "Cancelled", upcoming: "Upcoming", open: "Opens soon", live: "Live now", ended: "Ended" } as const;
 
-function SessionFields({ session }: { session?: { title: string; startsAt: Date; durationMinutes: number; meetUrl: string; instructorName: string | null; notes: string | null } }) {
+function SessionFields({ session, autoMeet }: { autoMeet: boolean; session?: { title: string; startsAt: Date; durationMinutes: number; meetUrl: string; instructorName: string | null; notes: string | null } }) {
   return <>
     <label>Session title<input name="title" required maxLength={150} defaultValue={session?.title} placeholder="Induction - Day 1" /></label>
     <div className="form-row">
       <label>Date and time (India time)<input name="startsAt" type="datetime-local" required defaultValue={toIstLocalInput(session?.startsAt)} /></label>
       <label>Length (minutes)<input name="durationMinutes" type="number" min="10" max="600" required defaultValue={session?.durationMinutes ?? 60} /></label>
     </div>
-    <label>Google Meet link<input name="meetUrl" required defaultValue={session?.meetUrl} placeholder="https://meet.google.com/abc-defg-hij" /></label>
+    {autoMeet
+      ? <label>Google Meet link<input name="meetUrl" defaultValue={session?.meetUrl} placeholder="Leave blank to create a Google Meet link automatically" /></label>
+      : <label>Google Meet link<input name="meetUrl" required defaultValue={session?.meetUrl} placeholder="https://meet.google.com/abc-defg-hij" /></label>}
     <label>Instructor<input name="instructorName" maxLength={120} defaultValue={session?.instructorName ?? ""} placeholder="Name shown to learners" /></label>
     <label>Note for learners (optional)<textarea name="notes" maxLength={1000} rows={2} defaultValue={session?.notes ?? ""} /></label>
   </>;
@@ -26,7 +29,7 @@ export async function IltPanel({ courseId }: { courseId: string }) {
   const [sessions, enrollments] = await Promise.all([
     db.iltSession.findMany({
       where: { courseId },
-      include: { lesson: { include: { content: true } }, attendance: true },
+      include: { lesson: { include: { content: true } }, attendance: true, _count: { select: { invitations: true } } },
       orderBy: { startsAt: "asc" },
     }),
     db.enrollment.findMany({
@@ -36,12 +39,18 @@ export async function IltPanel({ courseId }: { courseId: string }) {
     }),
   ]);
   const now = new Date();
+  // Whether the LMS can make Meet links itself (Google Calendar is set up); otherwise one is pasted in.
+  const autoMeet = meetConfig() !== null;
 
   return <section className="card ilt-panel">
     <h2>Live sessions</h2>
     <p className="muted">
       Each session is a module of this course. Learners complete it by attending: you confirm who was present after the session.
       Their assessment and feedback work as in any other course, on each session&apos;s module.
+    </p>
+    <p className="muted">
+      Once a session is published, its Google Meet link is e-mailed, with a calendar entry, to everyone enrolled and to the teachers of the course.
+      Anyone enrolled or made a teacher later is sent it at that moment. {autoMeet ? "Leave the link blank and a Google Meet link is created for you." : "Paste the Meet link of the session."}
     </p>
     {!sessions.length && <p>No sessions yet.</p>}
     {sessions.map((session) => {
@@ -63,24 +72,25 @@ export async function IltPanel({ courseId }: { courseId: string }) {
         </div>
         <p>{formatIst(session.startsAt)} · {session.durationMinutes} minutes{session.instructorName ? ` · ${session.instructorName}` : ""}</p>
         <p><a href={session.meetUrl} target="_blank" rel="noreferrer">{session.meetUrl}</a></p>
-        {session.invitationsSentAt && <p className="muted">Invitations e-mailed {formatIst(session.invitationsSentAt)}.</p>}
+        {session.invitationsSentAt && <p className="muted">Link e-mailed to {session._count.invitations} {session._count.invitations === 1 ? "person" : "people"} (learners and teachers); first sent {formatIst(session.invitationsSentAt)}.</p>}
+        {session.googleEventId && <p className="muted">Google Meet link created by the LMS: changing the time here changes the same Google Calendar event.</p>}
         {!session.cancelledAt && <div className="button-row">
           <form action={sendIltInvitations}>
             <input type="hidden" name="sessionId" value={session.id} />
-            <button type="submit" className="secondary" disabled={!live}>{session.invitationsSentAt ? "E-mail invitations again" : "E-mail invitations"}</button>
+            <button type="submit" className="secondary" disabled={!live}>{session.invitationsSentAt ? "Send to everyone again" : "Send to everyone now"}</button>
           </form>
           <form action={cancelIltSession}>
             <input type="hidden" name="sessionId" value={session.id} />
             <button type="submit" className="danger">Cancel session</button>
           </form>
         </div>}
-        {!session.cancelledAt && !live && <p className="muted">Invitations can be sent once a teacher has approved and published this module.</p>}
+        {!session.cancelledAt && !live && <p className="muted">The link goes out automatically once a teacher has approved and published this module.</p>}
         {!session.cancelledAt && <>
           <details>
             <summary>Edit time, link or details</summary>
             <KeepForm action={updateIltSession} submitLabel="Save changes">
               <input type="hidden" name="sessionId" value={session.id} />
-              <SessionFields session={session} />
+              <SessionFields session={session} autoMeet={autoMeet} />
             </KeepForm>
           </details>
           <details>
@@ -94,7 +104,7 @@ export async function IltPanel({ courseId }: { courseId: string }) {
     <h3>Add a session</h3>
     <KeepForm action={createIltSession} submitLabel="Add session" clearOnSuccess>
       <input type="hidden" name="courseId" value={courseId} />
-      <SessionFields />
+      <SessionFields autoMeet={autoMeet} />
     </KeepForm>
   </section>;
 }

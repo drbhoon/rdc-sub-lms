@@ -30,7 +30,8 @@ import { eligibleTeacherWhere } from "@/lib/teacher-eligibility";
 import { learnersOnly, notTeacherAttempt } from "@/lib/teacher-preview";
 
 export default async function CourseAdminPage({ params }: { params: Promise<{ id: string }> }) {
-  const viewer = await requireRole(UserRole.SUPER_ADMIN);
+  const viewer = await requireRole(UserRole.ADMIN);
+  const isSuperAdmin = viewer.roles.some((grant) => grant.role === UserRole.SUPER_ADMIN);
   const { id } = await params;
   const course = await db.course.findUnique({
     where: { id },
@@ -59,8 +60,9 @@ export default async function CourseAdminPage({ params }: { params: Promise<{ id
   });
   if (!course) notFound();
 
-  const aiLearners = await loadAiHistoryLearners(id);
-  const teacherLearners = await loadTeacherQaLearners(id, viewer);
+  // What learners asked the AI and their teacher is read by a Super Admin or the teacher, not by an Admin.
+  const aiLearners = isSuperAdmin ? await loadAiHistoryLearners(id) : [];
+  const teacherLearners = isSuperAdmin ? await loadTeacherQaLearners(id, viewer) : [];
   const [employees, companies, teachers] = await Promise.all([
     course.isActive && course.status === "PUBLISHED"
       ? db.employee.findMany({
@@ -192,7 +194,7 @@ export default async function CourseAdminPage({ params }: { params: Promise<{ id
           {course.kind !== "ILT" && <>
             <hr />
             <h3>Upload content</h3>
-            <ContentUploadForm courseId={course.id} maxMb={env.MAX_UPLOAD_MB} kind={course.kind} />
+            <ContentUploadForm courseId={course.id} maxMb={course.kind === "SCORM" ? env.MAX_SCORM_UPLOAD_MB : env.MAX_UPLOAD_MB} kind={course.kind} />
           </>}
           {course.kind === "STANDARD" && <>
             <hr />
@@ -308,11 +310,11 @@ export default async function CourseAdminPage({ params }: { params: Promise<{ id
             <input type="hidden" name="isActive" value={course.isActive ? "false" : "true"} />
             <button className="secondary">{course.isActive ? "Set course inactive" : "Reactivate course"}</button>
           </form>
-          <ActionForm action={deleteCourse} submitLabel="Permanently delete course" buttonClassName="danger">
+          {isSuperAdmin && <ActionForm action={deleteCourse} submitLabel="Permanently delete course" buttonClassName="danger">
             <input type="hidden" name="courseId" value={course.id} />
             <p className="error">This deletes all content, enrollments, progress, assessments, feedback, certificates and AI history.</p>
             <label>Type the course title to confirm<input name="confirmTitle" autoComplete="off" placeholder={course.title} /></label>
-          </ActionForm>
+          </ActionForm>}
         </div>
 
         <CollapsibleCard title="Assign Teachers – Click for entire list" summary={`${selectedTeacherIds.size} assigned`}>
@@ -354,10 +356,10 @@ export default async function CourseAdminPage({ params }: { params: Promise<{ id
           </>}
         </div>
 
-        <div className="card">
+        {isSuperAdmin && <div className="card">
           <h2>Learner Q&amp;A History (AI &amp; Teacher)</h2>
           <LearnerQaHistory courseId={course.id} aiLearners={aiLearners} teacherLearners={teacherLearners} />
-        </div>
+        </div>}
 
         {course.leaderboardEnabled && <div className="card">
           <h2>Toppers</h2>

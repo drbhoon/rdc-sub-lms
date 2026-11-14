@@ -16,9 +16,15 @@ const allowed = new Map([
 /** Only a File's name, size and type are read, so a chunked upload can describe the file it is assembling. */
 export type UploadDescription = Pick<File, "name" | "size" | "type">;
 
+/** The most a file may be: a SCORM package gets more room than a document or video. */
+export function maxUploadMb(isScormPackage: boolean) {
+  return isScormPackage ? env.MAX_SCORM_UPLOAD_MB : env.MAX_UPLOAD_MB;
+}
+
 export function validateUpload(file: UploadDescription, bytes?: Uint8Array) {
-  if (file.size <= 0 || file.size > env.MAX_UPLOAD_MB * 1024 * 1024) throw new Error(`File must be under ${env.MAX_UPLOAD_MB} MB`);
   const extension = path.extname(file.name).toLowerCase();
+  const limit = maxUploadMb(extension === ".zip");
+  if (file.size <= 0 || file.size > limit * 1024 * 1024) throw new Error(`File must be under ${limit} MB`);
   const rule = allowed.get(extension);
   if (!rule || !rule.mime.includes(file.type)) throw new Error("Only PDF, PPT, PPTX, MP4 and SCORM (.zip) files are supported");
   if (bytes && !matchesFileSignature(extension, bytes)) throw new Error("The file contents do not match the selected file type");

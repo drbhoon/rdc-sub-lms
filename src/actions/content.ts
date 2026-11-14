@@ -8,7 +8,7 @@ import { storage } from "@/lib/storage";
 import { requireRole } from "@/lib/session";
 
 export async function retryContent(formData: FormData) {
-  const actor = await requireRole(UserRole.SUPER_ADMIN);
+  const actor = await requireRole(UserRole.ADMIN);
   const contentId = String(formData.get("contentId"));
   const content = await db.courseContent.findUniqueOrThrow({ where: { id: contentId }, include: { jobs: { orderBy: { createdAt: "desc" }, take: 1 } } });
   const job = content.jobs[0];
@@ -22,7 +22,7 @@ export async function retryContent(formData: FormData) {
 }
 
 export async function deleteCourseContent(_: { message?: string }, formData: FormData) {
-  const actor = await requireRole(UserRole.SUPER_ADMIN);
+  const actor = await requireRole(UserRole.ADMIN);
   const contentId = String(formData.get("contentId") ?? "");
   if (formData.get("confirmDelete") !== "on") return { message: "Tick the confirmation box before deleting course content." };
   const content = await db.courseContent.findUnique({

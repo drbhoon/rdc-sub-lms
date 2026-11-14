@@ -5,7 +5,7 @@ import { UserRole } from "@prisma/client";
  *
  * The rule, and why it is not simply "teachers see their own classroom":
  *
- *  - A SUPER_ADMIN sees everyone. Nothing new.
+ *  - A SUPER_ADMIN or ADMIN sees everyone. Nothing new.
  *  - A teacher who runs one or more classrooms on this course sees THOSE
  *    learners only. That is the point of the feature.
  *  - A teacher who runs NO classroom here still sees everyone.
@@ -17,7 +17,7 @@ import { UserRole } from "@prisma/client";
  * that teacher actually has one.
  */
 export function classroomScope(input: { roles: UserRole[]; ownedClassroomIds: string[] }) {
-  if (input.roles.includes(UserRole.SUPER_ADMIN)) return { scoped: false, classroomIds: [] as string[] };
+  if (input.roles.includes(UserRole.SUPER_ADMIN) || input.roles.includes(UserRole.ADMIN)) return { scoped: false, classroomIds: [] as string[] };
   if (input.ownedClassroomIds.length === 0) return { scoped: false, classroomIds: [] as string[] };
   return { scoped: true, classroomIds: input.ownedClassroomIds };
 }

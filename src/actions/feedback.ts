@@ -4,7 +4,7 @@ import { AssessmentKind, FeedbackQuestionType, Prisma, UserRole } from "@prisma/
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
 import { audit } from "@/lib/audit";
-import { requireCourseManager } from "@/lib/course-access";
+import { requireCourseBuilder } from "@/lib/course-access";
 import { db } from "@/lib/db";
 import { parseFeedbackRows } from "@/lib/feedback-import";
 import { requireRole } from "@/lib/session";
@@ -28,7 +28,7 @@ const uploadSchema = z.object({
  */
 export async function uploadFeedbackTemplate(_: ActionState, formData: FormData): Promise<ActionState> {
   const courseId = String(formData.get("courseId") ?? "");
-  const actor = await requireCourseManager(courseId);
+  const actor = await requireCourseBuilder(courseId);
   const file = formData.get("file");
   if (!(file instanceof File)) return { message: "Select a feedback CSV or Excel file." };
   const parsed = uploadSchema.safeParse(Object.fromEntries(formData));
@@ -101,7 +101,7 @@ export async function setFeedbackFormActive(formData: FormData) {
   const formId = String(formData.get("formId") ?? "");
   const isActive = String(formData.get("isActive") ?? "") === "true";
   const form = await db.feedbackForm.findUniqueOrThrow({ where: { id: formId } });
-  const actor = await requireCourseManager(form.courseId);
+  const actor = await requireCourseBuilder(form.courseId);
 
   await db.$transaction(async (tx) => {
     if (isActive) {

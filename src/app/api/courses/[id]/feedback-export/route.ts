@@ -1,7 +1,7 @@
 import ExcelJS from "exceljs";
 import { db } from "@/lib/db";
 import { autoFit, styleHeader, workbookResponse } from "@/lib/excel-response";
-import { routeCourseManager } from "@/lib/route-auth";
+import { routeCourseBuilder } from "@/lib/route-auth";
 
 function stringifyValue(value: unknown) {
   if (Array.isArray(value)) return value.map(String).join("; ");
@@ -18,7 +18,7 @@ function questionOptions(type: string, configured: unknown, values: string[]) {
 
 export async function GET(request: Request, context: { params: Promise<{ id: string }> }) {
   const { id } = await context.params;
-  if (!await routeCourseManager(id)) return new Response("Forbidden", { status: 403 });
+  if (!await routeCourseBuilder(id)) return new Response("Forbidden", { status: 403 });
   const params = new URL(request.url).searchParams;
   const formId = params.get("formId") ?? "";
   // ?module= narrows the workbook to one module's forms, every version;

@@ -1,6 +1,8 @@
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { createWriteStream } from "node:fs";
+import { mkdtemp, rm } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
+import { pipeline } from "node:stream/promises";
 import unzipper from "unzipper";
 import { parseScormManifest, ScormManifestError, type ScormManifest } from "./scorm-manifest";
 
@@ -14,9 +16,16 @@ import { parseScormManifest, ScormManifestError, type ScormManifest } from "./sc
  * beside the editable source). The nested package is found and used.
  */
 export const MAX_SCORM_FILES = 20_000;
-export const MAX_SCORM_BYTES = 1024 * 1024 * 1024;
+// A package may be up to 600 MB zipped (see MAX_SCORM_UPLOAD_MB); video and audio barely compress, so this is not far above that.
+export const MAX_SCORM_BYTES = 3 * 1024 * 1024 * 1024;
+/** A file inside the package bigger than this is copied out in a stream rather than held in memory. */
+export const STREAM_ENTRIES_ABOVE_BYTES = 16 * 1024 * 1024;
 
-type Sink = { put(key: string, bytes: Uint8Array): Promise<void> };
+type Sink = {
+  put(key: string, bytes: Uint8Array): Promise<void>;
+  /** For the big files (a video inside the package). Without it they are buffered. */
+  putStream?(key: string, stream: NodeJS.ReadableStream): Promise<void>;
+};
 
 /** A safe relative path for a zip entry, or null if it must not be extracted. */
 export function safeEntryPath(entry: string): string | null {
@@ -32,7 +41,7 @@ const JUNK = /(^|\/)(__MACOSX\/|\.DS_Store$|Thumbs\.db$)/i;
 
 export type UnpackedPackage = { manifest: ScormManifest; files: number; bytes: number; unwrapped: boolean };
 
-export async function unpackScormZip(zipPath: string, destination: string, sink: Sink, nested = false): Promise<UnpackedPackage> {
+export async function unpackScormZip(zipPath: string, destination: string, sink: Sink, nested = false, streamAbove = STREAM_ENTRIES_ABOVE_BYTES): Promise<UnpackedPackage> {
   const directory = await unzipper.Open.file(zipPath);
   const entries = directory.files.filter((entry) => entry.type === "File");
 
@@ -48,8 +57,9 @@ export async function unpackScormZip(zipPath: string, destination: string, sink:
       const temp = await mkdtemp(path.join(os.tmpdir(), "rdc-scorm-inner-"));
       try {
         const innerPath = path.join(temp, "package.zip");
-        await writeFile(innerPath, await inner.buffer());
-        const result = await unpackScormZip(innerPath, destination, sink, true);
+        // Streamed to disk: the package inside a vendor bundle can be hundreds of MB.
+        await pipeline(inner.stream(), createWriteStream(innerPath));
+        const result = await unpackScormZip(innerPath, destination, sink, true, streamAbove);
         return { ...result, unwrapped: true };
       } finally {
         await rm(temp, { recursive: true, force: true });
@@ -83,7 +93,9 @@ export async function unpackScormZip(zipPath: string, destination: string, sink:
   const worker = async () => {
     while (next < wanted.length) {
       const { entry, relative } = wanted[next++];
-      await sink.put(`${destination}/${relative}`, await entry.buffer());
+      const key = `${destination}/${relative}`;
+      if (sink.putStream && (entry.uncompressedSize ?? 0) > streamAbove) await sink.putStream(key, entry.stream());
+      else await sink.put(key, await entry.buffer());
     }
   };
   await Promise.all(Array.from({ length: 6 }, worker));

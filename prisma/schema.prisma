@@ -14,6 +14,8 @@ enum EmployeeStatus {
 
 enum UserRole {
   SUPER_ADMIN
+  /// Uploads and sets up courses, assigns them to people and downloads reports. Cannot manage employees or roles, approve content or look into a learner's account.
+  ADMIN
   TEACHER
   LEARNER
 }
@@ -880,13 +882,28 @@ model IltSession {
   notes             String?
   cancelledAt       DateTime?
   invitationsSentAt DateTime?
+  /// The Google Calendar event that holds the Meet link, when the link was made by the LMS rather than pasted.
+  googleEventId     String?
   course            Course          @relation(fields: [courseId], references: [id], onDelete: Cascade)
   lesson            Lesson          @relation(fields: [lessonId], references: [id], onDelete: Cascade)
   attendance        IltAttendance[]
+  invitations       IltInvitation[]
   createdAt         DateTime        @default(now())
   updatedAt         DateTime        @updatedAt
 
   @@index([courseId, startsAt])
+}
+
+/// Who has been e-mailed the link of a session (learners and teachers), so enrolling someone later
+/// sends them theirs once, and nobody is sent it twice.
+model IltInvitation {
+  id        String     @id @default(cuid())
+  sessionId String
+  email     String
+  sentAt    DateTime   @default(now())
+  session   IltSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+
+  @@unique([sessionId, email])
 }
 
 /// Whether a learner attended a session, as confirmed by the instructor.

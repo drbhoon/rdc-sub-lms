@@ -3,7 +3,7 @@ import { revalidatePath } from "next/cache";
 import { audit } from "@/lib/audit";
 import { db } from "@/lib/db";
 import { MAX_REEL_BYTES, MAX_REELS_PER_COURSE, reelFileProblem, reelSeconds } from "@/lib/reels";
-import { routeCourseManager } from "@/lib/route-auth";
+import { routeCourseBuilder } from "@/lib/route-auth";
 import { storage } from "@/lib/storage";
 
 function json(body: object, status = 200) {
@@ -17,7 +17,7 @@ function json(body: object, status = 200) {
  */
 export async function POST(request: Request, context: { params: Promise<{ id: string }> }) {
   const { id: courseId } = await context.params;
-  const actor = await routeCourseManager(courseId);
+  const actor = await routeCourseBuilder(courseId);
   if (!actor) return json({ message: "Only an admin or this course's teacher can add reels." }, 403);
   const course = await db.course.findUnique({ where: { id: courseId } });
   if (!course || course.status === "ARCHIVED") return json({ message: "Course is unavailable." }, 404);

@@ -18,7 +18,7 @@ function text(value: unknown) {
 }
 
 export default async function FeedbackReportsPage({ searchParams }: { searchParams: Promise<Record<string, string | string[] | undefined>> }) {
-  await requireRole(UserRole.SUPER_ADMIN);
+  await requireRole(UserRole.ADMIN);
   const params = await searchParams;
   const courses = await db.course.findMany({
     where: { feedbackForms: { some: {} } },

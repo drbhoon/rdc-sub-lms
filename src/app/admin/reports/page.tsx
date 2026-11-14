@@ -16,7 +16,7 @@ function getValue(params: Record<string, string | string[] | undefined>, key: st
 }
 
 export default async function ReportsPage({ searchParams }: { searchParams: Promise<Record<string, string | string[] | undefined>> }) {
-  await requireRole(UserRole.SUPER_ADMIN);
+  await requireRole(UserRole.ADMIN);
   const params = await searchParams;
   const period = getReportPeriod(params);
   const periodRange = dateRangeWhere(period);

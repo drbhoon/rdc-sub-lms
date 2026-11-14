@@ -1,11 +1,14 @@
-import { createReadStream } from "node:fs";
+import { createReadStream, createWriteStream } from "node:fs";
 import { appendFile, mkdir, readdir, readFile, rename, rm, stat, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { Readable } from "node:stream";
+import { pipeline } from "node:stream/promises";
 import { env } from "@/lib/env";
 
 export interface StorageProvider {
   put(key: string, bytes: Uint8Array): Promise<void>;
+  /** For an object too big to hold in memory. */
+  putStream(key: string, stream: NodeJS.ReadableStream): Promise<void>;
   get(key: string): Promise<Buffer>;
   delete(key: string): Promise<void>;
   /** Size in bytes, or null when there is no such object. */
@@ -32,6 +35,11 @@ class LocalStorage implements StorageProvider {
     const target = this.resolve(key);
     await mkdir(path.dirname(target), { recursive: true });
     await writeFile(target, bytes);
+  }
+  async putStream(key: string, stream: NodeJS.ReadableStream) {
+    const target = this.resolve(key);
+    await mkdir(path.dirname(target), { recursive: true });
+    await pipeline(stream, createWriteStream(target));
   }
   get(key: string) { return readFile(this.resolve(key)); }
   delete(key: string) { return rm(this.resolve(key), { force: true }); }

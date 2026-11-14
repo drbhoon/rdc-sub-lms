@@ -41,7 +41,7 @@ const weight = (value: FormDataEntryValue | null) => {
  * learner's result means, so they are not a teacher's to change.
  */
 export async function saveGradingScheme(_: ActionState, formData: FormData): Promise<ActionState> {
-  const actor = await requireRole(UserRole.SUPER_ADMIN);
+  const actor = await requireRole(UserRole.ADMIN);
   const courseId = String(formData.get("courseId") ?? "");
   const course = await db.course.findUnique({ where: { id: courseId }, select: { id: true } });
   if (!course) return { message: "Course not found." };
@@ -105,7 +105,7 @@ const finalSchema = z.object({
  * same way re-uploading a module quiz does.
  */
 export async function buildFinalAssessment(_: ActionState, formData: FormData): Promise<ActionState> {
-  const actor = await requireRole(UserRole.SUPER_ADMIN);
+  const actor = await requireRole(UserRole.ADMIN);
   const parsed = finalSchema.safeParse(Object.fromEntries(formData));
   if (!parsed.success) return { message: parsed.error.issues[0].message };
   const { courseId, questionsPerAttempt } = parsed.data;

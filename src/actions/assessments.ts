@@ -7,7 +7,7 @@ import { z } from "zod";
 import { audit } from "@/lib/audit";
 import { parseAssessmentRows } from "@/lib/assessment-import";
 import { selectAttemptQuestions } from "@/lib/assessment-selection";
-import { requireCourseManager } from "@/lib/course-access";
+import { requireCourseBuilder } from "@/lib/course-access";
 import { db } from "@/lib/db";
 import { emptyAttempts, loadFinalAttempts, loadFinalSchedules, sittingForEnrollment } from "@/lib/final-schedule";
 import { requireRole, requireUser } from "@/lib/session";
@@ -33,7 +33,7 @@ const uploadSchema = z.object({
  */
 export async function uploadAssessment(_: ActionState, formData: FormData): Promise<ActionState> {
   const courseId = String(formData.get("courseId") ?? "");
-  const actor = await requireCourseManager(courseId);
+  const actor = await requireCourseBuilder(courseId);
   const file = formData.get("file");
   if (!(file instanceof File)) return { message: "Select an assessment CSV or Excel file." };
   const parsed = uploadSchema.safeParse(Object.fromEntries(formData));
@@ -102,7 +102,7 @@ export async function setAssessmentStatus(formData: FormData) {
   const status = String(formData.get("status") ?? "") as AssessmentStatus;
   if (status !== AssessmentStatus.ACTIVE && status !== AssessmentStatus.INACTIVE) throw new Error("Invalid assessment status.");
   const assessment = await db.assessment.findUniqueOrThrow({ where: { id: assessmentId } });
-  const actor = await requireCourseManager(assessment.courseId);
+  const actor = await requireCourseBuilder(assessment.courseId);
   await db.$transaction(async (tx) => {
     if (status === AssessmentStatus.ACTIVE) {
       // Same module only — a different module's quiz is a different quiz and

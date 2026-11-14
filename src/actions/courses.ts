@@ -2,6 +2,7 @@
 
 import { CourseKind, CourseStatus, UserRole } from "@prisma/client";
 import { revalidatePath } from "next/cache";
+import { after } from "next/server";
 import { redirect } from "next/navigation";
 import { z } from "zod";
 import { audit } from "@/lib/audit";
@@ -9,6 +10,7 @@ import { requireCourseManager } from "@/lib/course-access";
 import { hasEmailColumn, parseCourseEnrollmentRow } from "@/lib/course-enrollment-import";
 import { db } from "@/lib/db";
 import { eligibleLearnerForCourseWhere } from "@/lib/enrollment-eligibility";
+import { shareSessions } from "@/lib/ilt-mail";
 import { enrolRoster, MAX_ROSTER_ROWS, queueEnrollmentEmails } from "@/lib/roster-enrolment";
 import { requireRole } from "@/lib/session";
 import { storage } from "@/lib/storage";
@@ -31,7 +33,7 @@ function uniqueIds(values: FormDataEntryValue[]) {
 }
 
 export async function createCourse(_: { message?: string }, formData: FormData) {
-  const actor = await requireRole(UserRole.SUPER_ADMIN);
+  const actor = await requireRole(UserRole.ADMIN);
   const parsed = courseSchema.safeParse(Object.fromEntries(formData));
   if (!parsed.success) return { message: parsed.error.issues[0].message };
   const companyIds = uniqueIds(formData.getAll("companyIds"));
@@ -57,7 +59,7 @@ export async function createCourse(_: { message?: string }, formData: FormData) 
 }
 
 export async function updateCourse(_: { message?: string }, formData: FormData) {
-  const actor = await requireRole(UserRole.SUPER_ADMIN);
+  const actor = await requireRole(UserRole.ADMIN);
   const courseId = String(formData.get("courseId") ?? "");
   const parsed = courseSchema.safeParse(Object.fromEntries(formData));
   if (!parsed.success) return { message: parsed.error.issues[0].message };
@@ -99,7 +101,7 @@ export async function updateCourse(_: { message?: string }, formData: FormData) 
 }
 
 export async function updateCourseTeachers(_: { message?: string }, formData: FormData) {
-  const actor = await requireRole(UserRole.SUPER_ADMIN);
+  const actor = await requireRole(UserRole.ADMIN);
   const courseId = String(formData.get("courseId") ?? "");
   const teacherIds = uniqueIds(formData.getAll("teacherIds"));
   const course = await db.course.findUnique({ where: { id: courseId }, select: { id: true } });
@@ -108,8 +110,10 @@ export async function updateCourseTeachers(_: { message?: string }, formData: Fo
     const teacherCount = await db.user.count({ where: eligibleTeacherWhere(teacherIds) });
     if (teacherCount !== teacherIds.length) return { message: "One or more selected teachers are not eligible." };
   }
+  let added: string[] = [];
   await db.$transaction(async (tx) => {
     const before = new Set((await tx.courseTeacher.findMany({ where: { courseId }, select: { userId: true } })).map((row) => row.userId));
+    added = teacherIds.filter((userId) => !before.has(userId));
     const removed = [...before].filter((userId) => !teacherIds.includes(userId));
     await tx.courseTeacher.deleteMany({ where: teacherIds.length ? { courseId, userId: { notIn: teacherIds } } : { courseId } });
     for (const userId of teacherIds) {
@@ -127,6 +131,14 @@ export async function updateCourseTeachers(_: { message?: string }, formData: Fo
     // Newly added only, so an admin's removal of a preview is not quietly undone.
     await enrolTeachersAsPreview(courseId, teacherIds.filter((userId) => !before.has(userId)), tx);
   });
+  // A teacher added to a live-session course is sent the link of its sessions.
+  if (added.length) {
+    after(async () => {
+      const users = await db.user.findMany({ where: { id: { in: added } }, select: { email: true, employee: { select: { id: true, name: true } } } });
+      await shareSessions(courseId, users.map((user) => ({ id: user.employee?.id, name: user.employee?.name ?? user.email, email: user.email, teacher: true })))
+        .catch((error) => console.error(`[ilt-invite] ${courseId}:`, error instanceof Error ? error.message : error));
+    });
+  }
   await audit(actor.id, "COURSE_TEACHERS_UPDATED", "Course", courseId, { teacherCount: teacherIds.length });
   revalidatePath("/admin/courses");
   revalidatePath(`/admin/courses/${courseId}`);
@@ -135,7 +147,7 @@ export async function updateCourseTeachers(_: { message?: string }, formData: Fo
 }
 
 export async function setCourseActive(formData: FormData) {
-  const actor = await requireRole(UserRole.SUPER_ADMIN);
+  const actor = await requireRole(UserRole.ADMIN);
   const courseId = String(formData.get("courseId") ?? "");
   const isActive = String(formData.get("isActive")) === "true";
   await db.course.update({ where: { id: courseId }, data: { isActive } });
@@ -166,6 +178,10 @@ export async function setCourseStatus(formData: FormData) {
     await tx.course.update({ where: { id: courseId }, data: { status, hasPendingChanges: status === CourseStatus.PUBLISHED ? false : course.hasPendingChanges, publishedAt: status === CourseStatus.PUBLISHED ? new Date() : course.publishedAt } });
     if (status === CourseStatus.PUBLISHED) await tx.courseContent.updateMany({ where: { courseId, approvedAt: { not: null }, rejectedAt: null, aiOnly: false }, data: { isPublished: true } });
   });
+  // A live-session course: the link goes to everyone enrolled, and to the teachers, as soon as the course is live.
+  if (status === CourseStatus.PUBLISHED && course.kind === CourseKind.ILT) {
+    after(async () => { await shareSessions(courseId).catch((error) => console.error(`[ilt-invite] ${courseId}:`, error instanceof Error ? error.message : error)); });
+  }
   await audit(actor.id, `COURSE_${status}`, "Course", courseId);
   revalidatePath(`/admin/courses/${courseId}`);
   revalidatePath(`/teacher/courses/${courseId}`);
@@ -222,7 +238,7 @@ export async function editLesson(formData: FormData) {
 }
 
 export async function enrollEmployees(formData: FormData) {
-  const actor = await requireRole(UserRole.SUPER_ADMIN);
+  const actor = await requireRole(UserRole.ADMIN);
   const courseId = String(formData.get("courseId"));
   const employeeIds = uniqueIds(formData.getAll("employeeIds"));
   if (!employeeIds.length) return { message: "Select at least one employee." };
@@ -259,7 +275,7 @@ export type EnrollmentImportState = { message?: string };
  */
 export async function enrollFromTemplate(_: EnrollmentImportState, formData: FormData): Promise<EnrollmentImportState> {
   const courseId = String(formData.get("courseId") ?? "");
-  const actor = await requireRole(UserRole.SUPER_ADMIN);
+  const actor = await requireRole(UserRole.ADMIN);
   const course = await db.course.findUnique({ where: { id: courseId } });
   if (!course) return { message: "Course not found." };
   if (course.status !== CourseStatus.PUBLISHED) return { message: "Publish this course before enrolling learners." };
@@ -302,7 +318,7 @@ export async function enrollFromTemplate(_: EnrollmentImportState, formData: For
 }
 
 export async function enrollEmployeeInCourses(_: { message?: string }, formData: FormData) {
-  const actor = await requireRole(UserRole.SUPER_ADMIN);
+  const actor = await requireRole(UserRole.ADMIN);
   const employeeId = String(formData.get("employeeId") ?? "");
   const courseIds = uniqueIds(formData.getAll("courseIds"));
   if (!employeeId || !courseIds.length) return { message: "Select an employee and at least one course." };
@@ -339,6 +355,7 @@ export async function enrollEmployeeInCourses(_: { message?: string }, formData:
 }
 
 export async function deleteCourse(_: { message?: string }, formData: FormData): Promise<{ message?: string }> {
+  // Permanent, and it takes every learner's results with it: Super Admin only.
   const actor = await requireRole(UserRole.SUPER_ADMIN);
   const courseId = String(formData.get("courseId") ?? "");
   const course = await db.course.findUnique({

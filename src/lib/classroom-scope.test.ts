@@ -24,3 +24,9 @@ describe("classroomScope", () => {
     expect(enrollmentScopeWhere(scope)).toEqual({});
   });
 });
+
+describe("an Admin", () => {
+  it("sees every learner, like a Super Admin", () => {
+    expect(classroomScope({ roles: [UserRole.ADMIN], ownedClassroomIds: ["room-1"] })).toEqual({ scoped: false, classroomIds: [] });
+  });
+});

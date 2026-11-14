@@ -40,7 +40,7 @@ export default async function FinalAssessmentPage({ params, searchParams }: {
   params: Promise<{ id: string }>;
   searchParams: Promise<{ q?: string; show?: string }>;
 }) {
-  await requireRole(UserRole.SUPER_ADMIN);
+  await requireRole(UserRole.ADMIN);
   const { id } = await params;
   const { q, show } = await searchParams;
   const query = (q ?? "").trim().slice(0, 100);

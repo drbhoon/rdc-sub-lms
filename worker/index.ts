@@ -1,8 +1,11 @@
 import { PrismaClient, LessonType, ProcessingStatus } from "@prisma/client";
 import { execFile } from "node:child_process";
+import { createWriteStream } from "node:fs";
 import { mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
+import { Readable } from "node:stream";
+import { pipeline } from "node:stream/promises";
 import { promisify } from "node:util";
 import { generateStudyPack } from "../src/lib/ai-study-pack";
 import { audit } from "../src/lib/audit";
@@ -137,7 +140,8 @@ async function processVideo(content: NonNullable<Awaited<ReturnType<typeof nextC
  */
 async function processScorm(content: NonNullable<Awaited<ReturnType<typeof nextContent>>>, temp: string) {
   const zipPath = path.join(temp, "package.zip");
-  await writeFile(zipPath, await storage.get(content.storedKey));
+  // Streamed to the temp folder: a package may be 600 MB, too much to hold in memory twice.
+  await pipeline(Readable.fromWeb(storage.stream(content.storedKey) as never), createWriteStream(zipPath));
   const folder = `scorm/${content.id}`;
   await storage.deleteTree(folder); // a retry starts clean
   const result = await unpackScormZip(zipPath, folder, storage);

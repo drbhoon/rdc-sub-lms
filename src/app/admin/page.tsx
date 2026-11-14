@@ -29,7 +29,8 @@ function PeriodFilter({ period }: { period: ReturnType<typeof getReportPeriod> }
 }
 
 export default async function AdminDashboard({ searchParams }: { searchParams: Promise<Record<string, string | string[] | undefined>> }) {
-  await requireRole(UserRole.SUPER_ADMIN);
+  const viewer = await requireRole(UserRole.ADMIN);
+  const isSuperAdmin = viewer.roles.some((grant) => grant.role === UserRole.SUPER_ADMIN);
   const period = getReportPeriod(await searchParams);
   const periodRange = dateRangeWhere(period);
   const [employees, activeCourses, inactiveCourses, coursesInPeriod, enrollmentsInPeriod, completedInPeriod, leaderboardAttempts, leaderboardEnrollments] = await Promise.all([
@@ -90,7 +91,7 @@ export default async function AdminDashboard({ searchParams }: { searchParams: P
   const leaderboard = assessmentLeaderboard.length ? assessmentLeaderboard : progressLeaderboard;
 
   const kpis: { icon: LucideIcon; value: number; label: string; href?: string }[] = [
-    { icon: Users, value: employees, label: "Active employees", href: "/admin/employees" },
+    { icon: Users, value: employees, label: "Active employees", href: isSuperAdmin ? "/admin/employees" : undefined },
     { icon: BookCheck, value: activeCourses, label: "Active courses", href: "/admin/courses" },
     { icon: BookX, value: inactiveCourses, label: "Inactive courses" },
     { icon: FilePlus2, value: coursesInPeriod, label: "Courses created in period" },

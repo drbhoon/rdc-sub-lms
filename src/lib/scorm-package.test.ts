@@ -89,3 +89,30 @@ describe("unpackScormZip", () => {
     expect(sink.stored.size).toBe(0);
   });
 });
+
+describe("big files inside a package", () => {
+  it("are streamed to storage instead of held in memory, and small ones are not", async () => {
+    const big = Buffer.alloc(5000, 7);
+    const zip = await makeZip({ "imsmanifest.xml": MANIFEST, "index.html": "<html></html>", "media/lesson.mp4": big });
+    const streamed = new Map<string, number>();
+    const sink = {
+      ...memorySink(),
+      putStream: async (key: string, stream: NodeJS.ReadableStream) => {
+        let size = 0;
+        for await (const chunk of stream) size += (chunk as Buffer).length;
+        streamed.set(key, size);
+      },
+    };
+    await unpackScormZip(zip, "scorm/x", sink, false, 1000);
+    expect([...streamed.entries()]).toEqual([["scorm/x/media/lesson.mp4", 5000]]);
+    expect(sink.stored.has("scorm/x/index.html")).toBe(true);
+    expect(sink.stored.has("scorm/x/media/lesson.mp4")).toBe(false);
+  });
+
+  it("are buffered as before when the storage cannot stream", async () => {
+    const zip = await makeZip({ "imsmanifest.xml": MANIFEST, "index.html": "<html></html>", "media/lesson.mp4": Buffer.alloc(5000, 7) });
+    const sink = memorySink();
+    await unpackScormZip(zip, "scorm/x", sink, false, 1000);
+    expect(sink.stored.get("scorm/x/media/lesson.mp4")?.length).toBe(5000);
+  });
+});

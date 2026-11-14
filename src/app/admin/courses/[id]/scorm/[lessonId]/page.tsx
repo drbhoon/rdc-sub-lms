@@ -8,7 +8,7 @@ import { requireRole } from "@/lib/session";
 
 /** An administrator trying a SCORM course before it goes to learners. Nothing it does is recorded. */
 export default async function ScormPreviewPage({ params }: { params: Promise<{ id: string; lessonId: string }> }) {
-  await requireRole(UserRole.SUPER_ADMIN);
+  await requireRole(UserRole.ADMIN);
   const { id, lessonId } = await params;
   const lesson = await db.lesson.findUnique({ where: { id: lessonId }, include: { content: true } });
   if (!lesson || lesson.type !== "SCORM" || lesson.content.courseId !== id) notFound();

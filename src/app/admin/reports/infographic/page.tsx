@@ -35,7 +35,7 @@ function Block({ title, tone, tiles }: { title: string; tone: "dark" | "pale"; t
 }
 
 export default async function InfographicPage({ searchParams }: { searchParams: Promise<Record<string, string | string[] | undefined>> }) {
-  await requireRole(UserRole.SUPER_ADMIN);
+  await requireRole(UserRole.ADMIN);
   const params = await searchParams;
   const companyId = one(params, "companyId");
   const from = DATE.test(one(params, "from")) ? one(params, "from") : "";

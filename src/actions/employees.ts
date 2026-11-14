@@ -39,6 +39,7 @@ export async function createEmployee(_: { message?: string }, formData: FormData
   const input = parsed.data;
   const email = input.email.toLowerCase();
   const makeSuperAdmin = formData.get("superAdmin") === "on";
+  const makeAdmin = formData.get("admin") === "on" || makeSuperAdmin;
   const makeTeacher = formData.get("teacher") === "on" || makeSuperAdmin;
   const company = await db.company.findUnique({ where: { id: input.companyId }, select: { id: true } });
   if (!company) return { message: "Selected company was not found." };
@@ -73,7 +74,7 @@ export async function createEmployee(_: { message?: string }, formData: FormData
       const user = existingUser
         ? await tx.user.update({ where: { id: existingUser.id }, data: { employeeId: created.id } })
         : await tx.user.create({ data: { email, employeeId: created.id } });
-      const roles = [UserRole.LEARNER, ...(makeTeacher ? [UserRole.TEACHER] : []), ...(makeSuperAdmin ? [UserRole.SUPER_ADMIN] : [])];
+      const roles = [UserRole.LEARNER, ...(makeTeacher ? [UserRole.TEACHER] : []), ...(makeAdmin ? [UserRole.ADMIN] : []), ...(makeSuperAdmin ? [UserRole.SUPER_ADMIN] : [])];
       await tx.userRoleGrant.createMany({ data: roles.map((role) => ({ userId: user.id, role })), skipDuplicates: true });
       if (makeTeacher && !hadTeacher) newTeachers.push(user.id);
       return created;
@@ -301,6 +302,8 @@ export async function updateUserRoles(_: { message?: string }, formData: FormDat
   const actor = await requireRole(UserRole.SUPER_ADMIN);
   const userId = String(formData.get("userId") ?? "");
   const makeSuperAdmin = formData.get("superAdmin") === "on";
+  // A Super Admin is an Admin too; the box is ticked for them and stays so.
+  const makeAdmin = formData.get("admin") === "on" || makeSuperAdmin;
   const makeTeacher = formData.get("teacher") === "on" || makeSuperAdmin;
   const user = await db.user.findUnique({
     where: { id: userId },
@@ -323,6 +326,8 @@ export async function updateUserRoles(_: { message?: string }, formData: FormDat
     await tx.userRoleGrant.upsert({ where: { userId_role: { userId, role: UserRole.LEARNER } }, update: {}, create: { userId, role: UserRole.LEARNER } });
     if (makeTeacher) await tx.userRoleGrant.upsert({ where: { userId_role: { userId, role: UserRole.TEACHER } }, update: {}, create: { userId, role: UserRole.TEACHER } });
     else await tx.userRoleGrant.deleteMany({ where: { userId, role: UserRole.TEACHER } });
+    if (makeAdmin) await tx.userRoleGrant.upsert({ where: { userId_role: { userId, role: UserRole.ADMIN } }, update: {}, create: { userId, role: UserRole.ADMIN } });
+    else await tx.userRoleGrant.deleteMany({ where: { userId, role: UserRole.ADMIN } });
     if (makeSuperAdmin) await tx.userRoleGrant.upsert({ where: { userId_role: { userId, role: UserRole.SUPER_ADMIN } }, update: {}, create: { userId, role: UserRole.SUPER_ADMIN } });
     else await tx.userRoleGrant.deleteMany({ where: { userId, role: UserRole.SUPER_ADMIN } });
   });
@@ -331,7 +336,7 @@ export async function updateUserRoles(_: { message?: string }, formData: FormDat
   // teacher, is one now" — ticking Save again on a teacher sends nothing.
   if (makeTeacher && !user.roles.some((grant) => grant.role === UserRole.TEACHER)) queueTeacherRoleEmails([userId]);
 
-  await audit(actor.id, "USER_ROLES_UPDATED", "User", userId, { teacher: makeTeacher, superAdmin: makeSuperAdmin });
+  await audit(actor.id, "USER_ROLES_UPDATED", "User", userId, { teacher: makeTeacher, admin: makeAdmin, superAdmin: makeSuperAdmin });
   revalidatePath("/admin/employees");
   revalidatePath("/admin/courses");
   revalidatePath("/teacher/courses");

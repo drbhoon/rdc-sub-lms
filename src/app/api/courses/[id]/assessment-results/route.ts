@@ -1,7 +1,7 @@
 import ExcelJS from "exceljs";
 import { db } from "@/lib/db";
 import { autoFit, styleHeader, workbookResponse } from "@/lib/excel-response";
-import { routeCourseManager } from "@/lib/route-auth";
+import { routeCourseBuilder } from "@/lib/route-auth";
 import { notTeacherAttempt } from "@/lib/teacher-preview";
 
 const GREEN = "FFE2F0D9";
@@ -9,7 +9,7 @@ const RED = "FFF4CCCC";
 
 export async function GET(request: Request, context: { params: Promise<{ id: string }> }) {
   const { id } = await context.params;
-  if (!await routeCourseManager(id)) return new Response("Forbidden", { status: 403 });
+  if (!await routeCourseBuilder(id)) return new Response("Forbidden", { status: 403 });
   const params = new URL(request.url).searchParams;
   const assessmentId = params.get("assessmentId") ?? "";
   // ?module= narrows the workbook to one module's quizzes, every version.

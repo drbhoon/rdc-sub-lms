@@ -12,6 +12,15 @@ describe("role inheritance", () => {
     expect(hasEffectiveRole(user, UserRole.LEARNER)).toBe(true);
   });
 
+  it("treats super admins as admins, but admins are neither teachers nor super admins", () => {
+    expect(hasEffectiveRole(userWith(UserRole.SUPER_ADMIN), UserRole.ADMIN)).toBe(true);
+    const admin = userWith(UserRole.ADMIN);
+    expect(hasEffectiveRole(admin, UserRole.ADMIN)).toBe(true);
+    expect(hasEffectiveRole(admin, UserRole.SUPER_ADMIN)).toBe(false);
+    expect(hasEffectiveRole(admin, UserRole.TEACHER)).toBe(false);
+    expect(hasEffectiveRole(userWith(UserRole.TEACHER), UserRole.ADMIN)).toBe(false);
+  });
+
   it("does not treat teachers or learners as super admins", () => {
     expect(hasEffectiveRole(userWith(UserRole.TEACHER), UserRole.SUPER_ADMIN)).toBe(false);
     expect(hasEffectiveRole(userWith(UserRole.LEARNER), UserRole.SUPER_ADMIN)).toBe(false);

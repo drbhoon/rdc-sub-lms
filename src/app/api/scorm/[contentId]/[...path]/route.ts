@@ -21,7 +21,7 @@ export async function GET(request: NextRequest, context: { params: Promise<{ con
 
   const content = await db.courseContent.findUnique({ where: { id: contentId }, include: { course: true } });
   if (!content || content.type !== "SCORM") return new Response("Not found", { status: 404 });
-  const elevated = user.roles.some((r) => r.role === UserRole.SUPER_ADMIN)
+  const elevated = user.roles.some((r) => r.role === UserRole.SUPER_ADMIN || r.role === UserRole.ADMIN)
     || Boolean(await db.courseTeacher.findUnique({ where: { courseId_userId: { courseId: content.courseId, userId: user.id } } }));
   if (!elevated) {
     const enrolled = user.employeeId

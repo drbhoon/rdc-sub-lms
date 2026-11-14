@@ -5,11 +5,12 @@ import { revalidatePath } from "next/cache";
 import { after } from "next/server";
 import { z } from "zod";
 import { audit } from "@/lib/audit";
-import { requireCourseManager } from "@/lib/course-access";
+import { requireCourseBuilder } from "@/lib/course-access";
 import { createContentWithNextVersion } from "@/lib/course-content";
 import { db } from "@/lib/db";
+import { cancelMeeting, createMeeting, meetConfig, updateMeeting } from "@/lib/google-meet";
 import { canJoin, parseMeetLink, sessionPhase } from "@/lib/ilt";
-import { sendSessionEmails, type SessionMailKind } from "@/lib/ilt-mail";
+import { recordInvitations, sendSessionEmails, sessionRecipients, type SessionMailKind } from "@/lib/ilt-mail";
 import { setLessonCompletion, refreshEnrollment } from "@/lib/lesson-completion";
 import { parseIstLocal } from "@/lib/ist";
 import { requireUser } from "@/lib/session";
@@ -30,23 +31,32 @@ function readSession(formData: FormData) {
   const startsAt = parseIstLocal(String(formData.get("startsAt") ?? ""));
   if (!startsAt) return { error: "Choose the date and time of the session (India time)." } as const;
   if (startsAt.getTime() > Date.now() + 2 * 365 * 86_400_000) return { error: "That date is too far away." } as const;
-  const meet = parseMeetLink(String(formData.get("meetUrl") ?? ""));
-  if (!meet.ok) return { error: meet.message } as const;
+  // A pasted link is used as given. Left blank, the LMS makes the Meet room itself when Google is set up (lib/google-meet.ts).
+  const pasted = String(formData.get("meetUrl") ?? "").trim();
+  let meetUrl: string | null = null;
+  if (pasted) {
+    const meet = parseMeetLink(pasted);
+    if (!meet.ok) return { error: meet.message } as const;
+    meetUrl = meet.url;
+  } else if (!meetConfig()) {
+    return { error: "Paste the Google Meet link of the session." } as const;
+  }
   return {
     values: {
-      title: fields.data.title, durationMinutes: fields.data.durationMinutes, startsAt, meetUrl: meet.url,
+      title: fields.data.title, durationMinutes: fields.data.durationMinutes, startsAt, meetUrl,
       instructorName: fields.data.instructorName || null, notes: fields.data.notes || null,
     },
   } as const;
 }
 
-async function learnerRecipients(courseId: string) {
-  const enrollments = await db.enrollment.findMany({
-    where: { courseId, ...learnersOnly, employee: { status: "ACTIVE" } },
-    select: { employee: { select: { id: true, name: true, email: true } } },
-  });
-  return enrollments.map((enrollment) => enrollment.employee);
-}
+/** What goes in the Google Calendar event. */
+const eventDetails = (values: { title: string; startsAt: Date; durationMinutes: number; instructorName: string | null }, courseTitle: string) => ({
+  title: values.title, startsAt: values.startsAt, durationMinutes: values.durationMinutes,
+  description: `${courseTitle}${values.instructorName ? `
+Instructor: ${values.instructorName}` : ""}`,
+});
+
+const problem = (error: unknown) => (error instanceof Error ? error.message : "unknown error");
 
 function revalidateCourse(courseId: string) {
   revalidatePath(`/admin/courses/${courseId}`);
@@ -57,7 +67,7 @@ function revalidateCourse(courseId: string) {
 /** Add a live session to an instructor-led course. It is a module of its own, approved and published like any other. */
 export async function createIltSession(_: State, formData: FormData): Promise<State> {
   const courseId = String(formData.get("courseId") ?? "");
-  const actor = await requireCourseManager(courseId);
+  const actor = await requireCourseBuilder(courseId);
   const course = await db.course.findUnique({ where: { id: courseId } });
   if (!course || course.status === "ARCHIVED") return { message: "Course is unavailable." };
   if (course.kind !== "ILT") return { message: "Live sessions can be added to instructor-led courses only." };
@@ -65,20 +75,36 @@ export async function createIltSession(_: State, formData: FormData): Promise<St
   if ("error" in read) return { message: read.error };
   const { values } = read;
 
+  // No link pasted: make the Meet room (checked above that Google is set up).
+  let meetUrl = values.meetUrl;
+  let googleEventId: string | null = null;
+  if (!meetUrl) {
+    try {
+      const meeting = await createMeeting(meetConfig()!, eventDetails(values, course.title));
+      meetUrl = meeting.meetUrl;
+      googleEventId = meeting.eventId;
+    } catch (error) {
+      return { message: `The Google Meet link could not be made: ${problem(error)} You can paste a Meet link instead.` };
+    }
+  }
+
   const content = await createContentWithNextVersion({
     courseId, originalName: values.title, storedKey: `ilt:${randomUUID()}`, mimeType: "application/x-live-session",
     sizeBytes: 0, type: "ILT", processingStatus: "COMPLETED",
     lessons: { create: { title: values.title, type: "ILT", order: 1 } },
   });
   const lesson = await db.lesson.findFirstOrThrow({ where: { courseContentId: content.id } });
-  await db.iltSession.create({ data: { courseId, lessonId: lesson.id, ...values } });
+  await db.iltSession.create({ data: { courseId, lessonId: lesson.id, ...values, meetUrl, googleEventId } });
   await db.course.update({
     where: { id: courseId },
     data: { status: course.status === "PUBLISHED" ? "PUBLISHED" : "PENDING_TEACHER_APPROVAL", hasPendingChanges: true },
   });
   await audit(actor.id, "ILT_SESSION_CREATED", "CourseContent", content.id, { title: values.title, startsAt: values.startsAt.toISOString() });
   revalidateCourse(courseId);
-  return { ok: true, message: `Added “${values.title}”. A teacher approves and publishes it like any other module; then e-mail the invitations.` };
+  return {
+    ok: true,
+    message: `Added “${values.title}”${googleEventId ? " with a new Google Meet link" : ""}. A teacher approves and publishes it like any other module; the link is then e-mailed automatically to everyone enrolled and to the teachers, and to anyone enrolled later.`,
+  };
 }
 
 /** Change the time, link or details. Learners who were already invited get the new details and an updated calendar entry. */
@@ -86,25 +112,48 @@ export async function updateIltSession(_: State, formData: FormData): Promise<St
   const sessionId = String(formData.get("sessionId") ?? "");
   const session = await db.iltSession.findUnique({ where: { id: sessionId }, include: { lesson: { include: { content: true } }, course: true } });
   if (!session) return { message: "Session not found." };
-  const actor = await requireCourseManager(session.courseId);
+  const actor = await requireCourseBuilder(session.courseId);
   const read = readSession(formData);
   if ("error" in read) return { message: read.error };
   const { values } = read;
 
+  // The Meet link: kept when left as it was, replaced when a different one is pasted (the LMS's own event is then
+  // dropped), and made when there was none and Google is set up.
+  let meetUrl = values.meetUrl ?? session.meetUrl;
+  let googleEventId = session.googleEventId;
+  const notes: string[] = [];
+  const config = meetConfig();
+  if (googleEventId && values.meetUrl && values.meetUrl !== session.meetUrl) {
+    if (config) await cancelMeeting(config, googleEventId).catch((error) => notes.push(`The old Google event could not be removed: ${problem(error)}`));
+    googleEventId = null;
+  }
+  if (googleEventId && config) {
+    await updateMeeting(config, googleEventId, eventDetails(values, session.course.title)).catch((error) => notes.push(`Google Calendar could not be updated: ${problem(error)}`));
+  } else if (!values.meetUrl && !googleEventId && config) {
+    try {
+      const meeting = await createMeeting(config, eventDetails(values, session.course.title));
+      meetUrl = meeting.meetUrl;
+      googleEventId = meeting.eventId;
+    } catch (error) {
+      return { message: `The Google Meet link could not be made: ${problem(error)} You can paste a Meet link instead.` };
+    }
+  }
+
   const changedForLearners = values.startsAt.getTime() !== session.startsAt.getTime() || values.durationMinutes !== session.durationMinutes
-    || values.meetUrl !== session.meetUrl || values.title !== session.title;
-  const updated = await db.iltSession.update({ where: { id: sessionId }, data: values });
+    || meetUrl !== session.meetUrl || values.title !== session.title;
+  const updated = await db.iltSession.update({ where: { id: sessionId }, data: { ...values, meetUrl, googleEventId } });
   await db.lesson.update({ where: { id: session.lessonId }, data: { title: values.title } });
   await db.courseContent.update({ where: { id: session.lesson.courseContentId }, data: { originalName: values.title } });
-  await audit(actor.id, "ILT_SESSION_UPDATED", "IltSession", sessionId, { startsAt: values.startsAt.toISOString(), meetUrl: values.meetUrl });
+  await audit(actor.id, "ILT_SESSION_UPDATED", "IltSession", sessionId, { startsAt: values.startsAt.toISOString(), meetUrl });
   revalidateCourse(session.courseId);
 
+  const aside = notes.length ? ` ${notes.join(" ")}` : "";
   if (changedForLearners && session.invitationsSentAt && !session.cancelledAt) {
-    const recipients = await learnerRecipients(session.courseId);
+    const recipients = await sessionRecipients(session.courseId);
     after(async () => { await sendSessionEmails("update", updated, recipients, session.course.title); });
-    return { ok: true, message: `Saved. The ${recipients.length} invited learners are being e-mailed the new details.` };
+    return { ok: true, message: `Saved. The ${recipients.length} people it concerns (learners and teachers) are being e-mailed the new details.${aside}` };
   }
-  return { ok: true, message: "Saved." };
+  return { ok: true, message: `Saved.${aside}` };
 }
 
 /** Called off. It disappears for learners (and from the count of lessons they need), and invited learners are told. */
@@ -112,15 +161,19 @@ export async function cancelIltSession(formData: FormData) {
   const sessionId = String(formData.get("sessionId") ?? "");
   const session = await db.iltSession.findUnique({ where: { id: sessionId }, include: { lesson: true, course: true } });
   if (!session || session.cancelledAt) return;
-  const actor = await requireCourseManager(session.courseId);
+  const actor = await requireCourseBuilder(session.courseId);
   const updated = await db.iltSession.update({ where: { id: sessionId }, data: { cancelledAt: new Date() } });
   await db.courseContent.update({ where: { id: session.lesson.courseContentId }, data: { isPublished: false } });
   // The learners who had attended every other session may now be complete.
   const enrollments = await db.enrollment.findMany({ where: { courseId: session.courseId, ...learnersOnly }, select: { id: true, startedAt: true } });
   for (const enrollment of enrollments) await db.$transaction((tx) => refreshEnrollment(tx, enrollment, session.courseId));
   await audit(actor.id, "ILT_SESSION_CANCELLED", "IltSession", sessionId, { title: session.title });
+  if (session.googleEventId) {
+    const config = meetConfig();
+    if (config) after(async () => { await cancelMeeting(config, session.googleEventId!).catch((error) => console.error("[ilt] Google event not removed:", problem(error))); });
+  }
   if (session.invitationsSentAt) {
-    const recipients = await learnerRecipients(session.courseId);
+    const recipients = await sessionRecipients(session.courseId);
     after(async () => { await sendSessionEmails("cancel", updated, recipients, session.course.title); });
   }
   revalidateCourse(session.courseId);
@@ -131,13 +184,16 @@ export async function sendIltInvitations(formData: FormData): Promise<void> {
   const sessionId = String(formData.get("sessionId") ?? "");
   const session = await db.iltSession.findUnique({ where: { id: sessionId }, include: { lesson: { include: { content: true } }, course: true } });
   if (!session || session.cancelledAt) return;
-  const actor = await requireCourseManager(session.courseId);
+  const actor = await requireCourseBuilder(session.courseId);
   const live = session.lesson.content.isPublished && session.lesson.content.approvedAt && session.course.status === "PUBLISHED";
   if (!live) throw new Error("Approve and publish this session (and the course) before inviting learners: until then they cannot see it.");
-  const recipients = await learnerRecipients(session.courseId);
+  const recipients = await sessionRecipients(session.courseId);
   const updated = await db.iltSession.update({ where: { id: sessionId }, data: { invitationsSentAt: new Date() } });
   const kind: SessionMailKind = session.invitationsSentAt ? "update" : "invite";
-  after(async () => { await sendSessionEmails(kind, updated, recipients, session.course.title); });
+  after(async () => {
+    const result = await sendSessionEmails(kind, updated, recipients, session.course.title);
+    await recordInvitations(sessionId, result.sentTo);
+  });
   await audit(actor.id, "ILT_INVITATIONS_SENT", "IltSession", sessionId, { recipients: recipients.length });
   revalidateCourse(session.courseId);
 }
@@ -151,7 +207,7 @@ export async function markIltAttendance(formData: FormData): Promise<void> {
   const sessionId = String(formData.get("sessionId") ?? "");
   const session = await db.iltSession.findUnique({ where: { id: sessionId } });
   if (!session) return;
-  const actor = await requireCourseManager(session.courseId);
+  const actor = await requireCourseBuilder(session.courseId);
   const present = new Set(formData.getAll("present").map(String));
   const enrollments = await db.enrollment.findMany({
     where: { courseId: session.courseId, ...learnersOnly },

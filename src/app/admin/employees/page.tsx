@@ -216,6 +216,7 @@ export default async function EmployeesPage({ searchParams }: { searchParams: Pr
                       <input type="hidden" name="userId" value={employee.user.id} />
                       <span className="badge">Learner</span>
                       <label className="checkbox"><input type="checkbox" name="teacher" defaultChecked={roles.has(UserRole.TEACHER)} />Teacher</label>
+                      <label className="checkbox"><input type="checkbox" name="admin" defaultChecked={roles.has(UserRole.ADMIN)} />Admin</label>
                       <label className="checkbox"><input type="checkbox" name="superAdmin" defaultChecked={roles.has(UserRole.SUPER_ADMIN)} />Super Admin</label>
                       {taughtCount > 0 && <p className="muted">Assigned to {taughtCount} course(s). Reassign before removing teacher role.</p>}
                     </ActionForm> : <span className="muted">Inactive</span>}
@@ -342,6 +343,7 @@ export default async function EmployeesPage({ searchParams }: { searchParams: Pr
           <fieldset><legend>Roles</legend>
             <span className="badge">Learner</span>
             <label className="checkbox"><input type="checkbox" name="teacher" />Teacher</label>
+            <label className="checkbox"><input type="checkbox" name="admin" />Admin</label>
             <label className="checkbox"><input type="checkbox" name="superAdmin" />Super Admin</label>
           </fieldset>
         </ActionForm>}

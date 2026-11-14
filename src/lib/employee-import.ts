@@ -64,9 +64,13 @@ function parseRoles(value: string) {
   for (const token of tokens) {
     if (token === "LEARNER") roles.add(UserRole.LEARNER);
     else if (token === "TEACHER" || token === "FACULTY" || token === "TRAINER") roles.add(UserRole.TEACHER);
-    else if (token === "SUPER_ADMIN" || token === "ADMIN" || token === "SUPERADMIN") {
+    else if (token === "SUPER_ADMIN" || token === "SUPERADMIN") {
       roles.add(UserRole.SUPER_ADMIN);
+      roles.add(UserRole.ADMIN);
       roles.add(UserRole.TEACHER);
+    } else if (token === "ADMIN") {
+      // Was Super Admin before the Admin role existed. A sheet that says ADMIN now gets the lesser role; a Super Admin must be asked for by name.
+      roles.add(UserRole.ADMIN);
     } else return { ok: false, roles: [...roles] };
   }
   return { ok: true, roles: [...roles] };

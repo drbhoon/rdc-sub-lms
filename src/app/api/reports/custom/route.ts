@@ -5,7 +5,7 @@ import { COLUMNS, FILTERS, MAX_REPORT_ROWS, loadCustomReport, loadFilterOptions,
 import { routeUserWithRole } from "@/lib/route-auth";
 
 export async function GET(request: Request) {
-  if (!await routeUserWithRole(UserRole.SUPER_ADMIN)) return new Response("Forbidden", { status: 403 });
+  if (!await routeUserWithRole(UserRole.ADMIN)) return new Response("Forbidden", { status: 403 });
   const query = parseCustomReport(new URL(request.url).searchParams);
   const [report, options] = await Promise.all([loadCustomReport(query), loadFilterOptions()]);
   const labels = new Map(COLUMNS.map((column) => [column.key, column.label]));

@@ -12,7 +12,7 @@ function getParam(searchParams: URLSearchParams, key: string) {
 }
 
 export async function GET(request: Request) {
-  if (!await routeUserWithRole(UserRole.SUPER_ADMIN)) return new Response("Forbidden", { status: 403 });
+  if (!await routeUserWithRole(UserRole.ADMIN)) return new Response("Forbidden", { status: 403 });
   const url = new URL(request.url);
   const params = Object.fromEntries(url.searchParams.entries());
   const period = getReportPeriod(params);
