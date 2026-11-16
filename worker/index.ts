@@ -32,8 +32,12 @@ function requestStop(signal: NodeJS.Signals) {
 process.once("SIGTERM", requestStop);
 process.once("SIGINT", requestStop);
 
+// Set while a file is being processed. It aborts when the file has taken too long, which also stops
+// the program (LibreOffice, tesseract...) it is waiting for.
+let jobSignal: AbortSignal | undefined;
+
 async function command(name: string, args: string[]) {
-  return run(name, args, { timeout: 10 * 60_000, maxBuffer: 20 * 1024 * 1024 });
+  return run(name, args, { timeout: 10 * 60_000, maxBuffer: 20 * 1024 * 1024, signal: jobSignal });
 }
 
 function numberedPngs(files: string[], prefix: string) {
@@ -51,8 +55,11 @@ async function ocrDocument(pdf: string, temp: string) {
   const files = numberedPngs(await readdir(temp), prefixName);
   if (!files.length) throw new Error("OCR could not render any document pages");
 
+  console.log(`[worker] OCR: ${files.length} pages to read`);
   const pageText: string[] = [];
-  for (const file of files) {
+  for (const [index, file] of files.entries()) {
+    jobSignal?.throwIfAborted();
+    if (index > 0 && index % 10 === 0) console.log(`[worker] OCR: ${index} of ${files.length} pages read`);
     const { stdout } = await command("tesseract", [
       path.join(temp, file),
       "stdout",
@@ -196,10 +203,22 @@ async function processOne() {
   const startedAt = Date.now();
   console.log(`[worker] processing ${content.type} "${content.originalName}" (job ${content.jobId})`);
   const temp = await mkdtemp(path.join(os.tmpdir(), "rdc-lms-"));
+  // One file must not hold up everything behind it: past the limit it is stopped and marked failed,
+  // and the admin can retry it or upload a lighter file.
+  const limitMinutes = env.JOB_TIMEOUT_MINUTES;
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), limitMinutes * 60_000);
+  jobSignal = controller.signal;
+  const tooLong = new Promise<never>((_, reject) => controller.signal.addEventListener("abort", () => reject(new Error(
+    `Processing took longer than ${limitMinutes} minutes and was stopped. A long scanned document (pages that are pictures, with no selectable text) is the usual cause: upload a searchable PDF, or split it into smaller files.`,
+  ))));
+  tooLong.catch(() => undefined);
   try {
-    if (content.type === "VIDEO") await processVideo(content, temp);
-    else if (content.type === "SCORM") await processScorm(content, temp);
-    else await processDocument(content, temp);
+    const work = content.type === "VIDEO" ? processVideo(content, temp)
+      : content.type === "SCORM" ? processScorm(content, temp)
+      : processDocument(content, temp);
+    work.catch(() => undefined); // if the limit wins, what it does afterwards is of no interest
+    await Promise.race([work, tooLong]);
     // Reference material for the AI is approved as it is read: there is nothing for a teacher to review
     // and nothing for learners to see, so the course is left exactly as it was.
     await db.$transaction([
@@ -215,7 +234,11 @@ async function processOne() {
       db.courseContent.update({ where: { id: content.id }, data: { processingStatus: ProcessingStatus.FAILED, processingError: message } }),
       db.processingJob.update({ where: { id: content.jobId }, data: { status: ProcessingStatus.FAILED, error: message } }),
     ]);
-  } finally { await rm(temp, { recursive: true, force: true }); }
+  } finally {
+    clearTimeout(timer);
+    jobSignal = undefined;
+    await rm(temp, { recursive: true, force: true });
+  }
   return true;
 }
 
