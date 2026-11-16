@@ -13,6 +13,7 @@ import { ClassroomLearnerPicker } from "@/components/classroom-learner-picker";
 import { CollapsibleCard } from "@/components/collapsible-card";
 import { ClassroomUploadForm } from "@/components/classroom-upload-form";
 import { ContentUploadForm } from "@/components/content-upload-form";
+import { ProcessingWatcher } from "@/components/processing-watcher";
 import { IltPanel } from "@/components/ilt-panel";
 import { ReelsPanel } from "@/components/reels-panel";
 import { CourseEnrollmentPicker } from "@/components/course-enrollment-picker";
@@ -174,6 +175,7 @@ export default async function CourseAdminPage({ params }: { params: Promise<{ id
         {course.kind === "ILT" && <IltPanel courseId={course.id} />}
         <div className="card">
           <h2>Content</h2>
+          <ProcessingWatcher active={course.contents.some((content) => content.processingStatus === "QUEUED" || content.processingStatus === "PROCESSING")} />
           {course.kind === "ILT" && <p className="muted">Live sessions are added in the “Live sessions” panel above.</p>}
           {course.contents.map((content) => <div className="card" key={content.id}>
             <strong>{content.aiOnly ? "AI reference" : `Module ${moduleNumber.get(content.id)}`}: {content.originalName}</strong>

@@ -2,6 +2,7 @@ import { notFound } from "next/navigation";
 import { approveContent, editLesson, rejectContent, setCourseStatus } from "@/actions/courses";
 import { ActionForm } from "@/components/action-form";
 import { IltPanel } from "@/components/ilt-panel";
+import { ProcessingWatcher } from "@/components/processing-watcher";
 import { ReelsPanel } from "@/components/reels-panel";
 import { ModuleActivities } from "@/components/module-activities";
 import { CollapsibleCard } from "@/components/collapsible-card";
@@ -151,6 +152,7 @@ export default async function TeacherCourse({ params }: { params: Promise<{ id: 
     <div className={`two-col teacher-cols${awaitingApproval ? " approval-first" : ""}`}>
       <section className="form">
         {course.kind === "ILT" && <IltPanel courseId={course.id} />}
+        <ProcessingWatcher active={course.contents.some((content) => content.processingStatus === "QUEUED" || content.processingStatus === "PROCESSING")} />
         <CollapsibleCard title="Content approval" summary={awaitingApproval ? `${awaitingApproval} awaiting approval` : "nothing waiting"} defaultOpen={awaitingApproval > 0}>
           <ModulePicker legend="Module" initialId={(moduleContents.find(needsApproval) ?? moduleContents[0])?.id} options={moduleContents.map((content, index) => { const questions = parseQuizQuestions(content.quizQuestions); return { id: content.id, label: moduleOptionLabel(content, index), panel: <article className="card">
             <h3>Module {index + 1}: {content.originalName}</h3>

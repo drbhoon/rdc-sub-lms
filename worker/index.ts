@@ -171,9 +171,30 @@ async function nextContent() {
   return { ...job.content, jobId: job.id };
 }
 
+/**
+ * This is the only worker, so a job still marked "processing" when it starts was cut off: the
+ * container was rebuilt or restarted, or ran out of memory, in the middle of it. Nobody else will
+ * ever finish it, and it would sit there for ever. Put it back in the queue, or, if it has already
+ * been tried three times (what "Retry" allows), mark it failed so the admin can see and retry it.
+ */
+async function recoverInterruptedJobs() {
+  const stuck = await db.processingJob.findMany({ where: { status: ProcessingStatus.PROCESSING }, select: { id: true, contentId: true, attempts: true } });
+  for (const job of stuck) {
+    const giveUp = job.attempts >= 3;
+    const error = "Processing was interrupted (the server restarted) and has been tried too many times. Use Retry or upload the file again.";
+    await db.$transaction([
+      db.processingJob.update({ where: { id: job.id }, data: giveUp ? { status: ProcessingStatus.FAILED, error } : { status: ProcessingStatus.QUEUED, lockedAt: null } }),
+      db.courseContent.update({ where: { id: job.contentId }, data: giveUp ? { processingStatus: ProcessingStatus.FAILED, processingError: error } : { processingStatus: ProcessingStatus.QUEUED } }),
+    ]);
+    console.log(`[worker] job ${job.id} was interrupted by a restart; ${giveUp ? "marked failed" : "queued again"}.`);
+  }
+}
+
 async function processOne() {
   const content = await nextContent();
   if (!content) return false;
+  const startedAt = Date.now();
+  console.log(`[worker] processing ${content.type} "${content.originalName}" (job ${content.jobId})`);
   const temp = await mkdtemp(path.join(os.tmpdir(), "rdc-lms-"));
   try {
     if (content.type === "VIDEO") await processVideo(content, temp);
@@ -186,8 +207,10 @@ async function processOne() {
       db.processingJob.update({ where: { id: content.jobId }, data: { status: ProcessingStatus.COMPLETED, error: null } }),
       ...(content.aiOnly ? [] : [db.course.update({ where: { id: content.courseId }, data: { status: content.course.status === "PUBLISHED" ? "PUBLISHED" : "PENDING_TEACHER_APPROVAL", hasPendingChanges: true } })]),
     ]);
+    console.log(`[worker] done with "${content.originalName}" in ${Math.round((Date.now() - startedAt) / 1000)}s`);
   } catch (error) {
     const message = error instanceof Error ? error.message.slice(0, 1000) : "Unknown processing error";
+    console.error(`[worker] FAILED "${content.originalName}" after ${Math.round((Date.now() - startedAt) / 1000)}s: ${message}`);
     await db.$transaction([
       db.courseContent.update({ where: { id: content.id }, data: { processingStatus: ProcessingStatus.FAILED, processingError: message } }),
       db.processingJob.update({ where: { id: content.jobId }, data: { status: ProcessingStatus.FAILED, error: message } }),
@@ -259,8 +282,16 @@ function startDailyJobs() {
 async function main() {
   console.log("RDC LMS worker started");
   const stopDailyJobs = startDailyJobs();
+  try { await recoverInterruptedJobs(); } catch (error) { console.error("[worker] could not check for interrupted jobs:", error); }
   while (!stopping) {
-    const worked = await processOne();
+    // One bad moment (the database restarting, a dropped connection) must not end the loop: the
+    // worker would stop for good while the web app carried on, and every upload would wait in the queue.
+    let worked = false;
+    try { worked = await processOne(); } catch (error) {
+      console.error("[worker] loop error, trying again shortly:", error);
+      await new Promise((resolve) => setTimeout(resolve, 5000));
+      continue;
+    }
     if (!worked) {
       await new Promise<void>((resolve) => {
         const timer = setTimeout(resolve, 5000);
