@@ -16,7 +16,7 @@ function istDayRange(now = new Date()) {
 
 /**
  * Send today's course reminders: one e-mail per learner per course, to anyone
- * enrolled over a day ago who has not finished. Safe to run more than once a
+ * enrolled over a day ago who has not finished, on a course that is published and active. Safe to run more than once a
  * day — the mail log is checked first, so nobody is reminded twice.
  *
  * Shared by the worker's daily schedule and the /api/cron/course-reminders
@@ -38,7 +38,9 @@ export async function runCourseReminders(now = new Date()) {
       ...learnersOnly,
       enrolledAt: { lte: enrollmentCutoff },
       employee: { status: "ACTIVE" },
-      course: { status: "PUBLISHED" },
+      // An inactive course (an admin has set it inactive) is switched off: nobody is reminded about it,
+      // however long ago they were enrolled. Reactivating it brings the reminders back.
+      course: { status: "PUBLISHED", isActive: true },
     },
     include: { employee: true, course: true },
     orderBy: { enrolledAt: "asc" },

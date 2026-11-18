@@ -112,12 +112,12 @@ export async function sessionRecipients(courseId: string): Promise<Recipient[]> 
  * This is what makes the link follow the enrolment: whoever is enrolled (or made a teacher) on a course with
  * sessions gets each session's invitation, once, whether they joined before the session was published or
  * after. `who` is the people just added; left out, it is everyone (used when the course goes live).
- * A session counts while it is published, not cancelled and not over. Only mail that was actually sent is
+ * A session counts while it is published, not cancelled and not over, and its course is active. Only mail that was actually sent is
  * remembered, so a person missed because SMTP was down is tried again next time.
  */
 export async function shareSessions(courseId: string, who?: Recipient[], now = new Date()) {
   const sessions = await db.iltSession.findMany({
-    where: { courseId, cancelledAt: null, course: { status: "PUBLISHED" }, lesson: { content: { isPublished: true, approvedAt: { not: null } } } },
+    where: { courseId, cancelledAt: null, course: { status: "PUBLISHED", isActive: true }, lesson: { content: { isPublished: true, approvedAt: { not: null } } } },
     include: { course: { select: { title: true } } },
   });
   // Most courses have no sessions at all: nothing more to look up for them.
