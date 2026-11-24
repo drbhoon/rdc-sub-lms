@@ -41,11 +41,13 @@ export async function recordCourseContent(input: {
   type: ContentType;
   /** Reference material for the AI assistant only: not a lesson, never shown to learners. */
   aiOnly?: boolean;
+  /** With aiOnly: the video module this file is the reference for. */
+  referenceForId?: string | null;
 }) {
   const course = await db.course.findUniqueOrThrow({ where: { id: input.courseId } });
   const content = await createContentWithNextVersion({
     courseId: input.courseId, originalName: input.fileName, storedKey: input.storedKey,
-    mimeType: input.mimeType, sizeBytes: input.sizeBytes, type: input.type, aiOnly: input.aiOnly ?? false, jobs: { create: {} },
+    mimeType: input.mimeType, sizeBytes: input.sizeBytes, type: input.type, aiOnly: input.aiOnly ?? false, referenceForId: input.aiOnly ? input.referenceForId ?? null : null, jobs: { create: {} },
   });
   // Reference material waits for no one's approval and changes nothing learners see, so it leaves the course as it is.
   if (!input.aiOnly) await db.course.update({ where: { id: input.courseId }, data: { status: course.status === "PUBLISHED" ? "PUBLISHED" : "CONTENT_UPLOADED", hasPendingChanges: true } });

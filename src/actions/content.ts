@@ -27,7 +27,7 @@ export async function deleteCourseContent(_: { message?: string }, formData: For
   if (formData.get("confirmDelete") !== "on") return { message: "Tick the confirmation box before deleting course content." };
   const content = await db.courseContent.findUnique({
     where: { id: contentId },
-    include: { course: { select: { status: true } }, lessons: { select: { pageAssetKeys: true } } },
+    include: { course: { select: { status: true } }, lessons: { select: { pageAssetKeys: true } }, references: { select: { storedKey: true } } },
   });
   if (!content) return { message: "Course content not found." };
   // A YouTube module, a live session and a written lesson hold no file, and an unpacked SCORM package is a whole folder.
@@ -70,6 +70,8 @@ export async function deleteCourseContent(_: { message?: string }, formData: For
     }
   });
   await audit(actor.id, "CONTENT_DELETED", "CourseContent", contentId, { fileName: content.originalName, wasPublished: content.isPublished });
+  // A module's AI reference files are deleted with it (the database does that); their stored files go too.
+  for (const reference of content.references) storedKeys.add(reference.storedKey);
   await Promise.allSettled([
     ...[...storedKeys].map((key) => storage.delete(key)),
     ...(content.type === "SCORM" ? [storage.deleteTree(`scorm/${content.id}`)] : []),

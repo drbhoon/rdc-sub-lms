@@ -1,5 +1,5 @@
 import { createCertificatePdf } from "@/lib/certificate-pdf";
-import { getCertificateRecord } from "@/lib/certificate-record";
+import { explainMissingCertificate, getCertificateRecord } from "@/lib/certificate-record";
 import { audit } from "@/lib/audit";
 import { hasEffectiveRole } from "@/lib/roles";
 import { currentUser } from "@/lib/session";
@@ -26,9 +26,12 @@ export async function GET(request: Request, context: { params: Promise<{ id: str
   const { id } = await context.params;
   const certificate = await getCertificateRecord(employeeId, id);
   if (!certificate) {
-    return new Response(forOther
-      ? "Certificate not available: this learner has not finished the course, or has not yet met every certificate condition (module quizzes, feedback, and the pass marks of the course scheme)."
-      : "Certificate not available", { status: 404 });
+    if (!forOther) return new Response("Certificate not available", { status: 404 });
+    // An administrator is told exactly what is outstanding, not a list of everything that could be.
+    const why = await explainMissingCertificate(employeeId, id);
+    const heading = `Certificate not available${why.employeeName ? ` for ${why.employeeName}` : ""}:`;
+    const text = [heading, "", ...why.reasons.map((reason) => `- ${reason}`)].join("\n");
+    return new Response(text, { status: 404, headers: { "Content-Type": "text/plain; charset=utf-8" } });
   }
   if (forOther) await audit(user.id, "CERTIFICATE_DOWNLOADED_BY_ADMIN", "Employee", employeeId, { courseId: id, certificateId: certificate.certificateId });
 

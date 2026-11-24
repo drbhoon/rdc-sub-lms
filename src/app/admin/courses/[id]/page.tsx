@@ -95,6 +95,13 @@ export default async function CourseAdminPage({ params }: { params: Promise<{ id
   // Reference material for the AI is not a module: it is not numbered and no quiz or feedback hangs on it.
   const moduleContents = course.contents.filter((content) => !content.aiOnly);
   const moduleNumber = new Map([...moduleContents].sort((x, y) => x.version - y.version).map((content, index) => [content.id, index + 1]));
+  // An AI reference tied to a video module is shown inside that module, never as a card of its own.
+  const referencesFor = (moduleId: string) => course.contents.filter((item) => item.aiOnly && item.referenceForId === moduleId);
+  const linkedReferenceIds = new Set(course.contents.filter((item) => item.aiOnly && item.referenceForId).map((item) => item.id));
+  const videoModules = [...moduleContents]
+    .filter((content) => content.type === "VIDEO" || content.type === "YOUTUBE")
+    .sort((x, y) => x.version - y.version)
+    .map((content) => ({ id: content.id, label: `Module ${moduleNumber.get(content.id)}: ${content.originalName}` }));
   const selectedCompanyIds = new Set(course.companies.map((company) => company.companyId));
   const selectedTeacherIds = new Set(course.teachers.map((teacher) => teacher.userId));
   const totalLessons = course.contents
@@ -177,8 +184,8 @@ export default async function CourseAdminPage({ params }: { params: Promise<{ id
           <h2>Content</h2>
           <ProcessingWatcher active={course.contents.some((content) => content.processingStatus === "QUEUED" || content.processingStatus === "PROCESSING")} />
           {course.kind === "ILT" && <p className="muted">Live sessions are added in the “Live sessions” panel above.</p>}
-          {course.contents.map((content) => <div className="card" key={content.id}>
-            <strong>{content.aiOnly ? "AI reference" : `Module ${moduleNumber.get(content.id)}`}: {content.originalName}</strong>
+          {course.contents.filter((content) => !linkedReferenceIds.has(content.id)).map((content) => <div className="card" key={content.id}>
+            <strong>{content.aiOnly ? "AI reference (whole course)" : `Module ${moduleNumber.get(content.id)}`}: {content.originalName}</strong>
             <p><span className="badge">{content.processingStatus}</span> {content.isPublished && <span className="badge">LIVE</span>} {content.aiOnly ? <span className="badge">For the AI assistant only - hidden from learners</span> : content.type === "YOUTUBE" ? <span className="badge">YouTube</span> : content.type === "TEXT" ? <span className="badge">{content.aiGeneratedAt ? "AI-written lesson" : "Written lesson"}</span> : content.type === "ILT" ? <span className="badge">Live session</span> : content.type === "SCORM" ? <><span className="badge">SCORM</span> - {(content.sizeBytes / 1048576).toFixed(1)} MB</> : <>- {(content.sizeBytes / 1048576).toFixed(1)} MB</>}</p>
             {content.processingError && <p className="error">{content.processingError}</p>}
             <p>{content.lessons.length} lesson(s) {content.approvedAt ? "- Approved" : ""}</p>
@@ -191,12 +198,24 @@ export default async function CourseAdminPage({ params }: { params: Promise<{ id
                 {content.isPublished && <span className="muted">This immediately removes the lessons and their learner progress.</span>}
               </ActionForm>
             </div>
+            {referencesFor(content.id).map((reference) => <div className="card" key={reference.id}>
+              <strong>AI reference for this module: {reference.originalName}</strong>
+              <p><span className="badge">{reference.processingStatus}</span> <span className="badge">For the AI assistant only - hidden from learners</span> - {(reference.sizeBytes / 1048576).toFixed(1)} MB</p>
+              {reference.processingError && <p className="error">{reference.processingError}</p>}
+              <div className="form-row">
+                {reference.processingStatus === "FAILED" && <form action={retryContent}><input type="hidden" name="contentId" value={reference.id} /><button className="secondary">Retry processing</button></form>}
+                <ActionForm action={deleteCourseContent} submitLabel="Delete AI reference" buttonClassName="danger">
+                  <input type="hidden" name="contentId" value={reference.id} />
+                  <label className="checkbox"><input type="checkbox" name="confirmDelete" />Confirm permanent deletion</label>
+                </ActionForm>
+              </div>
+            </div>)}
           </div>)}
           {!course.contents.length && <p>No content uploaded.</p>}
           {course.kind !== "ILT" && <>
             <hr />
             <h3>Upload content</h3>
-            <ContentUploadForm courseId={course.id} maxMb={course.kind === "SCORM" ? env.MAX_SCORM_UPLOAD_MB : env.MAX_UPLOAD_MB} kind={course.kind} />
+            <ContentUploadForm courseId={course.id} maxMb={course.kind === "SCORM" ? env.MAX_SCORM_UPLOAD_MB : env.MAX_UPLOAD_MB} kind={course.kind} videoModules={videoModules} />
           </>}
           {course.kind === "STANDARD" && <>
             <hr />

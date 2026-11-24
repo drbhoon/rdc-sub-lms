@@ -10,9 +10,11 @@ export function buildCourseAiSource(contents: Array<{
   summary: string | null;
   keyPoints: unknown;
   glossary: unknown;
+  /** For reference material tied to a video module: that module, so the AI knows what the file is about. */
+  referenceFor?: { originalName: string } | null;
 }>) {
   return contents.map((content) => [
-    `CONTENT: ${content.originalName}`,
+    content.referenceFor ? `REFERENCE MATERIAL for the video module "${content.referenceFor.originalName}": ${content.originalName}` : `CONTENT: ${content.originalName}`,
     content.summary ? `Summary: ${content.summary}` : "",
     jsonText(content.keyPoints) ? `Key points:\n${jsonText(content.keyPoints)}` : "",
     jsonText(content.glossary) ? `Glossary:\n${jsonText(content.glossary)}` : "",

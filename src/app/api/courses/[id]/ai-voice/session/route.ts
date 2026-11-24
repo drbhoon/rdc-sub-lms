@@ -29,7 +29,7 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
         include: {
           contents: {
             where: { OR: [{ isPublished: true }, { aiOnly: true, processingStatus: "COMPLETED" }] },
-            select: { originalName: true, extractedText: true, summary: true, keyPoints: true, glossary: true },
+            select: { originalName: true, extractedText: true, summary: true, keyPoints: true, glossary: true, referenceFor: { select: { originalName: true } } },
           },
         },
       },

@@ -20,7 +20,7 @@ async function post(url: string, body: BodyInit, contentType: string): Promise<{
  * progress. A piece that fails is retried, and after a dropped connection the
  * upload resumes from what the server already holds rather than starting over.
  */
-export function ContentUploadForm({ courseId, maxMb, kind = "STANDARD" }: { courseId: string; maxMb: number; kind?: "STANDARD" | "SCORM" | "ILT" }) {
+export function ContentUploadForm({ courseId, maxMb, kind = "STANDARD", videoModules = [] }: { courseId: string; maxMb: number; kind?: "STANDARD" | "SCORM" | "ILT"; videoModules?: { id: string; label: string }[] }) {
   const inputId = useId();
   const inputRef = useRef<HTMLInputElement>(null);
   const router = useRouter();
@@ -29,6 +29,9 @@ export function ContentUploadForm({ courseId, maxMb, kind = "STANDARD" }: { cour
   const [progress, setProgress] = useState<number | null>(null);
   const [message, setMessage] = useState("");
   const [aiOnly, setAiOnly] = useState(false);
+  // Which video module an AI reference belongs to; the first one until another is picked ("" when the course has no video module yet).
+  const [referenceFor, setReferenceFor] = useState("");
+  const chosenModule = videoModules.some((module) => module.id === referenceFor) ? referenceFor : videoModules[0]?.id ?? "";
 
   function selectFile(file: File | undefined) {
     if (!file || !inputRef.current) return;
@@ -72,7 +75,8 @@ export function ContentUploadForm({ courseId, maxMb, kind = "STANDARD" }: { cour
         }
         setProgress(Math.round(offset / file.size * 100));
       }
-      const done = await post(`${base}&complete=1`, JSON.stringify({ fileName: file.name, fileType: file.type, fileSize: file.size, aiOnly: aiOnly && /\.(pdf|pptx?)$/i.test(file.name) }), "application/json");
+      const asReference = aiOnly && /\.(pdf|pptx?)$/i.test(file.name);
+      const done = await post(`${base}&complete=1`, JSON.stringify({ fileName: file.name, fileType: file.type, fileSize: file.size, aiOnly: asReference, referenceForId: asReference ? chosenModule : "" }), "application/json");
       if (done.status !== 200) throw new Error(done.reply.message ?? "Upload failed.");
       setMessage(done.reply.message ?? "Upload queued for processing.");
       setFileName("");
@@ -120,6 +124,14 @@ export function ContentUploadForm({ courseId, maxMb, kind = "STANDARD" }: { cour
       <input type="checkbox" checked={aiOnly} onChange={(event) => setAiOnly(event.target.checked)} disabled={uploading} />
       <span>For the AI assistant only (PDF or PowerPoint): learners do not see it. Use it where a course is only a video, so the AI can answer from the slides.</span>
     </label>}
+    {kind === "STANDARD" && aiOnly && (videoModules.length > 0
+      ? <label>Which video module is this the reference for?
+          <select value={chosenModule} onChange={(event) => setReferenceFor(event.target.value)} disabled={uploading}>
+            {videoModules.map((module) => <option key={module.id} value={module.id}>{module.label}</option>)}
+          </select>
+          <span className="muted">It is kept with that module and is not a module of its own. A module has one reference: uploading another replaces it.</span>
+        </label>
+      : <p className="muted">This course has no video module yet, so the file will be used by the AI for the whole course. Add the video first to tie it to a module.</p>)}
     {uploading && <div className="progress" role="progressbar" aria-valuenow={progress} aria-valuemin={0} aria-valuemax={100}><span style={{ width: `${progress}%` }} /></div>}
     {message && <p className="message">{message}</p>}
     <button disabled={uploading}>{uploading ? `Uploading… ${progress}%` : "Upload and queue"}</button>

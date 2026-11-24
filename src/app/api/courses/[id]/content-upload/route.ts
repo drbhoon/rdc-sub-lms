@@ -1,4 +1,5 @@
 import { UserRole } from "@prisma/client";
+import { audit } from "@/lib/audit";
 import { recordCourseContent } from "@/lib/course-content";
 import { db } from "@/lib/db";
 import { routeUserWithRole } from "@/lib/route-auth";
@@ -44,7 +45,7 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
   if (params.get("complete") === "1") {
     const course = await db.course.findUnique({ where: { id: courseId } });
     if (!course || course.status === "ARCHIVED") return json({ message: "Course is unavailable." }, 404);
-    const body = await request.json().catch(() => null) as { fileName?: unknown; fileType?: unknown; fileSize?: unknown; aiOnly?: unknown } | null;
+    const body = await request.json().catch(() => null) as { fileName?: unknown; fileType?: unknown; fileSize?: unknown; aiOnly?: unknown; referenceForId?: unknown } | null;
     const description = { name: String(body?.fileName ?? ""), type: String(body?.fileType ?? ""), size: Number(body?.fileSize ?? 0) };
     const stored = await storage.size(key);
     if (stored === null) return json({ message: "Nothing was received for this upload. Please upload the file again." }, 400);
@@ -64,12 +65,28 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
       const aiOnly = body?.aiOnly === true;
       if (aiOnly && validated.type !== "PDF" && validated.type !== "PRESENTATION") throw new Error("Only a PDF or PowerPoint can be added for the AI assistant alone.");
       if (aiOnly && course.kind !== "STANDARD") throw new Error("Reference material for the AI can be added to standard courses only.");
+      // Tied to a video module when one is named: the file is that module's reference, not a module of its own.
+      const referenceForId = aiOnly && typeof body?.referenceForId === "string" && body.referenceForId ? body.referenceForId : null;
+      if (referenceForId) {
+        const target = await db.courseContent.findFirst({ where: { id: referenceForId, courseId, aiOnly: false }, select: { type: true } });
+        if (!target) throw new Error("That module is not in this course.");
+        if (target.type !== "VIDEO" && target.type !== "YOUTUBE") throw new Error("An AI reference can be linked to a video module only.");
+      }
       await storage.move(key, validated.key);
-      await recordCourseContent({
+      const recorded = await recordCourseContent({
         actorId: actor.id, courseId, fileName: description.name, mimeType: description.type,
-        sizeBytes: description.size, storedKey: validated.key, type: validated.type, aiOnly,
+        sizeBytes: description.size, storedKey: validated.key, type: validated.type, aiOnly, referenceForId,
       });
-      return json({ message: "Upload queued for processing." });
+      // One reference per module: uploading another replaces it, and the old file is removed.
+      if (referenceForId) {
+        const replaced = await db.courseContent.findMany({ where: { referenceForId, id: { not: recorded.id } }, select: { id: true, storedKey: true, originalName: true } });
+        for (const old of replaced) {
+          await db.courseContent.delete({ where: { id: old.id } });
+          await storage.delete(old.storedKey).catch(() => undefined);
+          await audit(actor.id, "CONTENT_DELETED", "CourseContent", old.id, { fileName: old.originalName, replacedBy: recorded.id });
+        }
+      }
+      return json({ message: referenceForId ? "AI reference queued for processing." : "Upload queued for processing." });
     } catch (error) {
       await storage.delete(key);
       return json({ message: error instanceof Error ? error.message : "Upload failed." }, 400);

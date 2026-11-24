@@ -1,4 +1,5 @@
 import "server-only";
+import { certificateBlockers } from "@/lib/certificate-blockers";
 import { certificateEligibility } from "@/lib/certificate-eligibility";
 import { loadCourseGrades } from "@/lib/course-grades";
 import { allFeedbackAnswered } from "@/lib/feedback-rules";
@@ -14,8 +15,8 @@ export type CertificateRecord = {
   employeeName: string;
 };
 
-export async function getCertificateRecord(employeeId: string, courseId: string): Promise<CertificateRecord | null> {
-  const enrollment = await db.enrollment.findUnique({
+async function loadEnrollment(employeeId: string, courseId: string) {
+  return db.enrollment.findUnique({
     where: { employeeId_courseId: { employeeId, courseId } },
     include: {
       employee: { include: { company: true } },
@@ -49,9 +50,12 @@ export async function getCertificateRecord(employeeId: string, courseId: string)
       },
     },
   });
+}
 
-  if (!enrollment?.completedAt || enrollment.course.status !== "PUBLISHED") return null;
+type LoadedEnrollment = NonNullable<Awaited<ReturnType<typeof loadEnrollment>>>;
 
+/** Every certificate condition, checked. Both the certificate and its explanation come from this. */
+async function evaluate(enrollment: LoadedEnrollment, employeeId: string, courseId: string) {
   const lessonIds = new Set(
     enrollment.course.contents.flatMap((content) => content.lessons.map((lesson) => lesson.id)),
   );
@@ -94,7 +98,13 @@ export async function getCertificateRecord(employeeId: string, courseId: string)
     grade: grade ? { passed: grade.passed, shortfalls: grade.shortfalls } : null,
   });
 
-  if (!eligibility.ready) return null;
+  return { eligibility, completedLessons, totalLessons: lessonIds.size };
+}
+
+export async function getCertificateRecord(employeeId: string, courseId: string): Promise<CertificateRecord | null> {
+  const enrollment = await loadEnrollment(employeeId, courseId);
+  if (!enrollment?.completedAt || enrollment.course.status !== "PUBLISHED") return null;
+  if (!(await evaluate(enrollment, employeeId, courseId)).eligibility.ready) return null;
 
   return {
     certificateId: `${enrollment.courseId.slice(-4)}-${enrollment.id.slice(-6)}`.toUpperCase(),
@@ -103,5 +113,22 @@ export async function getCertificateRecord(employeeId: string, courseId: string)
     courseTitle: enrollment.course.title,
     employeeCode: enrollment.employee.employeeCode,
     employeeName: enrollment.employee.name,
+  };
+}
+
+/**
+ * Why a learner has no certificate for a course: every reason, in plain words, for the administrator
+ * who tried to download it. Checks the same conditions as getCertificateRecord, but without stopping at the first.
+ */
+export async function explainMissingCertificate(employeeId: string, courseId: string): Promise<{ employeeName: string | null; reasons: string[] }> {
+  const enrollment = await loadEnrollment(employeeId, courseId);
+  if (!enrollment) {
+    const employee = await db.employee.findUnique({ where: { id: employeeId }, select: { name: true } });
+    return { employeeName: employee?.name ?? null, reasons: certificateBlockers({ enrolled: false, courseStatus: null, completedAt: null, completedLessons: 0, totalLessons: 0, missing: [] }) };
+  }
+  const { eligibility, completedLessons, totalLessons } = await evaluate(enrollment, employeeId, courseId);
+  return {
+    employeeName: enrollment.employee.name,
+    reasons: certificateBlockers({ enrolled: true, courseStatus: enrollment.course.status, completedAt: enrollment.completedAt, completedLessons, totalLessons, missing: eligibility.missing }),
   };
 }

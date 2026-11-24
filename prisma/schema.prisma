@@ -339,6 +339,11 @@ model CourseContent {
   /// course that is only a video). Read and summarised like any document, but it makes no
   /// lesson, is never published to learners and counts for nothing in completion or results.
   aiOnly            Boolean            @default(false)
+  /// For an aiOnly file: the video module it is the reference for. The AI assistant then reads it as
+  /// that module's material, and it shows inside that module, never as a module of its own.
+  referenceForId    String?
+  referenceFor      CourseContent?     @relation("ModuleReference", fields: [referenceForId], references: [id], onDelete: Cascade)
+  references        CourseContent[]    @relation("ModuleReference")
   course            Course             @relation(fields: [courseId], references: [id], onDelete: Cascade)
   lessons           Lesson[]
   jobs              ProcessingJob[]
@@ -350,6 +355,7 @@ model CourseContent {
 
   @@unique([courseId, version])
   @@index([processingStatus])
+  @@index([referenceForId])
 }
 
 model Lesson {
